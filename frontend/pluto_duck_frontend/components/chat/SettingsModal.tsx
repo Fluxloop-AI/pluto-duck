@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { EyeIcon, EyeOffIcon } from 'lucide-react';
+import { EyeIcon, EyeOffIcon, AlertTriangleIcon } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../ui/select';
-import { fetchSettings, updateSettings, type UpdateSettingsRequest } from '../../lib/settingsApi';
+import { fetchSettings, updateSettings, resetDatabase, type UpdateSettingsRequest } from '../../lib/settingsApi';
 
 interface SettingsModalProps {
   open: boolean;
@@ -42,6 +42,10 @@ export function SettingsModal({ open, onOpenChange, onSettingsSaved }: SettingsM
   const [hasExistingKey, setHasExistingKey] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  
+  // DB Reset states
+  const [showResetDialog, setShowResetDialog] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -133,15 +137,40 @@ export function SettingsModal({ open, onOpenChange, onSettingsSaved }: SettingsM
     onOpenChange(false);
   };
 
+  const handleResetDatabase = async () => {
+    setResetting(true);
+    setError(null);
+    setSuccessMessage(null);
+    
+    try {
+      await resetDatabase();
+      setSuccessMessage('Database reset successfully! Please restart the application.');
+      setShowResetDialog(false);
+      
+      // Close the settings modal after a delay
+      setTimeout(() => {
+        onOpenChange(false);
+        setSuccessMessage(null);
+      }, 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to reset database');
+      setShowResetDialog(false);
+    } finally {
+      setResetting(false);
+    }
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
-        <DialogHeader>
-          <DialogTitle>Settings</DialogTitle>
-          <DialogDescription>
-            Configure your OpenAI API settings and preferences.
-          </DialogDescription>
-        </DialogHeader>
+    <>
+      {/* Main Settings Dialog */}
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Settings</DialogTitle>
+            <DialogDescription>
+              Configure your OpenAI API settings and preferences.
+            </DialogDescription>
+          </DialogHeader>
 
         {loading ? (
           <div className="flex items-center justify-center py-8">
@@ -239,6 +268,35 @@ export function SettingsModal({ open, onOpenChange, onSettingsSaved }: SettingsM
                 {successMessage}
               </div>
             )}
+
+            {/* Danger Zone - Database Reset */}
+            <div className="mt-6 border-t border-border pt-6">
+              <div className="grid gap-4">
+                <div className="flex items-start gap-3">
+                  <AlertTriangleIcon className="h-5 w-5 text-destructive mt-0.5 shrink-0" />
+                  <div className="grid gap-2 flex-1">
+                    <h3 className="text-sm font-semibold">Danger Zone</h3>
+                    <div className="grid gap-2">
+                      <p className="text-sm text-muted-foreground">
+                        Reset the database to fix initialization issues.
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        ⚠️ This will permanently delete all conversations, messages, projects, and data sources.
+                      </p>
+                    </div>
+                    <Button 
+                      variant="destructive" 
+                      size="sm"
+                      onClick={() => setShowResetDialog(true)}
+                      disabled={loading || saving || resetting}
+                      className="w-fit"
+                    >
+                      Reset Database
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
@@ -252,6 +310,54 @@ export function SettingsModal({ open, onOpenChange, onSettingsSaved }: SettingsM
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+      {/* Confirmation Dialog for Database Reset */}
+      <Dialog open={showResetDialog} onOpenChange={setShowResetDialog}>
+        <DialogContent className="sm:max-w-[450px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangleIcon className="h-5 w-5" />
+              Reset Database?
+            </DialogTitle>
+            <DialogDescription>
+              This action cannot be undone. This will permanently delete:
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-4">
+            <ul className="list-disc list-inside space-y-2 text-sm text-muted-foreground">
+              <li>All conversation history and messages</li>
+              <li>All projects and workspaces</li>
+              <li>All data sources and imported data</li>
+              <li>All user settings (except API keys which are stored separately)</li>
+            </ul>
+            
+            <div className="mt-4 p-3 bg-destructive/10 rounded-md border border-destructive/20">
+              <p className="text-sm font-medium text-destructive">
+                Are you absolutely sure you want to continue?
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => setShowResetDialog(false)}
+              disabled={resetting}
+            >
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={handleResetDatabase}
+              disabled={resetting}
+            >
+              {resetting ? 'Resetting...' : 'Yes, Reset Database'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 

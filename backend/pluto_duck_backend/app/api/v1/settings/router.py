@@ -1,11 +1,18 @@
 """Settings management endpoints."""
 
+import logging
+import os
+import shutil
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from pluto_duck_backend.app.core.config import get_settings
 from pluto_duck_backend.app.services.chat import get_chat_repository
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -31,6 +38,13 @@ class SettingsResponse(BaseModel):
 
 class UpdateSettingsResponse(BaseModel):
     """Response for settings update."""
+
+    success: bool
+    message: str
+
+
+class ResetDatabaseResponse(BaseModel):
+    """Response for database reset."""
 
     success: bool
     message: str
@@ -98,4 +112,56 @@ def update_settings(request: UpdateSettingsRequest) -> UpdateSettingsResponse:
         success=True,
         message="Settings saved successfully",
     )
+
+
+@router.post("/reset-database", response_model=ResetDatabaseResponse)
+def reset_database() -> ResetDatabaseResponse:
+    """
+    Reset the DuckDB database by deleting all data files and recreating the schema.
+    
+    WARNING: This will permanently delete all conversations, messages, projects, and data sources.
+    """
+    try:
+        settings = get_settings()
+        duckdb_path = settings.duckdb.path
+        
+        logger.warning(f"Database reset requested. Target: {duckdb_path}")
+        
+        # Close any existing connections by clearing the repository cache
+        from pluto_duck_backend.app.services.chat.repository import get_chat_repository
+        get_chat_repository.cache_clear()
+        
+        # Delete the DuckDB file if it exists
+        if duckdb_path.exists():
+            logger.info(f"Deleting DuckDB file: {duckdb_path}")
+            duckdb_path.unlink()
+        
+        # Also delete any WAL files
+        wal_path = duckdb_path.parent / f"{duckdb_path.name}.wal"
+        if wal_path.exists():
+            logger.info(f"Deleting WAL file: {wal_path}")
+            wal_path.unlink()
+        
+        # Delete the entire data directory to clean up any other artifacts
+        data_dir = duckdb_path.parent
+        if data_dir.exists() and data_dir.name == "data":
+            logger.info(f"Cleaning data directory: {data_dir}")
+            shutil.rmtree(data_dir)
+            data_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Reinitialize the database with fresh schema
+        logger.info("Reinitializing database with fresh schema")
+        _ = get_chat_repository()
+        
+        return ResetDatabaseResponse(
+            success=True,
+            message="Database reset successfully. All data has been cleared.",
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to reset database: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to reset database: {str(e)}",
+        )
 

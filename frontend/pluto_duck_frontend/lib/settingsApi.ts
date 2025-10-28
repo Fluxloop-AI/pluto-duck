@@ -22,6 +22,11 @@ export interface UpdateSettingsResponse {
   message: string;
 }
 
+export interface ResetDatabaseResponse {
+  success: boolean;
+  message: string;
+}
+
 export async function fetchSettings(): Promise<UserSettings> {
   const response = await fetch(`${getBackendUrl()}/api/v1/settings`);
   
@@ -46,6 +51,22 @@ export async function updateSettings(
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
     throw new Error(error.detail || `Failed to update settings: ${response.status}`);
+  }
+  
+  return response.json();
+}
+
+export async function resetDatabase(): Promise<ResetDatabaseResponse> {
+  const response = await fetch(`${getBackendUrl()}/api/v1/settings/reset-database`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+  
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `Failed to reset database: ${response.status}`);
   }
   
   return response.json();

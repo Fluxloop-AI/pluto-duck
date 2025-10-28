@@ -50,6 +50,8 @@ class AgentState:
     verification_result: Optional[Dict[str, Any]] = None
     context: Dict[str, Any] = field(default_factory=dict)
     model: Optional[str] = None
+    preferred_tables: Optional[List[str]] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
     def add_message(
         self,
@@ -97,6 +99,8 @@ class AgentState:
             "verification_result": self.verification_result,
             "context": self.context,
             "model": self.model,
+            "preferred_tables": self.preferred_tables,
+            "metadata": self.metadata,
         }
 
 

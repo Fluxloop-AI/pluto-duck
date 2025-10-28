@@ -88,10 +88,7 @@ DDL_STATEMENTS = [
         description VARCHAR,
         connector_type VARCHAR NOT NULL,
         source_config JSON NOT NULL,
-        target_table VARCHAR NOT NULL,
-        rows_count INTEGER,
         status VARCHAR DEFAULT 'active',
-        last_imported_at TIMESTAMP,
         error_message VARCHAR,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -99,10 +96,30 @@ DDL_STATEMENTS = [
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS data_source_tables (
+        id UUID PRIMARY KEY,
+        data_source_id UUID NOT NULL,
+        source_table VARCHAR,
+        source_query VARCHAR,
+        target_table VARCHAR NOT NULL,
+        rows_count INTEGER,
+        status VARCHAR DEFAULT 'active',
+        last_imported_at TIMESTAMP,
+        error_message VARCHAR,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        metadata JSON,
+        FOREIGN KEY (data_source_id) REFERENCES data_sources(id)
+    )
+    """,
+    """
     CREATE INDEX IF NOT EXISTS idx_sources_project ON data_sources(project_id, updated_at DESC)
     """,
     """
-    CREATE INDEX IF NOT EXISTS idx_sources_table ON data_sources(target_table)
+    CREATE INDEX IF NOT EXISTS idx_tables_source ON data_source_tables(data_source_id, updated_at DESC)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_tables_target ON data_source_tables(target_table)
     """,
 ]
 

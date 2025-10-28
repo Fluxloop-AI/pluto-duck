@@ -72,9 +72,16 @@ export interface AppendMessageResponse {
   conversation_id?: string;
 }
 
+export interface AppendMessagePayload {
+  role: string;
+  content: any;
+  model?: string;
+  metadata?: Record<string, unknown>;
+}
+
 export async function appendMessage(
   conversationId: string,
-  payload: { role: string; content: any; model?: string },
+  payload: AppendMessagePayload,
 ): Promise<AppendMessageResponse> {
   const response = await fetch(`${getBackendUrl()}/api/v1/chat/sessions/${conversationId}/messages`, {
     method: 'POST',

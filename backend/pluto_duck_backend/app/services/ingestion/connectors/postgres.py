@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, Iterable
+from typing import Dict, Iterable, List
 
 import psycopg
 
@@ -37,5 +37,22 @@ class PostgresConnector(BaseConnector):
         with self._conn.cursor(row_factory=psycopg.rows.dict_row) as cur:
             cur.execute(self.query)
             yield from cur
+
+    def list_available_tables(self) -> List[str]:
+        if self._conn is None:
+            raise RuntimeError("Connector not opened")
+
+        query = (
+            "SELECT table_schema || '.' || table_name AS table_name "
+            "FROM information_schema.tables "
+            "WHERE table_type = 'BASE TABLE' "
+            "ORDER BY table_schema, table_name"
+        )
+
+        with self._conn.cursor() as cur:
+            cur.execute(query)
+            rows = cur.fetchall()
+
+        return [row[0] for row in rows]
 
 

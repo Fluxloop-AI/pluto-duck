@@ -20,11 +20,40 @@ def build_schema_node():
     async def schema_node(state: AgentState) -> AgentState:
         with duckdb.connect(str(settings.duckdb.path)) as con:
             rows = con.execute("SHOW TABLES").fetchall()
-        tables = [row[0] for row in rows]
-        state.context["schema_preview"] = tables
-        summary = f"Schema preview: {', '.join(tables)}" if tables else "No tables found."
+        all_tables = [row[0] for row in rows]
+
+        preferred = state.preferred_tables or []
+        preferred_set = set(preferred)
+
+        prioritized_tables = [table for table in all_tables if table in preferred_set]
+        other_tables = [table for table in all_tables if table not in preferred_set]
+
+        state.context["schema_preview"] = prioritized_tables + other_tables
+        state.context["preferred_tables"] = prioritized_tables
+        state.context["other_tables"] = other_tables
+
+        if prioritized_tables:
+            summary_lines = [
+                "Priority tables: " + ", ".join(prioritized_tables),
+            ]
+            if other_tables:
+                summary_lines.append("Other tables: " + ", ".join(other_tables))
+            summary = "\n".join(summary_lines)
+            _log(
+                "schema_preview_prioritized",
+                conversation_id=state.conversation_id,
+                preferred_count=len(prioritized_tables),
+                other_count=len(other_tables),
+            )
+        else:
+            summary = f"Schema preview: {', '.join(all_tables)}" if all_tables else "No tables found."
+            _log(
+                "schema_preview",
+                conversation_id=state.conversation_id,
+                table_count=len(all_tables),
+            )
+
         state.add_message(MessageRole.ASSISTANT, summary)
-        _log("schema_preview", conversation_id=state.conversation_id, table_count=len(tables))
         return state
 
     return schema_node

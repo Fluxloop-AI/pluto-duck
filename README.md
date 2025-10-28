@@ -79,37 +79,12 @@ Agent responses are also available via `/api/v1/agent/{run_id}/events` as SSE st
 # - tauri-shell/src-tauri/target/release/bundle/dmg/Pluto Duck_0.1.0_aarch64.dmg
 ```
 
-### Code Signing & Distribution
-
-**서명 없이 배포** (다른 Mac에서 실행 시):
-```bash
-# 사용자가 실행:
-xattr -cr "/path/to/Pluto Duck.app"
-```
-
-**서명하여 배포** (Apple Developer 계정 필요):
-```bash
-# 1. 인증서 확인
-security find-identity -v -p codesigning
-
-# 2. 서명된 앱 빌드
-CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAM_ID)" \
-./scripts/build-signed.sh
-
-# 3. (선택) 노터라이제이션까지 완료
-CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAM_ID)" \
-NOTARIZE=true \
-./scripts/build-signed.sh
-```
-
-상세 가이드: `docs/CODESIGNING.md` 또는 `docs/QUICK_START_CODESIGNING.md`
-
 ## Roadmap Highlights
 
 - Phase 1: Extract clean OSS backend, focus on ingestion, dbt integration, public API, CLI.
 - Phase 2: Ship minimal chat frontend for end-to-end local experience.
 - Phase 3: Prepare for optional managed/cloud offering with premium features.
-- **Phase 5: macOS desktop app with Tauri** ✅ **완료**
+- **Phase 4: macOS desktop app with Tauri** ✅ **Complete**
 
 See `docs/plans/` for detailed design notes.
 

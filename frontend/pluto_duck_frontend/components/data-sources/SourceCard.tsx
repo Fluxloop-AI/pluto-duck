@@ -1,13 +1,17 @@
 'use client';
 
-import { DatabaseIcon, FileTextIcon, PackageIcon, RefreshCwIcon, ServerIcon, TrashIcon } from 'lucide-react';
+import { ChevronDownIcon, DatabaseIcon, FileTextIcon, PackageIcon, PlusIcon, RefreshCwIcon, ServerIcon, TrashIcon } from 'lucide-react';
 import { Button } from '../ui/button';
-import type { DataSource } from '../../lib/dataSourcesApi';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../ui/collapsible';
+import type { DataSource, DataSourceTable } from '../../lib/dataSourcesApi';
 
 interface SourceCardProps {
   source: DataSource;
+  tables: DataSourceTable[];
   onDelete: (sourceId: string) => void;
-  onSync: (sourceId: string) => void;
+  onSyncTable: (sourceId: string, tableId: string) => void;
+  onDeleteTable: (sourceId: string, tableId: string) => void;
+  onAddTable: (source: DataSource) => void;
 }
 
 const CONNECTOR_ICONS: Record<string, React.ReactNode> = {
@@ -54,9 +58,25 @@ function formatSource(connectorType: string, config: Record<string, any>): strin
   return 'Unknown source';
 }
 
-export function SourceCard({ source, onDelete, onSync }: SourceCardProps) {
+function formatRowsCount(rows: number | null): string {
+  if (rows === null || rows === undefined) return 'Unknown rows';
+  return `${rows.toLocaleString()} rows`;
+}
+
+function formatTableSource(table: DataSourceTable): string {
+  if (table.source_query) {
+    return 'Custom query';
+  }
+  if (table.source_table) {
+    return table.source_table;
+  }
+  return 'Imported file';
+}
+
+export function SourceCard({ source, tables, onDelete, onSyncTable, onDeleteTable, onAddTable }: SourceCardProps) {
   const icon = CONNECTOR_ICONS[source.connector_type] || <DatabaseIcon className="h-5 w-5" />;
   const sourceLabel = formatSource(source.connector_type, source.source_config);
+  const hasTables = tables.length > 0;
   
   return (
     <div className="rounded-lg border border-border bg-card p-4 transition hover:border-primary/40">
@@ -67,7 +87,7 @@ export function SourceCard({ source, onDelete, onSync }: SourceCardProps) {
         </div>
 
         {/* Content */}
-        <div className="flex-1 space-y-1">
+        <div className="flex-1 space-y-3">
           <div className="flex items-start justify-between">
             <div>
               <h3 className="font-semibold">{source.name}</h3>
@@ -90,20 +110,10 @@ export function SourceCard({ source, onDelete, onSync }: SourceCardProps) {
             </div>
           </div>
 
-          <div className="flex items-center gap-3 text-xs text-muted-foreground">
-            <span>Table: {source.target_table}</span>
-            {source.rows_count !== null && (
-              <>
-                <span>•</span>
-                <span>{source.rows_count.toLocaleString()} rows</span>
-              </>
-            )}
-            {source.last_imported_at && (
-              <>
-                <span>•</span>
-                <span>Imported {formatTimeAgo(source.last_imported_at)}</span>
-              </>
-            )}
+          <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+            <span>{hasTables ? `${tables.length} table${tables.length > 1 ? 's' : ''}` : 'No tables imported yet'}</span>
+            <span>•</span>
+            <span>Connector: {source.connector_type}</span>
           </div>
 
           {source.description && (
@@ -116,14 +126,14 @@ export function SourceCard({ source, onDelete, onSync }: SourceCardProps) {
         </div>
 
         {/* Actions */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col items-end gap-2">
           <Button
             variant="outline"
             size="sm"
-            onClick={() => onSync(source.id)}
-            title="Re-import data"
+            onClick={() => onAddTable(source)}
+            className="flex items-center gap-1"
           >
-            <RefreshCwIcon className="h-4 w-4" />
+            <PlusIcon className="h-4 w-4" /> Add table
           </Button>
           <Button
             variant="outline"
@@ -135,6 +145,65 @@ export function SourceCard({ source, onDelete, onSync }: SourceCardProps) {
           </Button>
         </div>
       </div>
+
+      <Collapsible className="mt-4">
+        <CollapsibleTrigger className={`flex w-full items-center justify-between rounded-md border border-border bg-muted/40 px-3 py-2 text-left text-xs transition hover:bg-muted/60 ${hasTables ? '' : 'cursor-default opacity-60'}`} disabled={!hasTables}>
+          <span className="font-medium">Imported tables</span>
+          <ChevronDownIcon className="h-4 w-4" />
+        </CollapsibleTrigger>
+        <CollapsibleContent className="space-y-2 border-l border-border pl-4 pt-3">
+          {hasTables ? (
+            tables.map(table => (
+              <div key={table.id} className="flex items-start justify-between rounded-md border border-border/60 bg-muted/10 p-3 text-xs">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{table.target_table}</span>
+                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-primary">
+                      {table.status}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
+                    <span>{formatTableSource(table)}</span>
+                    <span>•</span>
+                    <span>{formatRowsCount(table.rows_count)}</span>
+                    {table.last_imported_at && (
+                      <>
+                        <span>•</span>
+                        <span>Imported {formatTimeAgo(table.last_imported_at)}</span>
+                      </>
+                    )}
+                  </div>
+                  {table.error_message && (
+                    <p className="text-destructive">{table.error_message}</p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onSyncTable(source.id, table.id)}
+                    title="Re-import table"
+                  >
+                    <RefreshCwIcon className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onDeleteTable(source.id, table.id)}
+                    title="Remove table"
+                  >
+                    <TrashIcon className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="rounded-md border border-dashed border-border/60 bg-muted/10 p-3 text-xs text-muted-foreground">
+              No tables imported yet. Use “Add table” to import data.
+            </div>
+          )}
+        </CollapsibleContent>
+      </Collapsible>
     </div>
   );
 }

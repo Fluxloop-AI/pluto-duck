@@ -6,6 +6,27 @@ export interface PromptWorkflowState {
   detail: ChatSessionDetail | null;
 }
 
+export interface ParsedPrompt {
+  text: string;
+  mentionedTables: string[];
+}
+
+/**
+ * Parse @table mentions from prompt text.
+ * Returns cleaned text and extracted table names.
+ */
+export function parseTableMentions(text: string): ParsedPrompt {
+  const mentionRegex = /@([a-zA-Z_][a-zA-Z0-9_]*)/g;
+  const matches = Array.from(text.matchAll(mentionRegex));
+  const mentionedTables = matches.map(m => m[1]);
+  const cleanedText = text.replace(mentionRegex, '').trim().replace(/\s+/g, ' ');
+  
+  return {
+    text: cleanedText,
+    mentionedTables,
+  };
+}
+
 export async function ensureConversation(prompt: string, state: PromptWorkflowState): Promise<{
   session: ChatSessionSummary;
   detail: ChatSessionDetail | null;

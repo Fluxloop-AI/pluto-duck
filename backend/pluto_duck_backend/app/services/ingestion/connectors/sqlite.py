@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from typing import Dict, Iterable
+from typing import Dict, Iterable, List
 
 from ..base import BaseConnector
 
@@ -37,5 +37,14 @@ class SQLiteConnector(BaseConnector):
         cursor = self._conn.execute(self.query)
         for row in cursor:
             yield dict(row)
+
+    def list_available_tables(self) -> List[str]:
+        if self._conn is None:
+            raise RuntimeError("Connector not opened")
+
+        cursor = self._conn.execute(
+            "SELECT name FROM sqlite_master WHERE type IN ('table', 'view') ORDER BY name"
+        )
+        return [row[0] for row in cursor.fetchall()]
 
 

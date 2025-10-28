@@ -39,6 +39,10 @@ class BaseConnector(ABC):
     def stream_rows(self) -> Iterable[Dict[str, Any]]:
         """Yield rows as dictionaries."""
 
+    def list_available_tables(self) -> Optional[Iterable[str]]:  # pragma: no cover - optional
+        """Return a list of tables available from this connector if supported."""
+        return None
+
     def materialize(self, context: IngestionContext) -> int:
         """Materialize the streamed rows into DuckDB (default implementation)."""
 

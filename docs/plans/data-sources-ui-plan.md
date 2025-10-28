@@ -541,3 +541,74 @@ const handleSubmit = async (message: PromptInputMessage) => {
 **Status:** Ready for implementation  
 **Last Updated:** 2025-10-23
 
+
+
+
+### 전제
+
+- DuckDB 파일은 새로 생성한다. 기존 데이터/마이그레이션 고려하지 않는다.
+- 목표: `data source`(연결 정보)와 `data source table`(임포트된 테이블)을 분리하고, 프롬프트 입력에서 `@테이블` 멘션 UX를 지원한다.
+
+### 데이터 모델
+
+- `data_sources` 테이블: 연결/설명/상태/메타데이터만 보관한다.
+- `data_source_tables` 테이블: 원본 테이블명·쿼리·DuckDB 테이블명·행 수·상태·메타데이터를 보관한다. `data_source_id` FK에는 `ON DELETE CASCADE`를 적용한다.
+- 각 엔터티에 대응하는 dataclass(예: `DataSource`, `DataSourceTable`)를 새로 정의한다.
+
+### 리포지토리 계층
+
+- `DataSourceRepository`: 연결 CRUD, 목록조회, 연결 테스트용 헬퍼를 담당한다. `list_all`은 `table_count`를 함께 반환한다.
+- `DataSourceTableRepository`: 특정 `data_source_id`의 테이블 목록 조회, 생성, 삭제, 상태 업데이트, 재동기화를 담당한다.
+- 기존 `target_table`, `rows_count` 등을 `data_sources`에서 제거하고 관련 로직을 `data_source_tables`로 옮긴다.
+
+### 인제스션 서비스
+
+- `PostgresConnector`, `SQLiteConnector`에 테이블/뷰 목록을 가져오는 메서드를 추가한다. (예: `list_tables()`).
+- `IngestionService`는 단일 테이블 작업을 기본으로 하고, 여러 테이블 처리 시 호출 측에서 루프 돌며 결과·에러를 묶어 반환하도록 설계한다.
+- 테이블별 성공/실패를 기록해 `rows_ingested`, `error`를 각각 보고할 수 있게 한다.
+
+### API 설계
+
+- `POST /api/v1/data-sources`: 연결만 생성. 응답에는 `table_count=0`.
+- `POST /api/v1/data-sources/test-connection`: 연결 테스트 및 테이블 목록 반환.
+- `GET /api/v1/data-sources`: 연결 목록(테이블 수 포함) 반환.
+- `DELETE /api/v1/data-sources/{id}`: CASCADE로 관련 테이블도 삭제. 필요 시 DuckDB 테이블 DROP 옵션 제공.
+- `GET /api/v1/data-sources/{id}/tables`: 연결된 테이블 목록 반환.
+- `POST /api/v1/data-sources/{id}/tables`: 단일 테이블 임포트.
+- `POST /api/v1/data-sources/{id}/tables/bulk`: 여러 테이블 일괄 임포트.
+- `POST /api/v1/data-sources/{id}/tables/{table_id}/sync`: 재동기화.
+- `DELETE /api/v1/data-sources/{id}/tables/{table_id}`: 레코드 삭제, 필요 시 DuckDB 테이블 DROP.
+
+### 에이전트 통합
+
+- `AgentState`에 `preferred_tables: list[str] | None`, `metadata: dict | None`를 추가한다.
+- `AgentRunManager.start_run*(...)`가 `metadata`를 인자로 받아 `AgentState` 생성 시 전달한다.
+- 메타데이터 처리:
+  - `mentioned_tables`가 있으면 그대로 `preferred_tables`.
+  - 그렇지 않고 `data_source_id`만 있을 경우 해당 소스의 모든 테이블을 조회해 `preferred_tables`로 설정.
+  - 둘 다 없으면 기존 로직 유지.
+- `schema` 노드는 `preferred_tables`가 있으면 우선순위를 두고 메시지를 구성한다.
+- `sql` 노드는 `preferred_tables`, `other_tables` 정보를 LLM 프롬프트에 명확히 포함시킨다.
+- `metadata`나 `preferred_tables` 직렬화를 `AgentState.to_dict()`에 반영한다.
+
+### 프론트엔드 UX
+
+- Data Source 생성 플로우: 연결 정보 입력 → 테스트 및 테이블 선택 → 임포트. CSV/Parquet은 자동으로 테이블 1개만 생성하는 단축 경로 제공.
+- `PromptInput` 하단 드롭다운은 `data_source`만 선택한다. 1계층 데이터 소스(테이블 1개)는 즉시 `metadata.mentioned_tables`를 채워 전송한다.
+- `@` 입력 시 선택된 data source 소속 테이블 목록을 자동완성으로 띄워 선택하면 메시지 본문에서 `@테이블`이 제거되고 `metadata.mentioned_tables`에 추가된다.
+- 서버로 전송 전 `@` 구문을 모두 제거한 질문 텍스트와 `mentioned_tables` 배열, 선택한 `data_source_id`를 함께 전송한다.
+
+### 서버 측 검증/보조 로직
+
+- `mentioned_tables`가 요청된 `data_source_id`에 속하는지 확인한다. 불일치 시 400 오류나 자동폴백 처리.
+- `data_source_id` 없이 `mentioned_tables`만 오는 경우를 금지하거나 전체 스캔으로 폴백한다.
+- `AgentState`에 `preferred_tables`가 설정되지 않았더라도 `data_source_id`가 있다면 해당 소스의 모든 테이블을 우선 탐색 대상으로 설정한다.
+
+### 테스트 플랜
+
+- CSV/Parquet 단일 테이블 임포트 및 삭제.
+- PostgreSQL/SQLite 다중 테이블 임포트, 일부 실패 상황, 재동기화.
+- PromptInput에서 `@테이블` 선택/미선택, 데이터 소스 미선택, 잘못된 멘션 등 케이스별 에이전트 출력 확인.
+- 에이전트 로그/이벤트 스트림에 우선순위 테이블 정보가 정확히 기록되는지 검증.
+
+이 계획을 기준으로 백엔드·프론트엔드·에이전트 변경을 단계별로 진행하면, 다중 테이블에 대응하는 UX와 정확한 컨텍스트 전달을 모두 충족할 수 있습니다.

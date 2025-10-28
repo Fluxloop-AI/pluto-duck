@@ -1,18 +1,27 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { DatabaseIcon, FileTextIcon, PackageIcon, ServerIcon } from 'lucide-react';
-import { fetchDataSources, deleteDataSource, syncDataSource, type DataSource } from '../../lib/dataSourcesApi';
+import { DatabaseIcon } from 'lucide-react';
+import {
+  fetchDataSources,
+  fetchDataSourceDetail,
+  deleteDataSource,
+  deleteTable,
+  syncTable,
+  type DataSource,
+  type DataSourceTable,
+} from '../../lib/dataSourcesApi';
 import { SourceCard } from './SourceCard';
 import { ConnectorGrid } from './ConnectorGrid';
 
 interface DataSourcesViewProps {
-  onImportClick: (connectorType: string) => void;
+  onImportClick: (connectorType: string, source?: DataSource) => void;
   refreshTrigger?: number;
 }
 
 export function DataSourcesView({ onImportClick, refreshTrigger }: DataSourcesViewProps) {
   const [sources, setSources] = useState<DataSource[]>([]);
+  const [tablesBySource, setTablesBySource] = useState<Record<string, DataSourceTable[]>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -22,6 +31,23 @@ export function DataSourcesView({ onImportClick, refreshTrigger }: DataSourcesVi
     try {
       const data = await fetchDataSources();
       setSources(data);
+      const details = await Promise.all(
+        data.map(async source => {
+          try {
+            const detail = await fetchDataSourceDetail(source.id);
+            return { id: source.id, tables: detail.tables };
+          } catch (detailError) {
+            console.error('Failed to load tables for source', source.id, detailError);
+            return { id: source.id, tables: [] };
+          }
+        })
+      );
+      setTablesBySource(
+        details.reduce<Record<string, DataSourceTable[]>>((acc, detail) => {
+          acc[detail.id] = detail.tables;
+          return acc;
+        }, {})
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data sources');
     } finally {
@@ -42,19 +68,33 @@ export function DataSourcesView({ onImportClick, refreshTrigger }: DataSourcesVi
     }
   };
 
-  const handleSync = async (sourceId: string) => {
+  const handleSyncTable = async (sourceId: string, tableId: string) => {
     try {
-      // Update UI optimistically
-      setSources(prev =>
-        prev.map(s => (s.id === sourceId ? { ...s, status: 'syncing' } : s))
-      );
-      
-      await syncDataSource(sourceId);
+      setTablesBySource(prev => ({
+        ...prev,
+        [sourceId]: (prev[sourceId] || []).map(table =>
+          table.id === tableId ? { ...table, status: 'syncing' } : table
+        ),
+      }));
+      await syncTable(sourceId, tableId);
       await loadSources();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to sync data source');
+      setError(err instanceof Error ? err.message : 'Failed to sync table');
       await loadSources();
     }
+  };
+
+  const handleDeleteTable = async (sourceId: string, tableId: string) => {
+    try {
+      await deleteTable(sourceId, tableId, false);
+      await loadSources();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to remove table');
+    }
+  };
+
+  const handleAddTable = (source: DataSource) => {
+    onImportClick(source.connector_type, source);
   };
 
   return (
@@ -99,8 +139,11 @@ export function DataSourcesView({ onImportClick, refreshTrigger }: DataSourcesVi
                   <SourceCard
                     key={source.id}
                     source={source}
+                    tables={tablesBySource[source.id] || []}
                     onDelete={handleDelete}
-                    onSync={handleSync}
+                    onSyncTable={handleSyncTable}
+                    onDeleteTable={handleDeleteTable}
+                    onAddTable={handleAddTable}
                   />
                 ))}
               </div>

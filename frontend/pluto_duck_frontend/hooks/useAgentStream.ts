@@ -8,6 +8,7 @@ import { getBackendUrl } from '../lib/api';
 export interface UseAgentStreamOptions {
   runId?: string;
   eventsPath?: string; // e.g. /api/v1/agent/{run_id}/events
+  enabled?: boolean; // Control whether to connect to stream
   autoReconnect?: boolean;
   reconnectIntervalMs?: number;
 }
@@ -22,6 +23,7 @@ export interface UseAgentStreamResult {
 export function useAgentStream({
   runId,
   eventsPath,
+  enabled = true,
   autoReconnect = true,
   reconnectIntervalMs = 2000,
 }: UseAgentStreamOptions): UseAgentStreamResult {
@@ -49,7 +51,7 @@ export function useAgentStream({
   }, []);
 
   useEffect(() => {
-    if (!runId || !eventsPath) {
+    if (!runId || !eventsPath || !enabled) {
       cleanup();
       setStatus('idle');
       return;
@@ -70,7 +72,12 @@ export function useAgentStream({
     source.onmessage = event => {
       try {
         const parsed = JSON.parse(event.data) as AgentEventAny;
-        setEvents(prev => [...prev, parsed]);
+        setEvents(prev => {
+          const updated = [...prev, parsed];
+          // Keep only last 150 events to prevent memory issues
+          const MAX_EVENTS = 150;
+          return updated.length > MAX_EVENTS ? updated.slice(-MAX_EVENTS) : updated;
+        });
         
         // If run ended, close connection and set status to idle
         if (parsed.type === 'run' && parsed.subtype === 'end') {
@@ -98,7 +105,7 @@ export function useAgentStream({
     return () => {
       cleanup();
     };
-  }, [runId, eventsPath, autoReconnect, reconnectIntervalMs, cleanup, reset]);
+  }, [runId, eventsPath, enabled, autoReconnect, reconnectIntervalMs, cleanup, reset]);
 
   return { events, status, error, reset };
 }

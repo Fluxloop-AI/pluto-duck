@@ -68,11 +68,20 @@ def safe_dump_event(event: Dict[str, Any]) -> str:
 
 
 class AgentRun:
-    def __init__(self, run_id: str, conversation_id: str, question: str, model: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        run_id: str,
+        conversation_id: str,
+        question: str,
+        *,
+        model: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
         self.run_id = run_id
         self.conversation_id = conversation_id
         self.question = question
         self.model = model
+        self.metadata = metadata or {}
         self.queue: asyncio.Queue[Optional[Dict[str, Any]]] = asyncio.Queue()
         self.done = asyncio.Event()
         self.result: Optional[Dict[str, Any]] = None
@@ -83,9 +92,21 @@ class AgentRunManager:
     def __init__(self) -> None:
         self._runs: Dict[str, AgentRun] = {}
 
-    def start_run(self, question: str, model: Optional[str] = None) -> tuple[str, str]:
+    def start_run(
+        self,
+        question: str,
+        model: Optional[str] = None,
+        *,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> tuple[str, str]:
         conversation_id = str(uuid4())
-        run_id = self.start_run_for_conversation(conversation_id, question, model=model, create_if_missing=True)
+        run_id = self.start_run_for_conversation(
+            conversation_id,
+            question,
+            model=model,
+            metadata=metadata,
+            create_if_missing=True,
+        )
         return conversation_id, run_id
 
     def start_run_for_conversation(
@@ -94,6 +115,7 @@ class AgentRunManager:
         question: str,
         *,
         model: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
         create_if_missing: bool = False,
     ) -> str:
         repo = get_chat_repository()
@@ -105,10 +127,14 @@ class AgentRunManager:
             repo.create_conversation(conversation_id, question)
 
         run_id = str(uuid4())
-        run = AgentRun(run_id, conversation_id, question, model=model)
+        run = AgentRun(run_id, conversation_id, question, model=model, metadata=metadata)
         self._runs[run_id] = run
         _log("run_started", run_id=run_id, conversation_id=conversation_id)
-        repo.append_message(conversation_id, "user", {"text": question})
+        repo.append_message(
+            conversation_id,
+            "user",
+            {"text": question, "metadata": metadata or {}},
+        )
         repo.set_active_run(conversation_id, run_id)
         repo.mark_run_started(conversation_id, last_message_preview=question[:160])
         asyncio.create_task(self._execute_run(run))
@@ -116,7 +142,14 @@ class AgentRunManager:
 
     async def _execute_run(self, run: AgentRun) -> None:
         graph = build_agent_graph()
-        state = AgentState(conversation_id=run.conversation_id, user_query=run.question, model=run.model)
+        preferred_tables = _extract_preferred_tables(run.metadata)
+        state = AgentState(
+            conversation_id=run.conversation_id,
+            user_query=run.question,
+            model=run.model,
+            preferred_tables=preferred_tables,
+            metadata=run.metadata,
+        )
         state.add_message(MessageRole.USER, run.question)
         repo = get_chat_repository()
 
@@ -170,6 +203,15 @@ class AgentRunManager:
                 conversation_id=run.conversation_id,
                 status="failed" if "error" in final_state else "completed",
             )
+            
+            # Clean up run from memory after 10 minutes to prevent memory leaks
+            async def cleanup_run():
+                await asyncio.sleep(600)  # 10 minutes
+                if run.run_id in self._runs:
+                    _log("run_cleanup", run_id=run.run_id, conversation_id=run.conversation_id)
+                    self._runs.pop(run.run_id, None)
+            
+            asyncio.create_task(cleanup_run())
 
     def _events_from_update(self, node_name: str, update: Dict[str, Any], run: AgentRun) -> List[AgentEvent]:
         events: List[AgentEvent] = []
@@ -268,6 +310,29 @@ class AgentRunManager:
             raise KeyError(run_id)
         await run.done.wait()
         return run.result or {}
+
+
+def _extract_preferred_tables(metadata: Optional[Dict[str, Any]]) -> Optional[List[str]]:
+    if not metadata:
+        return None
+
+    # Explicit table mentions take priority
+    if "mentioned_tables" in metadata and metadata["mentioned_tables"]:
+        tables = metadata["mentioned_tables"]
+        if isinstance(tables, str):
+            return [tables]
+        if isinstance(tables, list):
+            return [str(table) for table in tables]
+
+    # Fallback to data source tables if provided
+    if "preferred_tables" in metadata and metadata["preferred_tables"]:
+        tables = metadata["preferred_tables"]
+        if isinstance(tables, str):
+            return [tables]
+        if isinstance(tables, list):
+            return [str(table) for table in tables]
+
+    return None
 
 
 _AGENT_MANAGER: Optional[AgentRunManager] = None

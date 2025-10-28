@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, Iterable, Type
+from typing import Dict, Iterable, Optional, Type
 
 from .base import BaseConnector, SupportsConnector
 
@@ -11,7 +11,7 @@ class ConnectorRegistry:
     """Simple registry mapping connector names to constructors."""
 
     def __init__(self) -> None:
-        self._registry: Dict[str, SupportsConnector] = {}
+        self._registry: Dict[str, Type[BaseConnector]] = {}
 
     def register(self, connector_cls: Type[BaseConnector]) -> None:
         name = connector_cls.name
@@ -26,6 +26,9 @@ class ConnectorRegistry:
 
     def list_connectors(self) -> Iterable[str]:
         return self._registry.keys()
+
+    def get(self, name: str) -> Optional[Type[BaseConnector]]:
+        return self._registry.get(name)
 
 
 _registry = ConnectorRegistry()

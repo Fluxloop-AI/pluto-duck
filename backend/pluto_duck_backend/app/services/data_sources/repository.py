@@ -17,7 +17,7 @@ from pluto_duck_backend.app.core.config import get_settings
 
 @dataclass
 class DataSource:
-    """Data source entity."""
+    """Data source connection entity."""
 
     id: str
     project_id: Optional[str]
@@ -25,6 +25,22 @@ class DataSource:
     description: Optional[str]
     connector_type: str
     source_config: Dict[str, Any]
+    status: str
+    error_message: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+    metadata: Optional[Dict[str, Any]]
+    table_count: int
+
+
+@dataclass
+class DataSourceTable:
+    """Table imported from a data source."""
+
+    id: str
+    data_source_id: str
+    source_table: Optional[str]
+    source_query: Optional[str]
     target_table: str
     rows_count: Optional[int]
     status: str
@@ -50,24 +66,23 @@ class DataSourceRepository:
         name: str,
         connector_type: str,
         source_config: Dict[str, Any],
-        target_table: str,
         *,
         description: Optional[str] = None,
         project_id: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """Create a new data source record."""
+        """Create a new data source connection."""
         source_id = str(uuid4())
         now = datetime.now(UTC)
-        
+
         with self._connect() as con:
             con.execute(
                 """
                 INSERT INTO data_sources (
-                    id, project_id, name, description, connector_type, 
-                    source_config, target_table, status, created_at, updated_at, metadata
+                    id, project_id, name, description, connector_type,
+                    source_config, status, created_at, updated_at, metadata
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
                 """,
                 [
                     source_id,
@@ -76,13 +91,12 @@ class DataSourceRepository:
                     description,
                     connector_type,
                     json.dumps(source_config),
-                    target_table,
                     now,
                     now,
                     json.dumps(metadata or {}),
                 ],
             )
-        
+
         return source_id
 
     def list_all(self, project_id: Optional[str] = None) -> List[DataSource]:
@@ -91,26 +105,36 @@ class DataSourceRepository:
             if project_id:
                 rows = con.execute(
                     """
-                    SELECT id, project_id, name, description, connector_type, 
-                           source_config, target_table, rows_count, status, 
-                           last_imported_at, error_message, created_at, updated_at, metadata
-                    FROM data_sources
-                    WHERE project_id = ?
-                    ORDER BY updated_at DESC
+                    SELECT ds.id, ds.project_id, ds.name, ds.description, ds.connector_type,
+                           ds.source_config, ds.status, ds.error_message, ds.created_at,
+                           ds.updated_at, ds.metadata, dst.table_count
+                    FROM data_sources ds
+                    LEFT JOIN (
+                        SELECT data_source_id, COUNT(*) AS table_count
+                        FROM data_source_tables
+                        GROUP BY data_source_id
+                    ) dst ON ds.id = dst.data_source_id
+                    WHERE ds.project_id = ?
+                    ORDER BY ds.updated_at DESC
                     """,
                     [project_id],
                 ).fetchall()
             else:
                 rows = con.execute(
                     """
-                    SELECT id, project_id, name, description, connector_type, 
-                           source_config, target_table, rows_count, status, 
-                           last_imported_at, error_message, created_at, updated_at, metadata
-                    FROM data_sources
-                    ORDER BY updated_at DESC
+                    SELECT ds.id, ds.project_id, ds.name, ds.description, ds.connector_type,
+                           ds.source_config, ds.status, ds.error_message, ds.created_at,
+                           ds.updated_at, ds.metadata, dst.table_count
+                    FROM data_sources ds
+                    LEFT JOIN (
+                        SELECT data_source_id, COUNT(*) AS table_count
+                        FROM data_source_tables
+                        GROUP BY data_source_id
+                    ) dst ON ds.id = dst.data_source_id
+                    ORDER BY ds.updated_at DESC
                     """
                 ).fetchall()
-        
+
         return [self._row_to_entity(row) for row in rows]
 
     def get(self, source_id: str) -> Optional[DataSource]:
@@ -118,41 +142,177 @@ class DataSourceRepository:
         with self._connect() as con:
             row = con.execute(
                 """
-                SELECT id, project_id, name, description, connector_type, 
-                       source_config, target_table, rows_count, status, 
-                       last_imported_at, error_message, created_at, updated_at, metadata
-                FROM data_sources
-                WHERE id = ?
+                SELECT ds.id, ds.project_id, ds.name, ds.description, ds.connector_type,
+                       ds.source_config, ds.status, ds.error_message, ds.created_at,
+                       ds.updated_at, ds.metadata,
+                       COALESCE(dst.table_count, 0)
+                FROM data_sources ds
+                LEFT JOIN (
+                    SELECT data_source_id, COUNT(*) AS table_count
+                    FROM data_source_tables
+                    GROUP BY data_source_id
+                ) dst ON ds.id = dst.data_source_id
+                WHERE ds.id = ?
                 """,
                 [source_id],
             ).fetchone()
-        
+
         if not row:
             return None
-        
+
         return self._row_to_entity(row)
 
-    def update_import_status(
+    def update_status(
         self,
         source_id: str,
         *,
         status: str,
-        rows_count: Optional[int] = None,
         error_message: Optional[str] = None,
     ) -> None:
-        """Update import status after sync/import."""
+        """Update status/error for a data source."""
         now = datetime.now(UTC)
-        
+
         with self._connect() as con:
             con.execute(
                 """
                 UPDATE data_sources
-                SET status = ?, rows_count = ?, last_imported_at = ?, 
-                    error_message = ?, updated_at = ?
+                SET status = ?, error_message = ?, updated_at = ?
                 WHERE id = ?
                 """,
-                [status, rows_count, now, error_message, now, source_id],
+                [status, error_message, now, source_id],
             )
+
+    def list_tables(self, source_id: str) -> List[DataSourceTable]:
+        """List tables associated with a data source."""
+        with self._connect() as con:
+            rows = con.execute(
+                """
+                SELECT id, data_source_id, source_table, source_query,
+                       target_table, rows_count, status, last_imported_at,
+                       error_message, created_at, updated_at, metadata
+                FROM data_source_tables
+                WHERE data_source_id = ?
+                ORDER BY updated_at DESC
+                """,
+                [source_id],
+            ).fetchall()
+
+        return [self._table_row_to_entity(row) for row in rows]
+
+    def get_table(self, table_id: str) -> Optional[DataSourceTable]:
+        """Get a single data source table by ID."""
+        with self._connect() as con:
+            row = con.execute(
+                """
+                SELECT id, data_source_id, source_table, source_query,
+                       target_table, rows_count, status, last_imported_at,
+                       error_message, created_at, updated_at, metadata
+                FROM data_source_tables
+                WHERE id = ?
+                """,
+                [table_id],
+            ).fetchone()
+
+        if not row:
+            return None
+
+        return self._table_row_to_entity(row)
+
+    def create_table(
+        self,
+        data_source_id: str,
+        target_table: str,
+        *,
+        source_table: Optional[str] = None,
+        source_query: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        status: str = "pending",
+    ) -> str:
+        """Create a new data source table record."""
+        table_id = str(uuid4())
+        now = datetime.now(UTC)
+
+        with self._connect() as con:
+            con.execute(
+                """
+                INSERT INTO data_source_tables (
+                    id, data_source_id, source_table, source_query,
+                    target_table, rows_count, status, last_imported_at,
+                    error_message, created_at, updated_at, metadata
+                )
+                VALUES (?, ?, ?, ?, ?, NULL, ?, NULL, NULL, ?, ?, ?)
+                """,
+                [
+                    table_id,
+                    data_source_id,
+                    source_table,
+                    source_query,
+                    target_table,
+                    status,
+                    now,
+                    now,
+                    json.dumps(metadata or {}),
+                ],
+            )
+
+        return table_id
+
+    def update_table_status(
+        self,
+        table_id: str,
+        *,
+        status: str,
+        rows_count: Optional[int] = None,
+        error_message: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Update status/info for a data source table."""
+        now = datetime.now(UTC)
+
+        with self._connect() as con:
+            if metadata is not None:
+                con.execute(
+                    """
+                    UPDATE data_source_tables
+                    SET status = ?, rows_count = ?, last_imported_at = ?,
+                        error_message = ?, updated_at = ?, metadata = ?
+                    WHERE id = ?
+                    """,
+                    [
+                        status,
+                        rows_count,
+                        now,
+                        error_message,
+                        now,
+                        json.dumps(metadata),
+                        table_id,
+                    ],
+                )
+            else:
+                con.execute(
+                    """
+                    UPDATE data_source_tables
+                    SET status = ?, rows_count = ?, last_imported_at = ?,
+                        error_message = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    [status, rows_count, now, error_message, now, table_id],
+                )
+
+    def delete_table(self, table_id: str) -> bool:
+        """Delete a data source table record."""
+        with self._connect() as con:
+            exists = con.execute(
+                "SELECT 1 FROM data_source_tables WHERE id = ?",
+                [table_id],
+            ).fetchone()
+
+            if not exists:
+                return False
+
+            con.execute("DELETE FROM data_source_tables WHERE id = ?", [table_id])
+
+        return True
 
     def delete(self, source_id: str) -> bool:
         """Delete a data source record."""
@@ -178,14 +338,29 @@ class DataSourceRepository:
             description=row[3],
             connector_type=row[4],
             source_config=json.loads(row[5]) if row[5] else {},
-            target_table=row[6],
-            rows_count=row[7],
-            status=row[8],
-            last_imported_at=self._ensure_utc(row[9]) if row[9] else None,
-            error_message=row[10],
-            created_at=self._ensure_utc(row[11]),
-            updated_at=self._ensure_utc(row[12]),
-            metadata=json.loads(row[13]) if row[13] else None,
+            status=row[6],
+            error_message=row[7],
+            created_at=self._ensure_utc(row[8]),
+            updated_at=self._ensure_utc(row[9]),
+            metadata=json.loads(row[10]) if row[10] else None,
+            table_count=int(row[11] or 0),
+        )
+
+    def _table_row_to_entity(self, row: tuple) -> DataSourceTable:
+        """Convert database row to DataSourceTable entity."""
+        return DataSourceTable(
+            id=str(row[0]),
+            data_source_id=str(row[1]),
+            source_table=row[2],
+            source_query=row[3],
+            target_table=row[4],
+            rows_count=row[5],
+            status=row[6],
+            last_imported_at=self._ensure_utc(row[7]) if row[7] else None,
+            error_message=row[8],
+            created_at=self._ensure_utc(row[9]),
+            updated_at=self._ensure_utc(row[10]),
+            metadata=json.loads(row[11]) if row[11] else None,
         )
 
     def _ensure_utc(self, value: datetime) -> datetime:

@@ -17,11 +17,23 @@ def build_sql_node():
 
     async def sql_node(state: AgentState) -> AgentState:
         provider = get_llm_provider(model=state.model)
+        preferred = state.context.get("preferred_tables", []) or state.preferred_tables or []
+        other_tables = state.context.get("other_tables", [])
+
+        if preferred:
+            hint = (
+                "Preferred tables: "
+                + ", ".join(preferred)
+                + (f"\nOther tables: {', '.join(other_tables)}" if other_tables else "")
+            )
+        else:
+            hint = f"Available tables: {', '.join(state.context.get('schema_preview', []))}"
+
         prompt = (
             f"{prompt_template}\n"
             f"User question: {state.user_query}\n"
             f"Plan steps: {[step.description for step in state.plan]}\n"
-            f"Schema preview: {state.context.get('schema_preview', [])}\n"
+            f"{hint}\n"
         )
         response = await provider.ainvoke(prompt)
         state.working_sql = response.strip()

@@ -13,7 +13,7 @@ import {
 } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { createDataSource, type CreateDataSourceRequest } from '../../lib/dataSourcesApi';
+import { createDataSource, importTable } from '../../lib/dataSourcesApi';
 
 interface ImportCSVModalProps {
   open: boolean;
@@ -60,17 +60,18 @@ export function ImportCSVModal({ open, onOpenChange, onImportSuccess }: ImportCS
 
     setImporting(true);
     try {
-      const request: CreateDataSourceRequest = {
+      const source = await createDataSource({
         name: name.trim(),
         description: description.trim() || undefined,
         connector_type: 'csv',
         source_config: { path: filePath.trim() },
+      });
+
+      const table = await importTable(source.id, {
         target_table: tableName.trim(),
         overwrite,
-      };
-      
-      const response = await createDataSource(request);
-      setSuccessMessage(response.message);
+      });
+      setSuccessMessage(`Successfully imported ${table.rows_count ?? 0} rows`);
       
       // Reset form
       setName('');
@@ -103,14 +104,12 @@ export function ImportCSVModal({ open, onOpenChange, onImportSuccess }: ImportCS
   // Auto-suggest table name from display name
   const handleNameChange = (value: string) => {
     setName(value);
-    if (!tableName) {
-      // Auto-generate table name from display name
-      const suggested = value
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '_')
-        .replace(/^_+|_+$/g, '');
-      setTableName(suggested);
-    }
+    // Always auto-generate table name with prefix from display name
+    const prefix = value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
+    setTableName(prefix);
   };
 
   const handleBrowse = async () => {

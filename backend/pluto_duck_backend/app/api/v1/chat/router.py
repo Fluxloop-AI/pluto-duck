@@ -49,6 +49,7 @@ class AppendMessageRequest(BaseModel):
   role: str
   content: Dict[str, Any]
   model: Optional[str] = None
+  metadata: Optional[Dict[str, Any]] = None
 
 
 class AppendMessageResponse(BaseModel):
@@ -105,7 +106,12 @@ async def create_conversation(
   manager = get_agent_manager()
   if payload.question and payload.conversation_id:
     try:
-      run_id = manager.start_run_for_conversation(payload.conversation_id, payload.question, model=payload.model)
+      run_id = manager.start_run_for_conversation(
+        payload.conversation_id,
+        payload.question,
+        model=payload.model,
+        metadata=payload.metadata,
+      )
       return CreateConversationResponse(
         id=payload.conversation_id,
         run_id=run_id,
@@ -116,7 +122,11 @@ async def create_conversation(
       raise HTTPException(status_code=404, detail="Conversation not found") from exc
 
   if payload.question:
-    conversation_id, run_id = manager.start_run(payload.question, model=payload.model)
+    conversation_id, run_id = manager.start_run(
+      payload.question,
+      model=payload.model,
+      metadata=payload.metadata,
+    )
     # Include model in metadata
     metadata = payload.metadata or {}
     if payload.model:
@@ -160,7 +170,12 @@ async def append_message(
   manager = get_agent_manager()
   if payload.role.lower() == "user":
     try:
-      run_id = manager.start_run_for_conversation(conversation_id, payload.content.get("text", ""), model=payload.model)
+      run_id = manager.start_run_for_conversation(
+        conversation_id,
+        payload.content.get("text", ""),
+        model=payload.model,
+        metadata=payload.metadata,
+      )
     except KeyError as exc:
       raise HTTPException(status_code=404, detail="Conversation not found") from exc
     return AppendMessageResponse(status="queued", run_id=run_id, events_url=f"/api/v1/agent/{run_id}/events", conversation_id=conversation_id)

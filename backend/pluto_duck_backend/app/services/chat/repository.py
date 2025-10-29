@@ -172,8 +172,7 @@ DDL_STATEMENTS = [
         execution_status VARCHAR DEFAULT 'pending',
         error_message VARCHAR,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (board_item_id) REFERENCES board_items(id)
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """,
     """
@@ -189,8 +188,7 @@ DDL_STATEMENTS = [
         file_size INTEGER,
         mime_type VARCHAR,
         thumbnail_path VARCHAR,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (board_item_id) REFERENCES board_items(id)
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """,
     """

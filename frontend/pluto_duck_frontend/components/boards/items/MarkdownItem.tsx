@@ -366,20 +366,20 @@ export function MarkdownItem({ item, onUpdate }: MarkdownItemProps) {
   }
 
   return (
-    <div className="min-h-[200px] p-4 bg-transparent rounded-lg border border-transparent hover:border-border/50 focus-within:border-border transition-colors relative">
+    <div className="h-full flex flex-col p-4 bg-transparent rounded-lg border border-transparent hover:border-border/50 focus-within:border-border transition-colors relative">
       {/* Saving indicator */}
       {isSaving && (
-        <div className="absolute top-2 right-2 text-xs text-muted-foreground flex items-center gap-1">
+        <div className="absolute top-2 right-2 text-xs text-muted-foreground flex items-center gap-1 z-10">
           <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse" />
           Saving...
         </div>
       )}
       
       <LexicalComposer initialConfig={initialConfig}>
-        <div className="relative">
+        <div className="relative flex-1 flex flex-col overflow-auto">
           <RichTextPlugin
             contentEditable={
-              <ContentEditable className="min-h-[150px] outline-none prose dark:prose-invert max-w-none bg-transparent" />
+              <ContentEditable className="h-full outline-none prose dark:prose-invert max-w-none bg-transparent" />
             }
             placeholder={
               <div className="absolute top-0 left-0 text-muted-foreground/50 pointer-events-none">

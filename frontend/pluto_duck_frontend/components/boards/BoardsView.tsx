@@ -24,6 +24,7 @@ export function BoardsView({ projectId, activeBoard }: BoardsViewProps) {
     addItem,
     updateItem,
     deleteItem,
+    updateItemPosition,
   } = useBoardItems({ boardId: activeBoard?.id });
 
   const [showAddItemModal, setShowAddItemModal] = useState(false);
@@ -42,25 +43,31 @@ export function BoardsView({ projectId, activeBoard }: BoardsViewProps) {
 
     // Create default payload based on item type
     let payload: Record<string, any> = {};
-    let width = 6; // Default width (half of 12 columns)
+    let width = 2; // Default width (half of 4 columns)
 
     switch (itemType) {
       case 'markdown':
         payload = { content: {} };
-        width = 12; // Full width for markdown
+        width = 4; // Full width for markdown
         break;
       case 'chart':
-      case 'table':
       case 'metric':
         // Will need query configuration - for now create placeholder
         payload = { query_id: null, note: 'Query configuration needed' };
-        width = itemType === 'table' ? 12 : 6;
+        width = 2; // Half width
+        break;
+      case 'table':
+        payload = { query_id: null, note: 'Query configuration needed' };
+        width = 4; // Full width for tables
         break;
       case 'image':
         payload = { asset_id: null, note: 'Upload image needed' };
-        width = 6;
+        width = 2; // Half width
         break;
     }
+
+    // Find next available position (bottom of the board)
+    const maxY = items.length > 0 ? Math.max(...items.map(item => item.position_y + (item.height || 1))) : 0;
 
     await addItem({
       item_type: itemType,
@@ -68,6 +75,8 @@ export function BoardsView({ projectId, activeBoard }: BoardsViewProps) {
       payload,
       width,
       height: 1,
+      position_x: 0,
+      position_y: maxY,
     });
   };
 
@@ -87,7 +96,7 @@ export function BoardsView({ projectId, activeBoard }: BoardsViewProps) {
       case 'metric':
         return <MetricItem item={item} projectId={projectId} />;
       case 'image':
-        return <ImageItem item={item} />;
+        return <ImageItem item={item} projectId={projectId} onUpdate={updateItem} />;
       default:
         return (
           <div className="flex items-center justify-center py-8 text-muted-foreground">
@@ -146,6 +155,28 @@ export function BoardsView({ projectId, activeBoard }: BoardsViewProps) {
         <BoardCanvas
           items={items}
           onItemUpdate={updateItem}
+          onItemResize={(itemId, size) => {
+            const item = items.find(i => i.id === itemId);
+            if (!item) return;
+            
+            updateItemPosition(itemId, {
+              position_x: item.position_x,
+              position_y: item.position_y,
+              width: size.width ?? item.width,
+              height: size.height ?? item.height,
+            });
+          }}
+          onItemMove={(itemId, position) => {
+            const item = items.find(i => i.id === itemId);
+            if (!item) return;
+            
+            updateItemPosition(itemId, {
+              position_x: position.position_x,
+              position_y: position.position_y,
+              width: item.width,
+              height: item.height,
+            });
+          }}
           onItemDelete={deleteItem}
         >
           {renderItem}

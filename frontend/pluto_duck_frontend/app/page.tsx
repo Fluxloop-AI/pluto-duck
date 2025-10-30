@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { RefreshCcwIcon, PlusIcon, SettingsIcon, DatabaseIcon, ChevronLeft, ChevronRight } from 'lucide-react';
+import { PlusIcon, SettingsIcon, DatabaseIcon, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 
 import { SettingsModal, MultiTabChatPanel } from '../components/chat';
 import {
@@ -275,8 +275,27 @@ export default function WorkspacePage() {
   }, []);
 
   return (
-    <div className="flex h-screen w-full flex-1 relative">
-      {/* Backend status overlay */}
+    <div className="relative flex h-screen w-full flex-col bg-white">
+      <header className="z-10 flex h-10 shrink-0 items-center border-b border-border bg-white px-3 pl-[76px] pr-3">
+        <button
+          onClick={() => setSidebarCollapsed(prev => !prev)}
+          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent"
+          title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          {sidebarCollapsed ? (
+            <PanelLeftOpen className="h-4 w-4" />
+          ) : (
+            <PanelLeftClose className="h-4 w-4" />
+          )}
+        </button>
+
+        <div
+          data-tauri-drag-region
+          className="flex h-full flex-1 select-none"
+          aria-hidden="true"
+        />
+      </header>
+
       {!backendReady && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
           <div className="rounded-lg border bg-card p-8 text-center shadow-lg">
@@ -291,67 +310,18 @@ export default function WorkspacePage() {
         </div>
       )}
 
-      {/* Left Sidebar - Board list */}
-      <aside className={`hidden border-r border-border bg-muted/20 lg:flex lg:flex-col transition-all duration-300 ${
-        sidebarCollapsed ? 'w-12' : 'w-64'
-      }`}>
-        {sidebarCollapsed ? (
-          <>
-            {/* Collapsed Toolbar */}
-            <div className="flex items-center justify-center border-b border-border bg-background px-2 pt-3 pb-1">
-              <button
-                onClick={() => setSidebarCollapsed(false)}
-                className="flex h-6 w-6 items-center justify-center rounded-md border border-border bg-card hover:bg-accent"
-                title="Expand sidebar"
-              >
-                <ChevronRight className="h-3.5 w-3.5" />
-              </button>
+      <div className="flex flex-1 overflow-hidden">
+        {!sidebarCollapsed && (
+          <aside className="hidden w-64 border-r border-border bg-muted/20 transition-all duration-300 lg:flex lg:flex-col">
+            <div className="border-b border-border bg-background px-3 pt-3 pb-1">
+              <ProjectSelector
+                currentProject={currentProject}
+                projects={projects}
+                onSelectProject={handleSelectProject}
+                onNewProject={() => setShowCreateProjectModal(true)}
+              />
             </div>
 
-            {/* Collapsed board items */}
-            <div className="flex-1 overflow-y-auto px-2 py-3 space-y-2">
-              {boards.map((board) => (
-                <button
-                  key={board.id}
-                  onClick={() => {
-                    setCurrentView('boards');
-                    selectBoard(board);
-                  }}
-                  className={`w-full h-8 rounded border transition-colors flex items-center justify-center text-xs font-medium ${
-                    activeBoard?.id === board.id
-                      ? 'border-primary bg-primary/10 text-primary'
-                      : 'border-border bg-card hover:bg-accent text-muted-foreground'
-                  }`}
-                  title={board.name}
-                >
-                  {board.name.charAt(0).toUpperCase()}
-                </button>
-              ))}
-            </div>
-          </>
-        ) : (
-          <>
-            {/* Toolbar */}
-            <div className="flex items-center justify-between border-b border-border bg-background px-3 pt-3 pb-1">
-              <div className="flex-1 min-w-0">
-                <ProjectSelector
-                  currentProject={currentProject}
-                  projects={projects}
-                  onSelectProject={handleSelectProject}
-                  onNewProject={() => setShowCreateProjectModal(true)}
-                />
-              </div>
-              
-              <button
-                onClick={() => setSidebarCollapsed(true)}
-                className="flex h-6 w-6 items-center justify-center rounded-md border border-border bg-card hover:bg-accent ml-2 shrink-0"
-                title="Collapse sidebar"
-              >
-                <ChevronLeft className="h-3.5 w-3.5" />
-              </button>
-            </div>
-
-            {/* New board button */}
             <div className="px-3 pt-3">
               <button
                 type="button"
@@ -367,7 +337,6 @@ export default function WorkspacePage() {
               </button>
             </div>
 
-            {/* Board list */}
             <div className="flex-1 overflow-y-auto px-3 py-3">
               <BoardList
                 boards={boards}
@@ -379,44 +348,68 @@ export default function WorkspacePage() {
                 onDelete={(board: Board) => deleteBoard(board.id)}
               />
             </div>
-          </>
+
+            <div className="space-y-2 px-3 pb-4">
+              <button
+                type="button"
+                className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-sm transition ${
+                  currentView === 'data-sources'
+                    ? 'border-primary/60 bg-primary/10 text-primary'
+                    : 'border-border bg-card hover:bg-accent'
+                }`}
+                onClick={() => setCurrentView('data-sources')}
+              >
+                <DatabaseIcon className="h-4 w-4" />
+                <span>Data Sources</span>
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm hover:bg-accent"
+                onClick={() => setSettingsOpen(true)}
+              >
+                <SettingsIcon className="h-4 w-4" />
+                <span>Settings</span>
+              </button>
+            </div>
+          </aside>
         )}
 
-        {/* Bottom buttons */}
-        {!sidebarCollapsed && (
-          <div className="space-y-2 px-3 pb-4">
-          <button
-            type="button"
-            className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-sm transition ${
-              currentView === 'data-sources'
-                ? 'border-primary/60 bg-primary/10 text-primary'
-                : 'border-border bg-card hover:bg-accent'
-            }`}
-            onClick={() => setCurrentView('data-sources')}
-          >
-            <DatabaseIcon className="h-4 w-4" />
-            <span>Data Sources</span>
-          </button>
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm hover:bg-accent"
-            onClick={() => setSettingsOpen(true)}
-          >
-            <SettingsIcon className="h-4 w-4" />
-            <span>Settings</span>
-          </button>
+        <div className="relative flex flex-1 flex-col overflow-hidden bg-muted/5">
+          {currentView === 'data-sources' ? (
+            <DataSourcesView onImportClick={handleImportClick} refreshTrigger={dataSourcesRefresh} />
+          ) : defaultProjectId ? (
+            <BoardsView projectId={defaultProjectId} activeBoard={activeBoard} />
+          ) : (
+            <div className="flex h-full items-center justify-center">
+              <Loader />
+            </div>
+          )}
         </div>
-        )}
-      </aside>
 
-      {/* Settings Modal */}
-      <SettingsModal 
-        open={settingsOpen} 
+        <div className="hidden lg:flex">
+          <MultiTabChatPanel
+            selectedModel={selectedModel}
+            onModelChange={setSelectedModel}
+            selectedDataSource={selectedDataSource}
+            dataSources={dataSources}
+            allTables={allTables}
+            backendReady={backendReady}
+            projectId={defaultProjectId}
+            onTabsChange={(tabs, activeId) => {
+              setChatTabs(tabs);
+              setActiveChatTabId(activeId);
+            }}
+            savedTabs={currentProject?.settings?.ui_state?.chat?.open_tabs}
+            savedActiveTabId={currentProject?.settings?.ui_state?.chat?.active_tab_id}
+          />
+        </div>
+      </div>
+
+      <SettingsModal
+        open={settingsOpen}
         onOpenChange={setSettingsOpen}
         onSettingsSaved={(model) => setSelectedModel(model)}
       />
-
-      {/* Create Board Modal */}
       <CreateBoardModal
         open={showCreateBoardModal}
         onOpenChange={setShowCreateBoardModal}
@@ -424,15 +417,11 @@ export default function WorkspacePage() {
           await createBoard(name, description);
         }}
       />
-
-      {/* Create Project Modal */}
       <CreateProjectModal
         open={showCreateProjectModal}
         onOpenChange={setShowCreateProjectModal}
         onSubmit={handleCreateProject}
       />
-
-      {/* Import Modals */}
       <ImportCSVModal
         open={importCSVOpen}
         onOpenChange={setImportCSVOpen}
@@ -461,41 +450,6 @@ export default function WorkspacePage() {
         onImportSuccess={handleImportSuccess}
         existingSource={selectedSourceForImport}
       />
-
-      {/* Center area - Boards or Data Sources */}
-      <div className="relative flex flex-1 flex-col overflow-hidden bg-muted/5">
-        {currentView === 'data-sources' ? (
-          <DataSourcesView 
-            onImportClick={handleImportClick}
-            refreshTrigger={dataSourcesRefresh}
-          />
-        ) : defaultProjectId ? (
-          <BoardsView projectId={defaultProjectId} activeBoard={activeBoard} />
-        ) : (
-          <div className="flex h-full items-center justify-center">
-            <Loader />
-          </div>
-        )}
-      </div>
-
-      {/* Right Sidebar - Multi-Tab Chat Panel */}
-      <div className="hidden lg:flex">
-        <MultiTabChatPanel
-          selectedModel={selectedModel}
-          onModelChange={setSelectedModel}
-          selectedDataSource={selectedDataSource}
-          dataSources={dataSources}
-          allTables={allTables}
-          backendReady={backendReady}
-          projectId={defaultProjectId}
-          onTabsChange={(tabs, activeId) => {
-            setChatTabs(tabs);
-            setActiveChatTabId(activeId);
-          }}
-          savedTabs={currentProject?.settings?.ui_state?.chat?.open_tabs}
-          savedActiveTabId={currentProject?.settings?.ui_state?.chat?.active_tab_id}
-        />
-      </div>
     </div>
   );
 }

@@ -366,7 +366,7 @@ export function MarkdownItem({ item, onUpdate }: MarkdownItemProps) {
   }
 
   return (
-    <div className="h-full flex flex-col p-4 bg-transparent rounded-lg border border-transparent hover:border-border/50 focus-within:border-border transition-colors relative">
+    <div className="h-full flex flex-col p-2 bg-transparent rounded-lg border border-transparent hover:border-border/50 focus-within:border-border transition-colors relative">
       {/* Saving indicator */}
       {isSaving && (
         <div className="absolute top-2 right-2 text-xs text-muted-foreground flex items-center gap-1 z-10">

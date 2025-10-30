@@ -42,7 +42,7 @@ export function BoardCanvas({ items, onItemUpdate, onItemResize, onItemMove, onI
     } else if (gridRef.current) {
       // Calculate position based on drag distance
       const columnWidth = 250;
-      const rowHeight = 100;
+      const rowHeight = 50;
       
       const columnDelta = Math.round(delta.x / columnWidth);
       const rowDelta = Math.round(delta.y / rowHeight);
@@ -74,7 +74,7 @@ export function BoardCanvas({ items, onItemUpdate, onItemResize, onItemMove, onI
         // Calculate new position based on drag distance
         // Approximate: 1 column ≈ 250px (can be adjusted)
         const columnWidth = 250;
-        const rowHeight = 100;
+        const rowHeight = 50;
         
         const columnDelta = Math.round(delta.x / columnWidth);
         const rowDelta = Math.round(delta.y / rowHeight);
@@ -132,7 +132,7 @@ export function BoardCanvas({ items, onItemUpdate, onItemResize, onItemMove, onI
           onDragEnd={handleDragEnd}
           onDragCancel={handleDragCancel}
         >
-          <div ref={gridRef} className="grid grid-cols-4 gap-4 auto-rows-min relative">
+          <div ref={gridRef} className="grid grid-cols-4 gap-3 auto-rows-min relative">
             {items.map(item => (
               <ItemCard
                 key={item.id}
@@ -152,7 +152,7 @@ export function BoardCanvas({ items, onItemUpdate, onItemResize, onItemMove, onI
                 style={{
                   gridColumn: `${previewPosition.x + 1} / span ${Math.min(activeItem.width, 4)}`,
                   gridRow: `${previewPosition.y + 1} / span ${activeItem.height ?? 1}`,
-                  minHeight: `${(activeItem.height ?? 1) * 100}px`,
+                  minHeight: `${(activeItem.height ?? 1) * 50}px`,
                 }}
               />
             )}

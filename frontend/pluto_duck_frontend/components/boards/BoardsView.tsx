@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { PlusIcon } from 'lucide-react';
+import { PlusIcon, LayoutDashboard } from 'lucide-react';
 import { useBoards } from '../../hooks/useBoards';
 import { useBoardItems } from '../../hooks/useBoardItems';
 import { BoardToolbar } from './BoardToolbar';
@@ -105,19 +105,7 @@ export function BoardsView({ projectId, activeBoard }: BoardsViewProps) {
       <div className="flex h-full items-center justify-center">
         <div className="text-center space-y-2">
           <div className="inline-flex h-12 w-12 items-center justify-center rounded-lg border border-border bg-muted">
-            <svg
-              className="h-6 w-6 text-muted-foreground"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={1.5}
-                d="M4 5a1 1 0 011-1h4a1 1 0 011 1v7a1 1 0 01-1 1H5a1 1 0 01-1-1V5z"
-              />
-            </svg>
+            <LayoutDashboard className="h-6 w-6 text-muted-foreground" />
           </div>
           <p className="text-sm text-muted-foreground">Select a board from the sidebar</p>
         </div>

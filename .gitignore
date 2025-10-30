@@ -26,7 +26,7 @@ desktop
 desktop-tauri
 
 dist
-tauri-shell
+tauri-shell/src-tauri/target
 build
 
 .dev-data

@@ -68,7 +68,7 @@ export function ItemCard({ item, children, onDelete, onResize, isDragging = fals
     <div
       ref={setRefs}
       className={`
-        group relative rounded-lg border-2 bg-transparent p-4 transition-all flex flex-col
+        group relative rounded-lg border-2 bg-transparent p-2 transition-all flex flex-col
         ${isDragging ? 'opacity-40' : ''}
         ${isOver ? 'border-blue-500 bg-blue-500/10' : 'border-transparent hover:border-border/60'}
         ${className}
@@ -76,7 +76,7 @@ export function ItemCard({ item, children, onDelete, onResize, isDragging = fals
       style={{
         gridColumn: `${item.position_x + 1} / span ${columns}`,
         gridRow: `${item.position_y + 1} / span ${item.height ?? 1}`,
-        minHeight: `${(item.height ?? 1) * 100}px`,
+        minHeight: `${(item.height ?? 1) * 50}px`,
       }}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
@@ -85,10 +85,10 @@ export function ItemCard({ item, children, onDelete, onResize, isDragging = fals
       <div
         {...attributes}
         {...listeners}
-        className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing z-10"
+        className="absolute -top-1 -left-1 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing z-10"
         title="Drag to reorder"
       >
-        <div className="flex h-6 w-6 items-center justify-center rounded hover:bg-accent">
+        <div className="flex h-6 w-6 items-center justify-center rounded bg-background/80 backdrop-blur-sm border border-border shadow-sm hover:bg-accent">
           <GripVerticalIcon className="h-4 w-4" />
         </div>
       </div>
@@ -117,7 +117,7 @@ export function ItemCard({ item, children, onDelete, onResize, isDragging = fals
 
       {/* Item title */}
       {item.title && (
-        <h3 className="text-sm font-semibold mb-3 pr-8">{item.title}</h3>
+        <h3 className="text-sm font-semibold mb-2 pr-8">{item.title}</h3>
       )}
 
       {/* Item content */}

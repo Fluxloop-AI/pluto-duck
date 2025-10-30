@@ -55,40 +55,49 @@ export function TabBar({
   };
 
   return (
-    <div className="flex items-center gap-1 border-b border-border px-2 py-1 bg-background shrink-0 relative">
+    <div className="flex items-center gap-1 border-b border-border px-2 pt-3 pb-1 bg-background shrink-0 relative">
       {tabs.map(tab => (
-        <button
+        <div
           key={tab.id}
-          onClick={() => onTabClick(tab.id)}
           className={cn(
-            'flex items-center justify-center gap-2 px-3 py-1.5 rounded-t-md text-xs transition-colors',
+            'flex items-center justify-center gap-2 px-3 py-1 rounded-t-md text-xs transition-colors cursor-pointer',
             'max-w-[200px] group relative',
             activeTabId === tab.id
               ? 'bg-accent text-accent-foreground'
               : 'hover:bg-accent/50 text-muted-foreground'
           )}
+          onClick={() => onTabClick(tab.id)}
         >
           <span className="truncate">{tab.title}</span>
-          <button
+          <div
             onClick={(e) => {
               e.stopPropagation();
               onTabClose(tab.id);
             }}
             className={cn(
-              'opacity-0 group-hover:opacity-100 hover:text-destructive transition-opacity',
+              'opacity-0 group-hover:opacity-100 hover:text-destructive transition-opacity cursor-pointer',
               'flex items-center justify-center'
             )}
             title="Close tab"
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                e.stopPropagation();
+                onTabClose(tab.id);
+              }
+            }}
           >
             <XIcon className="h-3 w-3" />
-          </button>
-        </button>
+          </div>
+        </div>
       ))}
       
       {tabs.length < maxTabs && (
         <button
           onClick={onNewTab}
-          className="p-1.5 hover:bg-accent rounded-md transition-colors"
+          className="p-1 hover:bg-accent rounded-md transition-colors"
           title="New tab"
         >
           <PlusIcon className="h-4 w-4" />
@@ -100,7 +109,7 @@ export function TabBar({
           <button
             ref={buttonRef}
             onClick={() => setShowSessionPopup(!showSessionPopup)}
-            className="p-1.5 hover:bg-accent rounded-md transition-colors"
+            className="p-1 hover:bg-accent rounded-md transition-colors"
             title="Load conversation"
           >
             <History className="h-4 w-4" />

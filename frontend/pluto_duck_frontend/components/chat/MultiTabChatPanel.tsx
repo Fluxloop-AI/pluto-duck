@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import { PlusIcon } from 'lucide-react';
 import { TabBar } from './TabBar';
 import { ChatPanel } from './ChatPanel';
@@ -13,7 +14,11 @@ interface MultiTabChatPanelProps {
   dataSources: DataSource[];
   allTables: DataSourceTable[];
   backendReady: boolean;
+  projectId?: string | null;
   onSessionSelect?: (sessionId: string) => void;
+  onTabsChange?: (tabs: ChatTab[], activeTabId: string | null) => void;
+  savedTabs?: Array<{ id: string; order: number }>;
+  savedActiveTabId?: string;
 }
 
 export function MultiTabChatPanel({
@@ -23,28 +28,95 @@ export function MultiTabChatPanel({
   dataSources,
   allTables,
   backendReady,
+  projectId,
   onSessionSelect,
+  onTabsChange,
+  savedTabs,
+  savedActiveTabId,
 }: MultiTabChatPanelProps) {
   const {
     tabs,
     activeTabId,
     activeTab,
-    detail,
+    turns,
+    lastAssistantMessageId,
     loading,
     isStreaming,
     status,
-    reasoningEvents,
     sessions,
     addTab,
     closeTab,
     switchTab,
     openSessionInTab,
     handleSubmit,
+    restoreTabs,
   } = useMultiTabChat({
     selectedModel,
     selectedDataSource,
     backendReady,
+    projectId,
   });
+
+  const lastRestoreKeyRef = useRef<string | null>(null);
+
+  // Notify parent when tabs change
+  useEffect(() => {
+    if (onTabsChange) {
+      onTabsChange(tabs, activeTabId);
+    }
+  }, [tabs, activeTabId, onTabsChange]);
+
+  // Restore tabs when project changes and sessions are loaded
+  useEffect(() => {
+    const savedTabsKey = savedTabs ? JSON.stringify(savedTabs) : '[]';
+    const restoreKey = `${projectId ?? ''}|${savedTabsKey}|${savedActiveTabId ?? ''}|${sessions.length}`;
+
+    console.log('[MultiTabChatPanel] Restore useEffect triggered', {
+      projectId,
+      savedTabs,
+      savedActiveTabId,
+      sessionsCount: sessions.length,
+      tabsCount: tabs.length,
+      restoreKey,
+      lastRestoreKey: lastRestoreKeyRef.current,
+    });
+    
+    if (!projectId) {
+      return;
+    }
+    
+    if (!savedTabs || savedTabs.length === 0) {
+      lastRestoreKeyRef.current = restoreKey;
+      return;
+    }
+    
+    if (sessions.length === 0) {
+      return;
+    }
+    
+    // Only restore if tabs are empty (after reset)
+    if (tabs.length > 0) {
+      lastRestoreKeyRef.current = restoreKey;
+      return;
+    }
+
+    if (lastRestoreKeyRef.current === restoreKey) {
+      return;
+    }
+    
+    // Restore tabs after sessions are loaded
+    console.log('[MultiTabChatPanel] Starting restore with', savedTabs.length, 'tabs');
+    lastRestoreKeyRef.current = restoreKey;
+    
+    const timer = setTimeout(() => {
+      console.log('[MultiTabChatPanel] Calling restoreTabs with', savedTabs, savedActiveTabId);
+      void restoreTabs(savedTabs, savedActiveTabId);
+    }, 300);
+    
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [projectId, sessions.length, tabs.length, savedTabs, savedActiveTabId]);
 
   return (
     <div className="flex flex-col h-full w-[500px] border-l border-border bg-background">
@@ -63,11 +135,11 @@ export function MultiTabChatPanel({
           <div className="absolute inset-0 flex flex-col">
             <ChatPanel
               activeSession={null}
-              detail={null}
+              turns={[]}
+              lastAssistantMessageId={null}
               loading={false}
               isStreaming={false}
               status="ready"
-              reasoningEvents={[]}
               selectedModel={selectedModel}
               onModelChange={onModelChange}
               dataSources={dataSources}
@@ -95,11 +167,11 @@ export function MultiTabChatPanel({
                   updated_at: new Date(tab.createdAt).toISOString(),
                   last_message_preview: null,
                 } : null}
-                detail={detail}
+                turns={turns}
+                lastAssistantMessageId={lastAssistantMessageId}
                 loading={loading}
                 isStreaming={isStreaming}
                 status={status}
-                reasoningEvents={reasoningEvents}
                 selectedModel={selectedModel}
                 onModelChange={onModelChange}
                 dataSources={dataSources}

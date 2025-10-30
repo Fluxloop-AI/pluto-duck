@@ -49,6 +49,7 @@ DDL_STATEMENTS = [
         content JSON NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         seq INTEGER,
+        run_id UUID,
         UNIQUE(conversation_id, seq)
     )
     """,
@@ -76,6 +77,9 @@ DDL_STATEMENTS = [
     """,
     """
     CREATE INDEX IF NOT EXISTS idx_messages_conversation ON agent_messages(conversation_id, seq)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_messages_run ON agent_messages(run_id, seq)
     """,
     """
     CREATE INDEX IF NOT EXISTS idx_events_conversation ON agent_events(conversation_id, timestamp)
@@ -214,6 +218,7 @@ class ConversationSummary:
     updated_at: datetime
     last_message_preview: Optional[str]
     run_id: Optional[str]
+    project_id: Optional[str] = None
 
 
 class ChatRepository:
@@ -287,6 +292,12 @@ class ChatRepository:
         title = snippet[:80] if snippet else None
         preview = snippet[:160] if snippet else None
         now = datetime.now(UTC)
+        
+        # Extract project_id from metadata if provided, otherwise use default
+        project_id = self._default_project_id
+        if metadata and 'project_id' in metadata:
+            project_id = metadata['project_id']
+        
         with self._connect() as con:
             # Check if conversation already exists
             existing = con.execute(
@@ -305,7 +316,7 @@ class ChatRepository:
                 """,
                 [
                     conversation_id,
-                    self._default_project_id,
+                    project_id,
                     title,
                     now,
                     now,
@@ -321,6 +332,7 @@ class ChatRepository:
         role: str,
         content: Dict[str, Any],
         *,
+        run_id: Optional[str] = None,
         connection: Optional[duckdb.DuckDBPyConnection] = None,
     ) -> None:
         owns_connection = connection is None
@@ -330,10 +342,10 @@ class ChatRepository:
             message_id = self._generate_uuid()
             con.execute(
                 """
-                INSERT INTO agent_messages (id, conversation_id, role, content, created_at, seq)
-                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+                INSERT INTO agent_messages (id, conversation_id, role, content, created_at, seq, run_id)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)
                 """,
-                [message_id, conversation_id, role, json.dumps(content), seq],
+                [message_id, conversation_id, role, json.dumps(content), seq, run_id],
             )
             self._touch_conversation(
                 conversation_id,
@@ -486,17 +498,23 @@ class ChatRepository:
             if owns_connection:
                 con.close()
 
-    def list_conversations(self, limit: int = 50, offset: int = 0) -> List[ConversationSummary]:
+    def list_conversations(self, limit: int = 50, offset: int = 0, project_id: Optional[str] = None) -> List[ConversationSummary]:
         with self._connect() as con:
-            rows = con.execute(
-                """
-                SELECT id, title, status, created_at, updated_at, last_message_preview, run_id
+            query = """
+                SELECT id, title, status, created_at, updated_at, last_message_preview, run_id, project_id
                 FROM agent_conversations
-                ORDER BY updated_at DESC
-                LIMIT ? OFFSET ?
-                """,
-                [limit, offset],
-            ).fetchall()
+            """
+            params = []
+            
+            # Add project_id filter if provided
+            if project_id:
+                query += " WHERE project_id = ?"
+                params.append(project_id)
+            
+            query += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
+            
+            rows = con.execute(query, params).fetchall()
         return [
             ConversationSummary(
                 id=row[0],
@@ -506,6 +524,7 @@ class ChatRepository:
                 updated_at=self._ensure_utc(row[4]),
                 last_message_preview=self._normalize_preview_for_response(row[5]),
                 run_id=row[6],
+                project_id=str(row[7]) if row[7] else None,
             )
             for row in rows
         ]
@@ -514,7 +533,7 @@ class ChatRepository:
         with self._connect() as con:
             row = con.execute(
                 """
-                SELECT id, title, status, created_at, updated_at, last_message_preview, run_id
+                SELECT id, title, status, created_at, updated_at, last_message_preview, run_id, project_id
                 FROM agent_conversations
                 WHERE id = ?
                 """,
@@ -530,13 +549,14 @@ class ChatRepository:
             updated_at=self._ensure_utc(row[4]),
             last_message_preview=self._normalize_preview_for_response(row[5]),
             run_id=row[6],
+            project_id=str(row[7]) if row[7] else None,
         )
 
     def get_conversation_messages(self, conversation_id: str) -> List[Dict[str, Any]]:
         with self._connect() as con:
             rows = con.execute(
                 """
-                SELECT id, role, content, created_at, seq
+                SELECT id, role, content, created_at, seq, run_id
                 FROM agent_messages
                 WHERE conversation_id = ?
                 ORDER BY seq ASC
@@ -553,6 +573,7 @@ class ChatRepository:
                     "content": content,
                     "created_at": self._ensure_utc(row[3]).isoformat(),
                     "seq": row[4],
+                    "run_id": row[5],
                 }
             )
         return messages

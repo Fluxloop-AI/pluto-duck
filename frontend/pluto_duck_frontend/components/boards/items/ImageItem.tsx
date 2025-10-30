@@ -150,11 +150,11 @@ export function ImageItem({ item, projectId, onUpdate }: ImageItemProps) {
           <button
             onClick={handleClick}
             disabled={uploading}
-            className="px-4 py-2 bg-white text-black rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-50"
+            className="px-3 py-1.5 bg-white text-black text-xs rounded-md hover:bg-gray-100 transition-colors disabled:opacity-50"
           >
             {uploading ? (
-              <span className="flex items-center gap-2">
-                <Loader2Icon className="w-4 h-4 animate-spin" />
+              <span className="flex items-center gap-1.5">
+                <Loader2Icon className="w-3.5 h-3.5 animate-spin" />
                 Uploading...
               </span>
             ) : (

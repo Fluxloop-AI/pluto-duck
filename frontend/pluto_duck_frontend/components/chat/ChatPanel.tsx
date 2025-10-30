@@ -6,7 +6,6 @@ import {
   Conversation,
   ConversationContent,
   ConversationScrollButton,
-  MessageAvatar,
   Response,
   Reasoning,
   ReasoningTrigger,
@@ -37,9 +36,9 @@ import {
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
 import { Button } from '../ui/button';
-import type { ChatSessionDetail, ChatSessionSummary } from '../../lib/chatApi';
+import type { ChatSessionSummary } from '../../lib/chatApi';
 import type { DataSource, DataSourceTable } from '../../lib/dataSourcesApi';
-import type { AgentEventAny } from '../../types/agent';
+import type { ChatTurn } from '../../hooks/useMultiTabChat';
 
 const suggestions = [
   'Show me top 5 products by revenue',
@@ -54,11 +53,11 @@ const MODELS = [
 
 interface ChatPanelProps {
   activeSession: ChatSessionSummary | null;
-  detail: ChatSessionDetail | null;
+  turns: ChatTurn[];
+  lastAssistantMessageId: string | null;
   loading: boolean;
   isStreaming: boolean;
   status: 'ready' | 'streaming' | 'error';
-  reasoningEvents: AgentEventAny[];
   selectedModel: string;
   onModelChange: (model: string) => void;
   dataSources: DataSource[];
@@ -68,11 +67,11 @@ interface ChatPanelProps {
 
 export function ChatPanel({
   activeSession,
-  detail,
+  turns,
+  lastAssistantMessageId,
   loading,
   isStreaming,
   status,
-  reasoningEvents,
   selectedModel,
   onModelChange,
   dataSources,
@@ -82,16 +81,6 @@ export function ChatPanel({
   const [input, setInput] = useState('');
   const [showTableSelector, setShowTableSelector] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const messages = detail?.messages || [];
-  const hasReasoning = reasoningEvents.length > 0;
-  const reasoningText = reasoningEvents
-    .map(event => {
-      const content = event.content as any;
-      return content && typeof content === 'object' && content.reason ? String(content.reason) : '';
-    })
-    .filter(Boolean)
-    .join('\n\n');
 
   const handleSuggestionClick = useCallback((suggestion: string) => {
     setInput(suggestion);
@@ -150,9 +139,9 @@ export function ChatPanel({
   return (
     <div className="flex h-full w-full flex-col bg-background">
       {/* Messages area */}
-      <div className="flex-1 overflow-hidden">
-        <Conversation>
-          <ConversationContent className="flex flex-col min-h-full">
+      <div className="flex-1 min-h-0">
+        <Conversation className="h-full">
+          <ConversationContent>
             {loading && (
               <div className="px-4 py-6">
                 <div className="mx-auto">
@@ -161,12 +150,10 @@ export function ChatPanel({
               </div>
             )}
 
-            {messages.map((message, messageIndex) => (
-              <div key={message.id} className="group px-4 py-6">
-                <div>
-                  {message.role === 'user' ? (
-                    /* User message - simple bubble */
-                    <div className="flex justify-end">
+            {turns.map(turn => (
+                <div key={turn.key} className="group px-4 py-6 space-y-4">
+                  {turn.userMessages.map(message => (
+                    <div key={message.id} className="flex justify-end">
                       <div className="rounded-2xl bg-primary px-4 py-3 text-primary-foreground">
                         <p className="text-sm">
                           {typeof message.content === 'object' && message.content?.text
@@ -177,20 +164,51 @@ export function ChatPanel({
                         </p>
                       </div>
                     </div>
-                  ) : (
-                    /* Assistant message - streaming response with avatar */
-                    <div className="flex gap-4">
-                      <MessageAvatar name="Agent" src="https://github.com/openai.png" />
-                      <div className="flex-1 space-y-4">
-                        {/* Show reasoning for assistant messages */}
-                        {hasReasoning && messageIndex === messages.length - 1 && (
-                          <Reasoning isStreaming={isStreaming} defaultOpen={true}>
-                            <ReasoningTrigger />
-                            <ReasoningContent>{reasoningText}</ReasoningContent>
-                          </Reasoning>
-                        )}
+                  ))}
 
-                        {/* Message content - no bubble, just text */}
+                  {turn.otherMessages.map(message => (
+                    <div key={message.id} className="rounded-2xl border border-border px-4 py-3 text-sm text-muted-foreground">
+                      {typeof message.content === 'string' ? message.content : JSON.stringify(message.content)}
+                    </div>
+                  ))}
+
+                  {turn.reasoningText && turn.runId && (
+                    <Reasoning isStreaming={turn.isActive} defaultOpen={true}>
+                      <ReasoningTrigger />
+                      <ReasoningContent>{turn.reasoningText}</ReasoningContent>
+                    </Reasoning>
+                  )}
+
+                  {turn.toolEvents.length > 0 && (
+                    <div className="space-y-2">
+                      {turn.toolEvents.map((event, index) => (
+                        <div
+                          key={`${turn.key}-tool-${index}`}
+                          className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-100"
+                        >
+                          <header className="mb-1 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wide text-amber-400">
+                            <span>
+                              {event.type}.{event.subtype ?? 'event'}
+                            </span>
+                            {event.timestamp && (
+                              <time className="font-normal text-slate-500">
+                                {new Date(event.timestamp).toLocaleTimeString()}
+                              </time>
+                            )}
+                          </header>
+                          <pre className="overflow-x-auto whitespace-pre-wrap break-words text-[11px] text-amber-50">
+                            {typeof event.content === 'string'
+                              ? event.content
+                              : JSON.stringify(event.content, null, 2)}
+                          </pre>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {turn.assistantMessages.map(message => (
+                    <div key={message.id} className="flex gap-4">
+                      <div className="flex-1 space-y-4">
                         <div className="prose prose-sm dark:prose-invert max-w-none">
                           <Response>
                             {typeof message.content === 'object' && message.content?.text
@@ -201,8 +219,7 @@ export function ChatPanel({
                           </Response>
                         </div>
 
-                        {/* Actions for last assistant message */}
-                        {messageIndex === messages.length - 1 && (
+                        {message.id === lastAssistantMessageId && (
                           <Actions className="opacity-0 transition-opacity group-hover:opacity-100">
                             <Action onClick={handleRegenerate} label="Retry">
                               <RefreshCcwIcon className="size-3" />
@@ -223,13 +240,12 @@ export function ChatPanel({
                         )}
                       </div>
                     </div>
-                  )}
+                  ))}
                 </div>
-              </div>
             ))}
 
             {/* Loading indicator during streaming */}
-            {isStreaming && messages.length > 0 && (
+            {isStreaming && turns.length > 0 && (
               <div className="px-4 py-6">
                 <div className="mx-auto">
                   <Loader />
@@ -238,7 +254,7 @@ export function ChatPanel({
             )}
 
             {/* Empty state */}
-            {/* {!loading && messages.length === 0 && (
+            {/* {!loading && turns.length === 0 && (
               <div className="flex flex-1 items-center justify-center px-4">
                 <div className="mx-auto text-center space-y-6">
                   <p className="text-sm text-muted-foreground">
@@ -275,12 +291,12 @@ export function ChatPanel({
               <PromptInputTools>
                 {/* Model selection */}
                 <PromptInputModelSelect value={selectedModel} onValueChange={onModelChange}>
-                  <PromptInputModelSelectTrigger>
+                  <PromptInputModelSelectTrigger className="h-7 text-xs">
                     <PromptInputModelSelectValue />
                   </PromptInputModelSelectTrigger>
                   <PromptInputModelSelectContent>
                     {MODELS.map(model => (
-                      <PromptInputModelSelectItem key={model.id} value={model.id}>
+                      <PromptInputModelSelectItem key={model.id} value={model.id} className="text-xs">
                         {model.name}
                       </PromptInputModelSelectItem>
                     ))}
@@ -293,16 +309,16 @@ export function ChatPanel({
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-8 gap-1 border-none bg-transparent font-medium text-muted-foreground shadow-none transition-colors hover:bg-accent hover:text-foreground"
+                      className="h-7 gap-1 border-none bg-transparent text-xs font-medium text-muted-foreground shadow-none transition-colors hover:bg-accent hover:text-foreground"
                       title="Insert table mention"
                     >
-                      <AtSignIcon className="h-4 w-4" />
+                      <AtSignIcon className="h-3 w-3" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="w-64 max-h-96 overflow-y-auto">
-                    <DropdownMenuItem onSelect={handleTableMentionAll}>
+                  <DropdownMenuContent align="start" className="w-56 max-h-80 overflow-y-auto">
+                    <DropdownMenuItem onSelect={handleTableMentionAll} className="text-xs">
                       <span className="font-medium">All sources</span>
-                      <span className="ml-auto text-xs text-muted-foreground">
+                      <span className="ml-auto text-muted-foreground">
                         {allTables.length} tables
                       </span>
                     </DropdownMenuItem>
@@ -316,10 +332,10 @@ export function ChatPanel({
                         <Fragment key={source.id}>
                           <DropdownMenuItem 
                             onSelect={() => handleTableMentionSource(source.id)}
-                            className="font-medium"
+                            className="text-xs font-medium"
                           >
                             {source.name}
-                            <span className="ml-auto text-xs text-muted-foreground">
+                            <span className="ml-auto text-muted-foreground">
                               {source.table_count}
                             </span>
                           </DropdownMenuItem>
@@ -327,7 +343,7 @@ export function ChatPanel({
                             <DropdownMenuItem
                               key={table.id}
                               onSelect={() => handleTableMentionSingle(table.target_table)}
-                              className="pl-6 text-sm"
+                              className="text-xs pl-6"
                             >
                               <ChevronRightIcon className="h-3 w-3 mr-1" />
                               {table.target_table}
@@ -339,7 +355,11 @@ export function ChatPanel({
                   </DropdownMenuContent>
                 </DropdownMenu>
               </PromptInputTools>
-              <PromptInputSubmit disabled={!input.trim() || isStreaming} status={status} />
+              <PromptInputSubmit 
+                disabled={!input.trim() || isStreaming} 
+                status={status} 
+                className="h-7 w-7"
+              />
             </PromptInputFooter>
           </PromptInput>
         </div>

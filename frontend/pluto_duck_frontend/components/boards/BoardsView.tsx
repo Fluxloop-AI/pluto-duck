@@ -7,7 +7,6 @@ import { useBoardItems } from '../../hooks/useBoardItems';
 import { BoardToolbar } from './BoardToolbar';
 import { BoardCanvas } from './BoardCanvas';
 import { AddItemModal } from './modals/AddItemModal';
-import { TestEditorModal } from './modals/TestEditorModal';
 import { MarkdownItem, ChartItem, TableItem, MetricItem, ImageItem } from './items';
 import { Loader } from '../ai-elements';
 import type { BoardItem, Board } from '../../lib/boardsApi';
@@ -28,14 +27,9 @@ export function BoardsView({ projectId, activeBoard }: BoardsViewProps) {
   } = useBoardItems({ boardId: activeBoard?.id });
 
   const [showAddItemModal, setShowAddItemModal] = useState(false);
-  const [showTestEditorModal, setShowTestEditorModal] = useState(false);
 
   const handleAddItem = () => {
     setShowAddItemModal(true);
-  };
-
-  const handleTestEditor = () => {
-    setShowTestEditorModal(true);
   };
 
   const handleCreateItem = async (itemType: string, title?: string) => {
@@ -138,18 +132,12 @@ export function BoardsView({ projectId, activeBoard }: BoardsViewProps) {
         onOpenChange={setShowAddItemModal}
         onSubmit={handleCreateItem}
       />
-      
-      <TestEditorModal
-        open={showTestEditorModal}
-        onOpenChange={setShowTestEditorModal}
-      />
 
       <div className="flex h-full flex-col">
         <BoardToolbar
           board={activeBoard}
           onAddItem={handleAddItem}
           onSettings={handleSettings}
-          onTestEditor={handleTestEditor}
         />
 
         <BoardCanvas

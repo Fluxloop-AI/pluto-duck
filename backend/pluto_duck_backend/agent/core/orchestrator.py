@@ -124,7 +124,7 @@ class AgentRunManager:
         if summary is None:
             if not create_if_missing:
                 raise KeyError(conversation_id)
-            repo.create_conversation(conversation_id, question)
+            repo.create_conversation(conversation_id, question, metadata)
 
         run_id = str(uuid4())
         run = AgentRun(run_id, conversation_id, question, model=model, metadata=metadata)
@@ -134,6 +134,7 @@ class AgentRunManager:
             conversation_id,
             "user",
             {"text": question, "metadata": metadata or {}},
+            run_id=run_id,
         )
         repo.set_active_run(conversation_id, run_id)
         repo.mark_run_started(conversation_id, last_message_preview=question[:160])
@@ -175,6 +176,7 @@ class AgentRunManager:
                 type=EventType.RUN,
                 subtype=EventSubType.ERROR,
                 content={"error": str(exc)},
+                metadata={"run_id": run.run_id},
             )
             await run.queue.put(event.to_dict())
             final_state = {"error": str(exc)}
@@ -187,6 +189,7 @@ class AgentRunManager:
                 type=EventType.RUN,
                 subtype=EventSubType.END,
                 content=_serialize(final_state),
+                metadata={"run_id": run.run_id},
             )
             await run.queue.put(end_event.to_dict())
             repo.log_event(run.conversation_id, end_event.to_dict())
@@ -215,6 +218,8 @@ class AgentRunManager:
 
     def _events_from_update(self, node_name: str, update: Dict[str, Any], run: AgentRun) -> List[AgentEvent]:
         events: List[AgentEvent] = []
+        run_metadata = {"run_id": run.run_id}
+        
         if node_name == "reasoning":
             decision = update.get("context", {}).get("reasoning_decision")
             reason = _extract_reasoning_message(update) or ""
@@ -224,6 +229,7 @@ class AgentRunManager:
                     type=EventType.REASONING,
                     subtype=EventSubType.CHUNK,
                     content={"decision": decision, "reason": reason},
+                    metadata=run_metadata,
                 )
             )
         elif node_name == "planner":
@@ -233,6 +239,7 @@ class AgentRunManager:
                     type=EventType.TOOL,
                     subtype=EventSubType.END,
                     content={"tool": "planner", "plan": plan},
+                    metadata=run_metadata,
                 )
             )
         elif node_name == "schema":
@@ -242,6 +249,7 @@ class AgentRunManager:
                     type=EventType.TOOL,
                     subtype=EventSubType.CHUNK,
                     content={"tool": "schema", "preview": preview},
+                    metadata=run_metadata,
                 )
             )
         elif node_name == "sql":
@@ -251,6 +259,7 @@ class AgentRunManager:
                     type=EventType.TOOL,
                     subtype=EventSubType.CHUNK,
                     content={"tool": "sql", "sql": sql_text},
+                    metadata=run_metadata,
                 )
             )
         elif node_name == "verifier":
@@ -260,6 +269,7 @@ class AgentRunManager:
                     type=EventType.TOOL,
                     subtype=EventSubType.END,
                     content={"tool": "verifier", "result": _serialize(result)},
+                    metadata=run_metadata,
                 )
             )
         elif node_name == "finalize":
@@ -272,12 +282,13 @@ class AgentRunManager:
                     type=EventType.MESSAGE,
                     subtype=EventSubType.FINAL,
                     content={"text": final_answer},
+                    metadata=run_metadata,
                 )
             )
             
             # Save only the final answer to DB, not the entire context
             repo = get_chat_repository()
-            repo.append_message(run.conversation_id, "assistant", {"text": final_answer})
+            repo.append_message(run.conversation_id, "assistant", {"text": final_answer}, run_id=run.run_id)
             if isinstance(final_answer, str) and final_answer.strip():
                 run.flags["final_preview"] = final_answer.strip()[:160]
         return events

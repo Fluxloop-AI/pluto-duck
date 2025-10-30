@@ -9,19 +9,24 @@ export interface ChatSessionSummary {
   last_message_preview: string | null;
   run_id?: string;
   events_url?: string;
+  project_id?: string;
 }
 
 export interface ChatSessionDetail {
   id: string;
   status: string;
-  messages: Array<{ id: string; role: string; content: any; created_at: string; seq: number }>;
+  messages: Array<{ id: string; role: string; content: any; created_at: string; seq: number; run_id?: string | null }>;
   events?: Array<{ type: string; subtype: string; content: any; metadata?: any; timestamp?: string }>;
   events_url?: string;
   run_id?: string;
 }
 
-export async function fetchChatSessions(): Promise<ChatSessionSummary[]> {
-  const response = await fetch(`${getBackendUrl()}/api/v1/chat/sessions`);
+export async function fetchChatSessions(projectId?: string): Promise<ChatSessionSummary[]> {
+  const url = new URL(`${getBackendUrl()}/api/v1/chat/sessions`);
+  if (projectId) {
+    url.searchParams.set('project_id', projectId);
+  }
+  const response = await fetch(url.toString());
   if (!response.ok) {
     throw new Error(`Failed to fetch sessions: ${response.status}`);
   }
@@ -77,6 +82,7 @@ export interface AppendMessagePayload {
   content: any;
   model?: string;
   metadata?: Record<string, unknown>;
+  run_id?: string;
 }
 
 export async function appendMessage(
@@ -95,8 +101,12 @@ export async function appendMessage(
   return response.json();
 }
 
-export async function deleteConversation(conversationId: string): Promise<void> {
-  const response = await fetch(`${getBackendUrl()}/api/v1/chat/sessions/${conversationId}`, {
+export async function deleteConversation(conversationId: string, projectId?: string): Promise<void> {
+  const url = new URL(`${getBackendUrl()}/api/v1/chat/sessions/${conversationId}`);
+  if (projectId) {
+    url.searchParams.set('project_id', projectId);
+  }
+  const response = await fetch(url.toString(), {
     method: 'DELETE',
   });
   if (!response.ok) {

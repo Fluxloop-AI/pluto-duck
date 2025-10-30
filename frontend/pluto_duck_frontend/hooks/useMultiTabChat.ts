@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createConversation,
   fetchChatSession,
@@ -20,6 +20,36 @@ export interface ChatTab {
   sessionId: string | null;
   title: string;
   createdAt: number;
+}
+
+export interface DetailMessage {
+  id: string;
+  role: string;
+  content: any;
+  created_at: string;
+  seq: number;
+  run_id?: string | null;
+}
+
+export interface ChatEvent {
+  type: string;
+  subtype?: string;
+  content: any;
+  metadata?: Record<string, any> | null;
+  timestamp?: string;
+}
+
+export interface ChatTurn {
+  key: string;
+  runId: string | null;
+  seq: number;
+  userMessages: DetailMessage[];
+  assistantMessages: DetailMessage[];
+  otherMessages: DetailMessage[];
+  events: ChatEvent[];
+  reasoningText: string;
+  toolEvents: ChatEvent[];
+  isActive: boolean;
 }
 
 interface TabChatState {
@@ -116,9 +146,10 @@ export interface UseMultiTabChatOptions {
   selectedModel: string;
   selectedDataSource?: string;
   backendReady: boolean;
+  projectId?: string | null;
 }
 
-export function useMultiTabChat({ selectedModel, selectedDataSource, backendReady }: UseMultiTabChatOptions) {
+export function useMultiTabChat({ selectedModel, selectedDataSource, backendReady, projectId }: UseMultiTabChatOptions) {
   const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
   const [tabs, setTabs] = useState<ChatTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
@@ -147,17 +178,23 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
 
   const loadSessions = useCallback(async () => {
     try {
-      console.info('[MultiTabChat] Loading sessions');
-      const data = await fetchChatSessions();
+      console.info('[MultiTabChat] Loading sessions for project', projectId);
+      const data = await fetchChatSessions(projectId || undefined);
       const normalizedSessions = data.map(session => ({
         ...session,
         last_message_preview: normalizePreview(session.last_message_preview),
       }));
-      setSessions(normalizedSessions);
+      
+      // Additional client-side filter as backup (in case backend doesn't filter)
+      const filtered = projectId 
+        ? normalizedSessions.filter(s => s.project_id === projectId)
+        : normalizedSessions;
+      
+      setSessions(filtered);
     } catch (error) {
       console.error('Failed to load sessions', error);
     }
-  }, []);
+  }, [projectId]);
 
   const fetchDetail = useCallback(async (sessionId: string, includeEvents: boolean = true) => {
     console.info('[MultiTabChat] Fetching session detail', sessionId, { includeEvents });
@@ -165,6 +202,13 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
     console.info('[MultiTabChat] Session detail response', response);
     return response;
   }, []);
+
+  // Reset tabs when projectId changes
+  useEffect(() => {
+    setTabs([]);
+    setActiveTabId(null);
+    tabStatesRef.current.clear();
+  }, [projectId]);
 
   useEffect(() => {
     if (backendReady) {
@@ -184,18 +228,17 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
 
     async function loadDetail() {
       const currentState = tabStatesRef.current.get(currentTabId);
-      if (currentState?.detail?.id === sessionId) {
+      if (currentState?.detail?.id === sessionId && !currentState.loading) {
         // Already loaded
         return;
       }
 
       try {
-        const newState: TabChatState = {
-          detail: null,
+        tabStatesRef.current.set(currentTabId, {
+          detail: currentState?.detail ?? null,
           loading: true,
-          activeRunId: null,
-        };
-        tabStatesRef.current.set(currentTabId, newState);
+          activeRunId: currentState?.activeRunId ?? null,
+        });
 
         const response = await fetchDetail(sessionId, true);
         
@@ -217,9 +260,9 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
         console.error('[MultiTabChat] Failed to load detail', error);
         if (!cancelled) {
           tabStatesRef.current.set(currentTabId, {
-            detail: null,
+            detail: currentState?.detail ?? null,
             loading: false,
-            activeRunId: null,
+            activeRunId: currentState?.activeRunId ?? null,
           });
         }
       }
@@ -232,15 +275,174 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
     };
   }, [activeTab?.id, activeTab?.sessionId, fetchDetail, updateSessionPreview]);
 
-  const events = streamEvents;
-  const reasoningEvents = events.filter(e => e.type === 'reasoning');
-  const runHasEnded = events.some(event =>
-    (event.type === 'run' && event.subtype === 'end') ||
-    (event.type === 'message' && event.subtype === 'final'),
+  const runHasEndedStream = useMemo(
+    () =>
+      streamEvents.some(event =>
+        (event.type === 'run' && event.subtype === 'end') ||
+        (event.type === 'message' && event.subtype === 'final'),
+      ),
+    [streamEvents],
   );
 
-  const isStreaming = (streamStatus === 'streaming' || streamStatus === 'connecting') && !runHasEnded;
+  const isStreaming = (streamStatus === 'streaming' || streamStatus === 'connecting') && !runHasEndedStream;
   const status: 'ready' | 'streaming' | 'error' = streamStatus === 'error' ? 'error' : isStreaming ? 'streaming' : 'ready';
+
+  // Build turns from messages and events
+  const turns = useMemo<ChatTurn[]>(() => {
+    const detail = activeTabState?.detail;
+    if (!detail) return [];
+
+    const messages = (detail.messages as DetailMessage[]) || [];
+    
+    // Normalize stored events
+    const storedEvents: ChatEvent[] = (detail.events || []).map(evt => ({
+      type: evt.type,
+      subtype: evt.subtype,
+      content: evt.content,
+      metadata: evt.metadata ?? null,
+      timestamp: evt.timestamp,
+    }));
+
+    // Build event map by run_id
+    const eventsByRunId = new Map<string, ChatEvent[]>();
+
+    const addEvent = (event: ChatEvent) => {
+      const runId = event.metadata?.run_id;
+      if (!runId) return;
+      if (!eventsByRunId.has(runId)) {
+        eventsByRunId.set(runId, []);
+      }
+      eventsByRunId.get(runId)!.push(event);
+    };
+
+    storedEvents.forEach(addEvent);
+
+    // Add live stream events if streaming
+    if (isStreaming) {
+      streamEvents.forEach(event => {
+        const normalized: ChatEvent = {
+          type: event.type as string,
+          subtype: event.subtype,
+          content: event.content,
+          metadata: event.metadata as Record<string, any> | null,
+          timestamp: event.timestamp,
+        };
+        addEvent(normalized);
+      });
+    }
+
+    // Group messages by run_id
+    const runs = new Map<string, ChatTurn>();
+    const result: ChatTurn[] = [];
+
+    const ensureRunTurn = (runId: string, seq: number) => {
+      let turn = runs.get(runId);
+      if (!turn) {
+        turn = {
+          key: `run-${runId}`,
+          runId,
+          seq,
+          userMessages: [],
+          assistantMessages: [],
+          otherMessages: [],
+          events: [],
+          reasoningText: '',
+          toolEvents: [],
+          isActive: false,
+        };
+        runs.set(runId, turn);
+        result.push(turn);
+      } else if (seq < turn.seq) {
+        turn.seq = seq;
+      }
+      return turn;
+    };
+
+    messages.forEach(message => {
+      const seq = typeof message.seq === 'number' ? message.seq : Number.MAX_SAFE_INTEGER;
+      const runId = message.run_id ?? null;
+
+      if (runId) {
+        const turn = ensureRunTurn(runId, seq);
+        if (message.role === 'user') {
+          turn.userMessages.push(message);
+        } else if (message.role === 'assistant') {
+          turn.assistantMessages.push(message);
+        } else {
+          turn.otherMessages.push(message);
+        }
+      } else {
+        // Legacy message without run_id
+        result.push({
+          key: `message-${message.id}`,
+          runId: null,
+          seq,
+          userMessages: message.role === 'user' ? [message] : [],
+          assistantMessages: message.role === 'assistant' ? [message] : [],
+          otherMessages: message.role !== 'user' && message.role !== 'assistant' ? [message] : [],
+          events: [],
+          reasoningText: '',
+          toolEvents: [],
+          isActive: false,
+        });
+      }
+    });
+
+    // Add empty turn for active streaming run if not in messages yet
+    if (isStreaming && activeRunId && !runs.has(activeRunId)) {
+      runs.set(activeRunId, {
+        key: `run-${activeRunId}`,
+        runId: activeRunId,
+        seq: Number.MAX_SAFE_INTEGER,
+        userMessages: [],
+        assistantMessages: [],
+        otherMessages: [],
+        events: [],
+        reasoningText: '',
+        toolEvents: [],
+        isActive: true,
+      });
+      result.push(runs.get(activeRunId)!);
+    }
+
+    // Attach events to each run and extract reasoning/tools
+    runs.forEach(turn => {
+      if (turn.runId) {
+        turn.events = [...(eventsByRunId.get(turn.runId) ?? [])];
+        turn.isActive = isStreaming && turn.runId === activeRunId;
+        
+        // Extract reasoning text
+        turn.reasoningText = turn.events
+          .filter(event => event.type === 'reasoning')
+          .map(event => {
+            const content = event.content as any;
+            return content && typeof content === 'object' && content.reason ? String(content.reason) : '';
+          })
+          .filter(Boolean)
+          .join('\n\n');
+        
+        // Extract tool events
+        turn.toolEvents = turn.events.filter(event => event.type === 'tool');
+      }
+    });
+
+    result.sort((a, b) => a.seq - b.seq);
+    return result;
+  }, [activeTabState?.detail, streamEvents, isStreaming, activeRunId]);
+
+  // Find last assistant message ID
+  const lastAssistantMessageId = useMemo(() => {
+    const detail = activeTabState?.detail;
+    if (!detail?.messages) return null;
+    
+    for (let i = detail.messages.length - 1; i >= 0; i--) {
+      const message = detail.messages[i];
+      if (message.role === 'assistant') {
+        return message.id;
+      }
+    }
+    return null;
+  }, [activeTabState?.detail?.messages]);
 
   useEffect(() => {
     if (!activeRunId) {
@@ -302,7 +504,7 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
   const addTab = useCallback(() => {
     if (tabs.length >= MAX_TABS) {
       alert(`최대 ${MAX_TABS}개 탭까지만 열 수 있습니다.`);
-      return;
+      return null;
     }
     
     const newTab: ChatTab = {
@@ -315,6 +517,8 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
     setTabs(prev => [...prev, newTab]);
     setActiveTabId(newTab.id);
     resetStream();
+    
+    return newTab;
   }, [tabs.length, resetStream]);
 
   const closeTab = useCallback((tabId: string) => {
@@ -379,23 +583,72 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
   const handleSubmit = useCallback(
     async (prompt: string) => {
       if (!prompt.trim()) return;
-      if (!activeTabId) return;
+      
+      // If no tab exists, create one automatically
+      let tabId = activeTabId;
+      let currentTab: ChatTab | undefined;
+      
+      if (!tabId) {
+        const newTab = addTab();
+        if (!newTab) return; // Max tabs reached
+        tabId = newTab.id;
+        currentTab = newTab;
+        
+        // Initialize tab state for the new tab
+        tabStatesRef.current.set(tabId, {
+          detail: null,
+          loading: false,
+          activeRunId: null,
+        });
+      } else {
+        currentTab = tabs.find(t => t.id === tabId);
+      }
 
       resetStream();
 
       try {
-        const currentTab = tabs.find(t => t.id === activeTabId);
         if (!currentTab) return;
+
+        // Ensure conversation view scrolls to bottom when user submits a message
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('stick-to-bottom:scroll-to-bottom'));
+        }
 
         if (!currentTab.sessionId) {
           // Create new conversation
           console.info('[MultiTabChat] Creating conversation for prompt', prompt);
-          setIsCreatingConversation(false);
           
           const metadata: Record<string, any> = { model: selectedModel };
           if (selectedDataSource && selectedDataSource !== 'all') {
             metadata.data_source = selectedDataSource;
           }
+          if (projectId) {
+            metadata.project_id = projectId;
+          }
+          
+          // Show user message immediately in UI
+          const tempUserMessage = {
+            id: `temp-user-${Date.now()}`,
+            role: 'user',
+            content: { text: prompt },
+            created_at: new Date().toISOString(),
+            seq: 1,
+            run_id: null,
+          };
+          
+          tabStatesRef.current.set(tabId, {
+            detail: {
+              id: tabId,
+              status: 'active',
+              messages: [tempUserMessage],
+              events: [],
+            },
+            loading: false,
+            activeRunId: null,
+          });
+          
+          // Start loading indicator
+          setIsCreatingConversation(true);
           
           const response = await createConversation({ 
             question: prompt, 
@@ -409,24 +662,48 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
           
           // Update tab with session ID and title
           setTabs(prev => prev.map(t => 
-            t.id === activeTabId 
+            t.id === tabId 
               ? { ...t, sessionId: conversationId, title }
               : t
           ));
           
-          // Update tab state
-          tabStatesRef.current.set(activeTabId, {
-            detail: null,
+          // Update tab state - keep optimistic detail until real data arrives
+          const placeholderState = tabStatesRef.current.get(tabId);
+          tabStatesRef.current.set(tabId, {
+            detail: placeholderState?.detail ?? null,
             loading: true,
             activeRunId: response.run_id ?? null,
           });
-          
+
+          setIsCreatingConversation(false);
           void loadSessions();
           return;
         }
 
         // Append to existing conversation
         console.info('[MultiTabChat] Appending message to existing conversation', currentTab.sessionId);
+        
+        // Show user message immediately in UI
+        const currentState = tabStatesRef.current.get(tabId);
+        const tempUserMessage = {
+          id: `temp-${Date.now()}`,
+          role: 'user',
+          content: { text: prompt },
+          created_at: new Date().toISOString(),
+          seq: currentState?.detail?.messages.length ?? 0 + 1,
+          run_id: null,
+        };
+        
+        if (currentState?.detail) {
+          tabStatesRef.current.set(tabId, {
+            ...currentState,
+            detail: {
+              ...currentState.detail,
+              messages: [...currentState.detail.messages, tempUserMessage],
+            },
+          });
+        }
+        
         const response: AppendMessageResponse = await appendMessage(currentTab.sessionId, { 
           role: 'user', 
           content: { text: prompt }, 
@@ -434,22 +711,13 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
         });
         console.info('[MultiTabChat] Follow-up queued', response);
         
-        const currentState = tabStatesRef.current.get(activeTabId);
         const nextRunId = response.run_id ?? currentState?.activeRunId ?? null;
         
-        tabStatesRef.current.set(activeTabId, {
+        // Update with run_id
+        tabStatesRef.current.set(tabId, {
           detail: currentState?.detail ? {
             ...currentState.detail,
-            messages: [
-              ...currentState.detail.messages,
-              {
-                id: `temp-${Date.now()}`,
-                role: 'user',
-                content: { text: prompt },
-                created_at: new Date().toISOString(),
-                seq: currentState.detail.messages.length + 1,
-              },
-            ],
+            messages: [...currentState.detail.messages, tempUserMessage],
           } : null,
           loading: false,
           activeRunId: nextRunId,
@@ -460,13 +728,13 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
         console.error('Failed to submit message', error);
       }
     },
-    [activeTabId, tabs, selectedModel, selectedDataSource, loadSessions, resetStream],
+    [activeTabId, tabs, selectedModel, selectedDataSource, projectId, loadSessions, resetStream, addTab],
   );
 
   const handleDeleteSession = useCallback(
     async (session: ChatSessionSummary) => {
       try {
-        await deleteConversation(session.id);
+        await deleteConversation(session.id, projectId || undefined);
         setSessions(prev => prev.filter(item => item.id !== session.id));
         
         // Close any tabs with this session
@@ -488,7 +756,59 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
         console.error('[MultiTabChat] Failed to delete conversation', error);
       }
     },
-    [activeTab, loadSessions],
+    [activeTab, loadSessions, projectId],
+  );
+
+  const restoreTabs = useCallback(
+    async (savedTabs: Array<{ id: string; order: number }>, savedActiveTabId?: string) => {
+      console.log('[MultiTabChat] Restoring tabs', savedTabs, 'active:', savedActiveTabId);
+      
+      // Clear existing tabs first
+      setTabs([]);
+      setActiveTabId(null);
+      tabStatesRef.current.clear();
+      
+      // Sort by order
+      const sortedTabs = [...savedTabs].sort((a, b) => a.order - b.order);
+      
+      // Restore each tab and collect their IDs
+      const restoredTabIds: string[] = [];
+      
+      for (const savedTab of sortedTabs) {
+        try {
+          const session = sessions.find(s => s.id === savedTab.id);
+          if (session) {
+            await openSessionInTab(session);
+            // openSessionInTab creates a new tab with a unique ID
+            // We need to track which tab corresponds to which session
+            restoredTabIds.push(savedTab.id);
+          }
+        } catch (error) {
+          console.error(`Failed to restore tab ${savedTab.id}`, error);
+        }
+      }
+      
+      // Restore active tab - need to find the tab that was created for this session
+      if (savedActiveTabId && restoredTabIds.length > 0) {
+        // Give tabs time to be added to state
+        setTimeout(() => {
+          setTabs(currentTabs => {
+            // Find the tab with the matching sessionId
+            const activeTab = currentTabs.find(t => t.sessionId === savedActiveTabId);
+            if (activeTab) {
+              console.log('[MultiTabChat] Setting active tab to', activeTab.id);
+              setActiveTabId(activeTab.id);
+            } else if (currentTabs.length > 0) {
+              // Fallback to first tab if saved active tab not found
+              console.log('[MultiTabChat] Active tab not found, using first tab');
+              setActiveTabId(currentTabs[0].id);
+            }
+            return currentTabs;
+          });
+        }, 50);
+      }
+    },
+    [sessions, openSessionInTab]
   );
 
   return {
@@ -501,11 +821,11 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
     activeTab,
     
     // Active tab state
-    detail: activeTabState?.detail || null,
+    turns,
+    lastAssistantMessageId,
     loading: activeTabState?.loading || false,
     isStreaming,
     status,
-    reasoningEvents,
     
     // Handlers
     addTab,
@@ -516,6 +836,7 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
     handleSubmit,
     handleDeleteSession,
     loadSessions,
+    restoreTabs,
   };
 }
 

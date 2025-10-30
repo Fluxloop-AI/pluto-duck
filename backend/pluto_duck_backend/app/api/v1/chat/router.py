@@ -21,6 +21,7 @@ class ConversationResponse(BaseModel):
   updated_at: str
   last_message_preview: Optional[str]
   run_id: Optional[str] = None
+  project_id: Optional[str] = None
 
 
 class ConversationDetailResponse(BaseModel):
@@ -50,6 +51,7 @@ class AppendMessageRequest(BaseModel):
   content: Dict[str, Any]
   model: Optional[str] = None
   metadata: Optional[Dict[str, Any]] = None
+  run_id: Optional[str] = None
 
 
 class AppendMessageResponse(BaseModel):
@@ -81,9 +83,10 @@ def get_repository() -> ChatRepository:
 def list_conversations(
   limit: int = Query(default=50, ge=1, le=200),
   offset: int = Query(default=0, ge=0),
+  project_id: Optional[str] = Query(default=None),
   repo: ChatRepository = Depends(get_repository),
 ) -> List[ConversationResponse]:
-  summaries = repo.list_conversations(limit=limit, offset=offset)
+  summaries = repo.list_conversations(limit=limit, offset=offset, project_id=project_id)
   return [
     ConversationResponse(
       id=str(item.id),
@@ -93,6 +96,7 @@ def list_conversations(
       updated_at=item.updated_at.isoformat(),
       last_message_preview=item.last_message_preview,
       run_id=str(item.run_id) if item.run_id is not None else None,
+      project_id=item.project_id,
     )
     for item in summaries
   ]
@@ -127,9 +131,9 @@ async def create_conversation(
       model=payload.model,
       metadata=payload.metadata,
     )
-    # Include model in metadata
-    metadata = payload.metadata or {}
-    if payload.model:
+    # Preserve existing metadata (especially project_id) and add model if not present
+    metadata = dict(payload.metadata or {})  # Create a copy to avoid mutation
+    if payload.model and "model" not in metadata:
       metadata["model"] = payload.model
     repo.create_conversation(conversation_id, payload.question, metadata)
     return CreateConversationResponse(id=conversation_id, run_id=run_id, events_url=f"/api/v1/agent/{run_id}/events", conversation_id=conversation_id)
@@ -143,10 +147,15 @@ async def create_conversation(
 def get_conversation(
   conversation_id: str,
   include_events: bool = Query(default=False),
+  project_id: Optional[str] = Query(default=None),
   repo: ChatRepository = Depends(get_repository),
 ) -> ConversationDetailResponse:
   summary = repo.get_conversation_summary(conversation_id)
   if summary is None:
+    raise HTTPException(status_code=404, detail="Conversation not found")
+  
+  # Verify project_id if provided (security check)
+  if project_id and summary.project_id != project_id:
     raise HTTPException(status_code=404, detail="Conversation not found")
   messages = repo.get_conversation_messages(conversation_id)
   events = repo.get_conversation_events(conversation_id) if include_events else None
@@ -165,8 +174,15 @@ def get_conversation(
 async def append_message(
   conversation_id: str,
   payload: AppendMessageRequest,
+  project_id: Optional[str] = Query(default=None),
   repo: ChatRepository = Depends(get_repository),
 ) -> AppendMessageResponse:
+  # Verify project_id if provided (security check)
+  if project_id:
+    summary = repo.get_conversation_summary(conversation_id)
+    if not summary or summary.project_id != project_id:
+      raise HTTPException(status_code=404, detail="Conversation not found")
+  
   manager = get_agent_manager()
   if payload.role.lower() == "user":
     try:
@@ -180,7 +196,7 @@ async def append_message(
       raise HTTPException(status_code=404, detail="Conversation not found") from exc
     return AppendMessageResponse(status="queued", run_id=run_id, events_url=f"/api/v1/agent/{run_id}/events", conversation_id=conversation_id)
 
-  repo.append_message(conversation_id, payload.role, payload.content)
+  repo.append_message(conversation_id, payload.role, payload.content, run_id=payload.run_id)
   return AppendMessageResponse(status="appended", conversation_id=conversation_id)
 
 
@@ -193,7 +209,17 @@ def get_events(
 
 
 @router.delete("/sessions/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
-def delete_conversation(conversation_id: str, repo: ChatRepository = Depends(get_repository)) -> Response:
+def delete_conversation(
+  conversation_id: str,
+  project_id: Optional[str] = Query(default=None),
+  repo: ChatRepository = Depends(get_repository)
+) -> Response:
+  # Verify project_id if provided (security check)
+  if project_id:
+    summary = repo.get_conversation_summary(conversation_id)
+    if not summary or summary.project_id != project_id:
+      raise HTTPException(status_code=404, detail="Conversation not found")
+  
   deleted = repo.delete_conversation(conversation_id)
   if not deleted:
     raise HTTPException(status_code=404, detail="Conversation not found")

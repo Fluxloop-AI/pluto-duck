@@ -194,7 +194,7 @@ export function ChatPanel({
     const allTableNames = allTables.map(t => t.target_table);
     const mentions = allTableNames.map(t => `@${t}`).join(' ');
     const currentInput = input;
-    const newInput = currentInput ? `${currentInput} ${mentions}` : mentions;
+    const newInput = currentInput ? `${currentInput} ${mentions} ` : `${mentions} `;
     setInput(newInput);
     setShowTableSelector(false);
     
@@ -207,7 +207,7 @@ export function ChatPanel({
       .map(t => t.target_table);
     const mentions = sourceTables.map(t => `@${t}`).join(' ');
     const currentInput = input;
-    const newInput = currentInput ? `${currentInput} ${mentions}` : mentions;
+    const newInput = currentInput ? `${currentInput} ${mentions} ` : `${mentions} `;
     setInput(newInput);
     setShowTableSelector(false);
     
@@ -216,7 +216,7 @@ export function ChatPanel({
 
   const handleTableMentionSingle = useCallback((tableName: string) => {
     const currentInput = input;
-    const newInput = currentInput ? `${currentInput} @${tableName}` : `@${tableName}`;
+    const newInput = currentInput ? `${currentInput} @${tableName} ` : `@${tableName} `;
     setInput(newInput);
     setShowTableSelector(false);
     

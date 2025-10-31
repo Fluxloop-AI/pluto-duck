@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { PlusIcon, SettingsIcon, DatabaseIcon, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { PlusIcon, SettingsIcon, DatabaseIcon, PanelLeftClose, PanelLeftOpen, SquarePen, LayoutDashboard, PanelRightClose, PanelRightOpen } from 'lucide-react';
 
 import { SettingsModal, MultiTabChatPanel } from '../components/chat';
 import {
@@ -45,6 +45,7 @@ export default function WorkspacePage() {
   const [showCreateBoardModal, setShowCreateBoardModal] = useState(false);
   const [showCreateProjectModal, setShowCreateProjectModal] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [chatPanelCollapsed, setChatPanelCollapsed] = useState(false);
   const [chatTabs, setChatTabs] = useState<ChatTab[]>([]);
   const [activeChatTabId, setActiveChatTabId] = useState<string | null>(null);
 
@@ -276,7 +277,7 @@ export default function WorkspacePage() {
 
   return (
     <div className="relative flex h-screen w-full flex-col bg-white">
-      <header className="z-10 flex h-10 shrink-0 items-center border-b border-border bg-white px-3 pl-[76px] pr-3">
+      <header className="z-10 flex h-10 shrink-0 items-center border-b border-muted bg-muted px-3 pl-[76px] pr-3">
         <button
           onClick={() => setSidebarCollapsed(prev => !prev)}
           className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent"
@@ -291,9 +292,29 @@ export default function WorkspacePage() {
 
         <div
           data-tauri-drag-region
-          className="flex h-full flex-1 select-none"
-          aria-hidden="true"
-        />
+          className="flex h-full flex-1 select-none items-center justify-center gap-2"
+        >
+          {activeBoard && (
+            <>
+              <LayoutDashboard className="h-4 w-4 text-foreground" />
+              <span className="text-sm font-medium text-foreground">
+                {activeBoard.name}
+              </span>
+            </>
+          )}
+        </div>
+
+        <button
+          onClick={() => setChatPanelCollapsed(prev => !prev)}
+          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent"
+          title={chatPanelCollapsed ? 'Expand chat panel' : 'Collapse chat panel'}
+        >
+          {chatPanelCollapsed ? (
+            <PanelRightOpen className="h-4 w-4" />
+          ) : (
+            <PanelRightClose className="h-4 w-4" />
+          )}
+        </button>
       </header>
 
       {!backendReady && (
@@ -312,29 +333,27 @@ export default function WorkspacePage() {
 
       <div className="flex flex-1 overflow-hidden">
         {!sidebarCollapsed && (
-          <aside className="hidden w-64 border-r border-border bg-muted/20 transition-all duration-300 lg:flex lg:flex-col">
-            <div className="border-b border-border bg-background px-3 pt-3 pb-1">
-              <ProjectSelector
-                currentProject={currentProject}
-                projects={projects}
-                onSelectProject={handleSelectProject}
-                onNewProject={() => setShowCreateProjectModal(true)}
-              />
-            </div>
-
-            <div className="px-3 pt-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setCurrentView('boards');
-                  setShowCreateBoardModal(true);
-                }}
-                className="flex w-full items-center justify-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-sm font-medium text-primary hover:bg-primary/20"
-                title="New board"
-              >
-                <PlusIcon className="h-4 w-4" />
-                New Board
-              </button>
+          <aside className="hidden w-64 border-r border-muted bg-muted transition-all duration-300 lg:flex lg:flex-col">
+            <div className="px-3 pt-3 pb-3">
+              <div className="flex items-center justify-between">
+                <ProjectSelector
+                  currentProject={currentProject}
+                  projects={projects}
+                  onSelectProject={handleSelectProject}
+                  onNewProject={() => setShowCreateProjectModal(true)}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCurrentView('boards');
+                    setShowCreateBoardModal(true);
+                  }}
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-primary hover:bg-primary/10 transition"
+                  title="New board"
+                >
+                  <SquarePen className="h-4 w-4" />
+                </button>
+              </div>
             </div>
 
             <div className="flex-1 overflow-y-auto px-3 py-3">
@@ -386,23 +405,25 @@ export default function WorkspacePage() {
           )}
         </div>
 
-        <div className="hidden lg:flex">
-          <MultiTabChatPanel
-            selectedModel={selectedModel}
-            onModelChange={setSelectedModel}
-            selectedDataSource={selectedDataSource}
-            dataSources={dataSources}
-            allTables={allTables}
-            backendReady={backendReady}
-            projectId={defaultProjectId}
-            onTabsChange={(tabs, activeId) => {
-              setChatTabs(tabs);
-              setActiveChatTabId(activeId);
-            }}
-            savedTabs={currentProject?.settings?.ui_state?.chat?.open_tabs}
-            savedActiveTabId={currentProject?.settings?.ui_state?.chat?.active_tab_id}
-          />
-        </div>
+        {!chatPanelCollapsed && (
+          <div className="hidden lg:flex">
+            <MultiTabChatPanel
+              selectedModel={selectedModel}
+              onModelChange={setSelectedModel}
+              selectedDataSource={selectedDataSource}
+              dataSources={dataSources}
+              allTables={allTables}
+              backendReady={backendReady}
+              projectId={defaultProjectId}
+              onTabsChange={(tabs, activeId) => {
+                setChatTabs(tabs);
+                setActiveChatTabId(activeId);
+              }}
+              savedTabs={currentProject?.settings?.ui_state?.chat?.open_tabs}
+              savedActiveTabId={currentProject?.settings?.ui_state?.chat?.active_tab_id}
+            />
+          </div>
+        )}
       </div>
 
       <SettingsModal

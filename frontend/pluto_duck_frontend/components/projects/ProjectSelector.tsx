@@ -56,7 +56,7 @@ export function ProjectSelector({
         onClick={() => setShowDropdown(!showDropdown)}
         className="flex items-center gap-1.5 hover:text-primary transition-colors group"
       >
-        <h2 className="text-xs font-semibold truncate">
+        <h2 className="text-base font-semibold truncate">
           {currentProject?.name || 'My Workspace'}
         </h2>
         <ChevronDown className="h-3 w-3 opacity-50 group-hover:opacity-100" />

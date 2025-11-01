@@ -4,7 +4,6 @@ import { updateProjectSettings, type ProjectUIState } from '../lib/projectsApi';
 interface ProjectState {
   chatTabs: Array<{ id: string; order: number }>;
   activeChatTabId: string | null;
-  activeBoardId: string | null;
 }
 
 interface UseProjectStateOptions {
@@ -26,9 +25,6 @@ export function useProjectState(options: UseProjectStateOptions) {
         chat: {
           open_tabs: state.chatTabs,
           active_tab_id: state.activeChatTabId || undefined,
-        },
-        boards: {
-          active_board_id: state.activeBoardId || undefined,
         },
       };
 

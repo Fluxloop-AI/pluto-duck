@@ -29,7 +29,12 @@ export function useBoards({ projectId, enabled = true }: UseBoardsOptions) {
       const data = await fetchBoards(projectId);
       setBoards(data);
       
-      // Don't auto-select - let user choose
+      // Auto-select first board if available
+      if (data.length > 0) {
+        setActiveBoard(data[0]);
+      } else {
+        setActiveBoard(null);
+      }
     } catch (err) {
       console.error('Failed to load boards:', err);
       setError(err instanceof Error ? err.message : 'Failed to load boards');
@@ -90,9 +95,6 @@ export function useBoards({ projectId, enabled = true }: UseBoardsOptions) {
 
   useEffect(() => {
     if (projectId && enabled) {
-      // Reset active board when project changes
-      setActiveBoard(null);
-      
       void loadBoards();
       
       // Refresh boards list every minute to sync updated_at and sort order
@@ -101,6 +103,10 @@ export function useBoards({ projectId, enabled = true }: UseBoardsOptions) {
       }, 60000); // 60 seconds
 
       return () => clearInterval(interval);
+    } else {
+      // No project or disabled - clear boards and active board
+      setBoards([]);
+      setActiveBoard(null);
     }
   }, [projectId, enabled, loadBoards]);
 

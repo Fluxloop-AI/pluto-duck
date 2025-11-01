@@ -117,11 +117,10 @@ export default function WorkspacePage() {
     const state = {
       chatTabs: tabsToSave,
       activeChatTabId: activeSessionId,
-      activeBoardId: activeBoard?.id || null,
     };
     
     debouncedSaveState(state);
-  }, [defaultProjectId, activeBoard, chatTabs, activeChatTabId, backendReady, debouncedSaveState]);
+  }, [defaultProjectId, chatTabs, activeChatTabId, backendReady, debouncedSaveState]);
 
   // Load default model from settings and data sources
   useEffect(() => {
@@ -214,7 +213,6 @@ export default function WorkspacePage() {
       await saveState({
         chatTabs: tabsToSave,
         activeChatTabId: activeSessionId,
-        activeBoardId: activeBoard?.id || null,
       });
       await reloadProjects();
     }
@@ -224,10 +222,8 @@ export default function WorkspacePage() {
     
     console.log('[Page] Project switched, will restore:', project.settings?.ui_state?.chat);
     
-    // Reset board selection - show empty state in center area
-    // The useBoards hook will reload boards for the new project and reset activeBoard
-    // User needs to select a board manually
-  }, [defaultProjectId, activeBoard, saveState, chatTabs, activeChatTabId, reloadProjects]);
+    // The useBoards hook will reload boards for the new project and auto-select the first board
+  }, [defaultProjectId, saveState, chatTabs, activeChatTabId, reloadProjects]);
 
   const handleCreateProject = useCallback(async (data: { name: string; description?: string }) => {
     const newProject = await apiCreateProject(data);

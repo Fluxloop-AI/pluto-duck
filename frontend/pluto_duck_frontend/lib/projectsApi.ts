@@ -20,9 +20,6 @@ export interface ProjectUIState {
     open_tabs?: Array<{ id: string; order: number }>;
     active_tab_id?: string;
   };
-  boards?: {
-    active_board_id?: string;
-  };
 }
 
 export async function fetchProjects(): Promise<ProjectListItem[]> {

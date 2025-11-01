@@ -5,7 +5,6 @@ interface ProjectState {
   chatTabs: Array<{ id: string; order: number }>;
   activeChatTabId: string | null;
   activeBoardId: string | null;
-  activeView: 'boards' | 'data-sources';
 }
 
 interface UseProjectStateOptions {
@@ -31,7 +30,6 @@ export function useProjectState(options: UseProjectStateOptions) {
         boards: {
           active_board_id: state.activeBoardId || undefined,
         },
-        active_view: state.activeView,
       };
 
       try {

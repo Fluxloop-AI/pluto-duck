@@ -23,7 +23,6 @@ export interface ProjectUIState {
   boards?: {
     active_board_id?: string;
   };
-  active_view?: 'boards' | 'data-sources';
 }
 
 export async function fetchProjects(): Promise<ProjectListItem[]> {

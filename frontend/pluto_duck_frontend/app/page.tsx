@@ -5,7 +5,7 @@ import { PlusIcon, SettingsIcon, DatabaseIcon, PanelLeftClose, PanelLeftOpen, Sq
 
 import { SettingsModal, MultiTabChatPanel } from '../components/chat';
 import {
-  DataSourcesView,
+  DataSourcesModal,
   ImportCSVModal,
   ImportParquetModal,
   ImportPostgresModal,
@@ -24,12 +24,10 @@ import { fetchDataSources, fetchDataSourceDetail, type DataSource, type DataSour
 import { fetchProject, type Project, type ProjectListItem } from '../lib/projectsApi';
 import { useBackendStatus } from '../hooks/useBackendStatus';
 
-type ViewMode = 'boards' | 'data-sources';
-
 export default function WorkspacePage() {
   const { isReady: backendReady, isChecking: backendChecking } = useBackendStatus();
-  const [currentView, setCurrentView] = useState<ViewMode>('boards');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [dataSourcesOpen, setDataSourcesOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState('gpt-5-mini');
   const [selectedDataSource, setSelectedDataSource] = useState('all');
   const [dataSources, setDataSources] = useState<DataSource[]>([]);
@@ -118,11 +116,10 @@ export default function WorkspacePage() {
       chatTabs: tabsToSave,
       activeChatTabId: activeSessionId,
       activeBoardId: activeBoard?.id || null,
-      activeView: currentView,
     };
     
     debouncedSaveState(state);
-  }, [defaultProjectId, activeBoard, currentView, chatTabs, activeChatTabId, backendReady, debouncedSaveState]);
+  }, [defaultProjectId, activeBoard, chatTabs, activeChatTabId, backendReady, debouncedSaveState]);
 
   // Load default model from settings and data sources
   useEffect(() => {
@@ -216,7 +213,6 @@ export default function WorkspacePage() {
         chatTabs: tabsToSave,
         activeChatTabId: activeSessionId,
         activeBoardId: activeBoard?.id || null,
-        activeView: currentView,
       });
       await reloadProjects();
     }
@@ -224,15 +220,12 @@ export default function WorkspacePage() {
     // Switch to new project
     setDefaultProjectId(project.id);
     
-    // Switch to boards view and show empty state
-    setCurrentView('boards');
-    
     console.log('[Page] Project switched, will restore:', project.settings?.ui_state?.chat);
     
     // Reset board selection - show empty state in center area
     // The useBoards hook will reload boards for the new project and reset activeBoard
     // User needs to select a board manually
-  }, [defaultProjectId, activeBoard, currentView, saveState, chatTabs, activeChatTabId, reloadProjects]);
+  }, [defaultProjectId, activeBoard, saveState, chatTabs, activeChatTabId, reloadProjects]);
 
   const handleCreateProject = useCallback(async (data: { name: string; description?: string }) => {
     const newProject = await apiCreateProject(data);
@@ -344,10 +337,7 @@ export default function WorkspacePage() {
                 />
                 <button
                   type="button"
-                  onClick={() => {
-                    setCurrentView('boards');
-                    setShowCreateBoardModal(true);
-                  }}
+                  onClick={() => setShowCreateBoardModal(true)}
                   className="flex h-7 w-7 items-center justify-center rounded-md text-primary hover:bg-primary/10 transition"
                   title="New board"
                 >
@@ -360,10 +350,7 @@ export default function WorkspacePage() {
               <BoardList
                 boards={boards}
                 activeId={activeBoard?.id}
-                onSelect={(board: Board) => {
-                  setCurrentView('boards');
-                  selectBoard(board);
-                }}
+                onSelect={(board: Board) => selectBoard(board)}
                 onDelete={(board: Board) => deleteBoard(board.id)}
               />
             </div>
@@ -371,19 +358,15 @@ export default function WorkspacePage() {
             <div className="space-y-2 px-3 pb-4">
               <button
                 type="button"
-                className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-sm transition ${
-                  currentView === 'data-sources'
-                    ? 'border-primary/60 bg-primary/10 text-primary'
-                    : 'border-border bg-card hover:bg-accent'
-                }`}
-                onClick={() => setCurrentView('data-sources')}
+                className="flex w-full items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm hover:bg-accent transition"
+                onClick={() => setDataSourcesOpen(true)}
               >
                 <DatabaseIcon className="h-4 w-4" />
                 <span>Data Sources</span>
               </button>
               <button
                 type="button"
-                className="flex w-full items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm hover:bg-accent"
+                className="flex w-full items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm hover:bg-accent transition"
                 onClick={() => setSettingsOpen(true)}
               >
                 <SettingsIcon className="h-4 w-4" />
@@ -394,9 +377,7 @@ export default function WorkspacePage() {
         )}
 
         <div className="relative flex flex-1 flex-col overflow-hidden bg-muted/5">
-          {currentView === 'data-sources' ? (
-            <DataSourcesView onImportClick={handleImportClick} refreshTrigger={dataSourcesRefresh} />
-          ) : defaultProjectId ? (
+          {defaultProjectId ? (
             <BoardsView projectId={defaultProjectId} activeBoard={activeBoard} />
           ) : (
             <div className="flex h-full items-center justify-center">
@@ -430,6 +411,12 @@ export default function WorkspacePage() {
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
         onSettingsSaved={(model) => setSelectedModel(model)}
+      />
+      <DataSourcesModal
+        open={dataSourcesOpen}
+        onOpenChange={setDataSourcesOpen}
+        onImportClick={handleImportClick}
+        refreshTrigger={dataSourcesRefresh}
       />
       <CreateBoardModal
         open={showCreateBoardModal}

@@ -1,4 +1,4 @@
-export * from './DataSourcesView';
+export * from './DataSourcesModal';
 export * from './SourceCard';
 export * from './ConnectorGrid';
 export * from './ImportCSVModal';

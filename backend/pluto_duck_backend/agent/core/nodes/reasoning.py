@@ -91,6 +91,7 @@ def _auto_progress(state: AgentState) -> str:
         f"schema_preview={bool(state.context.get('schema_preview'))}, "
         f"table_columns={bool(state.context.get('table_columns'))}, "
         f"schema_completed={state.context.get('schema_completed')}, "
+        f"needs_table_confirmation={state.context.get('needs_table_confirmation')}, "
         f"working_sql={bool(state.working_sql)}, "
         f"verification_result={bool(state.verification_result)}"
     )
@@ -99,6 +100,16 @@ def _auto_progress(state: AgentState) -> str:
         return "planner"
     if "schema_preview" not in state.context:
         return "schema"
+    # If schema says user needs to pick a table, ask them via finalize
+    if state.context.get("needs_table_confirmation") and state.context.get("schema_completed"):
+        if not state.context.get("final_message"):
+            tables = state.context.get("schema_preview", [])
+            table_hint = ", ".join(tables[:5]) if tables else "(no tables)"
+            state.context["final_message"] = (
+                f"I found these tables: {table_hint}. "
+                f"Please specify which table you'd like to analyze."
+            )
+        return "finalize"
     # If schema is already completed, skip re-running schema
     if state.context.get("schema_completed") and not state.working_sql:
         return "sql"

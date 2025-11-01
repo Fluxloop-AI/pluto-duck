@@ -275,10 +275,10 @@ export function ChatPanel({
                     </div>
                   ))}
 
-                  {turn.reasoningText && turn.runId && (
+                  {turn.runId && (turn.isActive || turn.reasoningText) && (
                     <Reasoning isStreaming={turn.isActive} defaultOpen={true}>
                       <ReasoningTrigger />
-                      <ReasoningContent>{turn.reasoningText}</ReasoningContent>
+                      <ReasoningContent>{turn.reasoningText || ''}</ReasoningContent>
                     </Reasoning>
                   )}
 

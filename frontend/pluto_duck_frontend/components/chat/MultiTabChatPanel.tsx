@@ -119,7 +119,7 @@ export function MultiTabChatPanel({
   }, [projectId, sessions.length, tabs.length, savedTabs, savedActiveTabId]);
 
   return (
-    <div className="flex flex-col h-full w-[500px] border-l border-border bg-background">
+    <div className="flex flex-col h-full w-full border-l border-border bg-background">
       <TabBar
         tabs={tabs}
         activeTabId={activeTabId}

@@ -18,7 +18,7 @@ import { useProjects } from '../hooks/useProjects';
 import { useProjectState } from '../hooks/useProjectState';
 import type { Board } from '../lib/boardsApi';
 import type { ChatTab } from '../hooks/useMultiTabChat';
-import { Loader } from '../components/ai-elements';
+import { Loader } from '../components/ai-elements/loader';
 import { fetchSettings } from '../lib/settingsApi';
 import { fetchDataSources, fetchDataSourceDetail, type DataSource, type DataSourceTable } from '../lib/dataSourcesApi';
 import { fetchProject, type Project, type ProjectListItem } from '../lib/projectsApi';
@@ -44,8 +44,10 @@ export default function WorkspacePage() {
   const [showCreateProjectModal, setShowCreateProjectModal] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [chatPanelCollapsed, setChatPanelCollapsed] = useState(false);
+  const [chatPanelWidth, setChatPanelWidth] = useState(500);
   const [chatTabs, setChatTabs] = useState<ChatTab[]>([]);
   const [activeChatTabId, setActiveChatTabId] = useState<string | null>(null);
+  const [isResizing, setIsResizing] = useState(false);
 
   const {
     projects,
@@ -268,6 +270,43 @@ export default function WorkspacePage() {
     })();
   }, []);
 
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+  }, []);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing) return;
+      
+      const newWidth = window.innerWidth - e.clientX;
+      const minWidth = 300;
+      const maxWidth = 800;
+      
+      if (newWidth >= minWidth && newWidth <= maxWidth) {
+        setChatPanelWidth(newWidth);
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'ew-resize';
+      document.body.style.userSelect = 'none';
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isResizing]);
+
   return (
     <div className="relative flex h-screen w-full flex-col bg-white">
       <header className="z-10 flex h-10 shrink-0 items-center border-b border-muted bg-muted px-3 pl-[76px] pr-3">
@@ -387,7 +426,21 @@ export default function WorkspacePage() {
         </div>
 
         {!chatPanelCollapsed && (
-          <div className="hidden lg:flex">
+          <div 
+            className="hidden lg:flex relative"
+            style={{ width: `${chatPanelWidth}px` }}
+          >
+            {/* Resize Handle */}
+            <div
+              onMouseDown={handleMouseDown}
+              className="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-primary/50 transition-colors z-10 group"
+              style={{ 
+                left: '-1px',
+              }}
+            >
+              <div className="absolute inset-y-0 -left-1 -right-1 group-hover:bg-primary/10" />
+            </div>
+            
             <MultiTabChatPanel
               selectedModel={selectedModel}
               onModelChange={setSelectedModel}

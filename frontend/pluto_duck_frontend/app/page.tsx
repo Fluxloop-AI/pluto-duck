@@ -20,6 +20,7 @@ import type { Board } from '../lib/boardsApi';
 import type { ChatTab } from '../hooks/useMultiTabChat';
 import { Loader } from '../components/ai-elements/loader';
 import { fetchSettings } from '../lib/settingsApi';
+import { loadLocalModel, unloadLocalModel } from '../lib/modelsApi';
 import { fetchDataSources, fetchDataSourceDetail, type DataSource, type DataSourceTable } from '../lib/dataSourcesApi';
 import { fetchProject, type Project, type ProjectListItem } from '../lib/projectsApi';
 import { useBackendStatus } from '../hooks/useBackendStatus';
@@ -165,6 +166,22 @@ export default function WorkspacePage() {
       })();
     }
   }, [backendReady]);
+
+  useEffect(() => {
+    if (!backendReady) return;
+    if (!selectedModel) return;
+
+    if (selectedModel.startsWith('local:')) {
+      const modelId = selectedModel.slice('local:'.length);
+      void loadLocalModel(modelId).catch(error => {
+        console.error('Failed to load local model', error);
+      });
+    } else {
+      void unloadLocalModel().catch(error => {
+        console.error('Failed to unload local model', error);
+      });
+    }
+  }, [backendReady, selectedModel]);
 
   const handleImportClick = useCallback((connectorType: string, source?: DataSource) => {
     setSelectedSourceForImport(source);

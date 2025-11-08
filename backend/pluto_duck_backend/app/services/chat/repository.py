@@ -206,6 +206,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "ui_preferences": {"theme": "dark"},
     "llm_provider": "openai",
     "llm_model": "gpt-5-mini",
+    "local_models": [],
 }
 
 

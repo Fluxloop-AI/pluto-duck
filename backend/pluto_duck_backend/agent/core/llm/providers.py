@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Iterable, Optional
+from typing import TYPE_CHECKING, Any, Dict, Iterable, Optional
 
 
 def _is_gpt5_model(model: str) -> bool:
     return model.startswith("gpt-5")
 
 from pluto_duck_backend.app.core.config import get_settings
+if TYPE_CHECKING:  # pragma: no cover - for type hints only
+    from pluto_duck_backend.agent.core.llm.llama_cpp_provider import LlamaCppLLMProvider
 
 try:  # Optional dependency for real provider
     from openai import AsyncOpenAI
@@ -94,6 +96,23 @@ def get_llm_provider(
 
     settings = get_settings()
     
+    # Get model: parameter > env var > database settings > default
+    resolved_model = model or settings.agent.model
+    if not resolved_model:
+        try:
+            from pluto_duck_backend.app.services.chat import get_chat_repository
+            repo = get_chat_repository()
+            db_settings = repo.get_settings()
+            resolved_model = db_settings.get("llm_model") or "gpt-5-mini"
+        except Exception:
+            resolved_model = "gpt-5-mini"
+
+    if resolved_model.startswith("local:"):
+        from pluto_duck_backend.agent.core.llm.llama_cpp_provider import LlamaCppLLMProvider
+
+        local_id = resolved_model.split(":", 1)[1]
+        return LlamaCppLLMProvider(local_id)
+
     # Get API key: env var > database settings
     api_key = settings.agent.api_key
     if not api_key:
@@ -106,17 +125,6 @@ def get_llm_provider(
         except Exception:
             pass  # If DB is not available, continue with None
     
-    # Get model: parameter > env var > database settings > default
-    resolved_model = model or settings.agent.model
-    if not resolved_model:
-        try:
-            from pluto_duck_backend.app.services.chat import get_chat_repository
-            repo = get_chat_repository()
-            db_settings = repo.get_settings()
-            resolved_model = db_settings.get("llm_model") or "gpt-5-mini"
-        except Exception:
-            resolved_model = "gpt-5-mini"
-    
     if settings.agent.mock_mode or not api_key:
         return MockLLMProvider()
 
@@ -127,6 +135,13 @@ def get_llm_provider(
             model=resolved_model,
             api_base=settings.agent.api_base,
         )
+    if provider_name == "llama_cpp":
+        if not resolved_model.startswith("local:"):
+            raise RuntimeError("llama_cpp provider requires a local:* model identifier")
+        from pluto_duck_backend.agent.core.llm.llama_cpp_provider import LlamaCppLLMProvider
+
+        local_id = resolved_model.split(":", 1)[1]
+        return LlamaCppLLMProvider(local_id)
 
     raise RuntimeError(f"Unsupported agent provider: {settings.agent.provider}")
 

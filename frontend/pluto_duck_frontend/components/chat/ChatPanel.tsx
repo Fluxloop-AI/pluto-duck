@@ -64,6 +64,7 @@ import { Button } from '../ui/button';
 import type { ChatSessionSummary } from '../../lib/chatApi';
 import type { DataSource, DataSourceTable } from '../../lib/dataSourcesApi';
 import type { ChatTurn } from '../../hooks/useMultiTabChat';
+import { ALL_MODEL_OPTIONS } from '../../constants/models';
 
 const suggestions = [
   'Show me top 5 products by revenue',
@@ -71,10 +72,7 @@ const suggestions = [
   'Analyze sales trends by region',
 ];
 
-const MODELS = [
-  { id: 'gpt-5', name: 'GPT-5' },
-  { id: 'gpt-5-mini', name: 'GPT-5 Mini' },
-];
+const MODELS = ALL_MODEL_OPTIONS;
 
 // Helper functions to extract tool data from events
 function getToolState(event: any): ToolUIPart['state'] {

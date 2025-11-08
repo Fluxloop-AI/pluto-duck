@@ -94,10 +94,10 @@ def update_settings(request: UpdateSettingsRequest) -> UpdateSettingsResponse:
     if request.llm_model is not None:
         # Validate model (optional: add more validation)
         valid_models = ["gpt-5", "gpt-5-mini", "gpt-4o", "gpt-4o-mini"]
-        if request.llm_model not in valid_models:
+        if not request.llm_model.startswith("local:") and request.llm_model not in valid_models:
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid model. Must be one of: {', '.join(valid_models)}",
+                detail=f"Invalid model. Must be one of: {', '.join(valid_models)} or start with 'local:'",
             )
         payload["llm_model"] = request.llm_model
     

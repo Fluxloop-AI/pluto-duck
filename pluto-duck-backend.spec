@@ -25,6 +25,7 @@ if CONFIG_DIR.exists():
 
 EXTRA_DATA.extend(collect_data_files("pluto_duck_backend", include_py_files=False))
 EXTRA_DATA.extend(collect_data_files("duckdb", include_py_files=False))
+EXTRA_DATA.extend(collect_data_files("llama_cpp", include_py_files=True))
 
 DUCKDB_DIST_INFO = pathlib.Path(duckdb.__file__).resolve().parent.parent / f"duckdb-{duckdb.__version__}.dist-info"
 if DUCKDB_DIST_INFO.exists():
@@ -35,6 +36,7 @@ os.environ.setdefault("PLUTODUCK_LOG_LEVEL", "INFO")
 
 hiddenimports = []
 hiddenimports += collect_submodules('pluto_duck_backend')
+hiddenimports += collect_submodules('llama_cpp')
 
 
 a = Analysis(

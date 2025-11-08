@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { EyeIcon, EyeOffIcon, AlertTriangleIcon } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { EyeIcon, EyeOffIcon, AlertTriangleIcon, TrashIcon, Loader2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -12,6 +12,7 @@ import {
 } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
+import { Badge } from '../ui/badge';
 import {
   Select,
   SelectContent,
@@ -20,6 +21,21 @@ import {
   SelectValue,
 } from '../ui/select';
 import { fetchSettings, updateSettings, resetDatabase, type UpdateSettingsRequest } from '../../lib/settingsApi';
+import {
+  downloadLocalModel,
+  listLocalModels,
+  deleteLocalModel,
+  fetchLocalDownloadStatuses,
+  type LocalModelInfo,
+  type DownloadLocalModelResponse,
+  type LocalDownloadStatus,
+} from '../../lib/modelsApi';
+import {
+  ALL_MODEL_OPTIONS,
+  LOCAL_MODEL_OPTIONS,
+  LOCAL_MODEL_OPTION_MAP,
+  type LocalModelOption,
+} from '../../constants/models';
 
 interface SettingsModalProps {
   open: boolean;
@@ -27,10 +43,7 @@ interface SettingsModalProps {
   onSettingsSaved?: (model: string) => void;
 }
 
-const MODELS = [
-  { id: 'gpt-5', name: 'GPT-5' },
-  { id: 'gpt-5-mini', name: 'GPT-5 Mini' },
-];
+const MODELS = ALL_MODEL_OPTIONS;
 
 export function SettingsModal({ open, onOpenChange, onSettingsSaved }: SettingsModalProps) {
   const [loading, setLoading] = useState(false);
@@ -42,22 +55,60 @@ export function SettingsModal({ open, onOpenChange, onSettingsSaved }: SettingsM
   const [hasExistingKey, setHasExistingKey] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [localModels, setLocalModels] = useState<LocalModelInfo[]>([]);
+  const [loadingLocalModels, setLoadingLocalModels] = useState(false);
+  const [localDownloadStates, setLocalDownloadStates] = useState<Record<string, LocalDownloadStatus>>({});
+  const [deletingModelId, setDeletingModelId] = useState<string | null>(null);
   
   // DB Reset states
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [resetting, setResetting] = useState(false);
 
+  const downloadPollRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  const isAnyDownloadInProgress = Object.values(localDownloadStates).some(
+    state => state.status === 'queued' || state.status === 'downloading',
+  );
+
   useEffect(() => {
     if (open) {
       loadSettings();
     }
+    return () => {
+      Object.values(downloadPollRef.current).forEach(timer => clearTimeout(timer));
+      downloadPollRef.current = {};
+    };
   }, [open]);
+
+  const fetchLocalModels = async () => {
+    setLoadingLocalModels(true);
+    try {
+      const models = await listLocalModels();
+      setLocalModels(models);
+    } catch (err) {
+      console.error('Failed to load local models', err);
+    } finally {
+      setLoadingLocalModels(false);
+    }
+  };
+
+  const fetchDownloadStatuses = async () => {
+    try {
+      const statuses = await fetchLocalDownloadStatuses();
+      setLocalDownloadStates(statuses);
+      return statuses;
+    } catch (err) {
+      console.error('Failed to fetch download status', err);
+      return {};
+    }
+  };
 
   const loadSettings = async () => {
     setLoading(true);
     setError(null);
     setApiKey('');
     setHasExistingKey(false);
+    setLocalDownloadStates({});
     try {
       const settings = await fetchSettings();
       // Check if API key exists (masked or not)
@@ -75,10 +126,104 @@ export function SettingsModal({ open, onOpenChange, onSettingsSaved }: SettingsM
       if (settings.llm_model) {
         setModel(settings.llm_model);
       }
+      await fetchLocalModels();
+      await fetchDownloadStatuses();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load settings');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const scheduleStatusPolling = (modelId: string) => {
+    const poll = async () => {
+      const statuses = await fetchDownloadStatuses();
+      const next = statuses[modelId];
+      if (!next || next.status === 'completed' || next.status === 'error') {
+        delete downloadPollRef.current[modelId];
+        await fetchLocalModels();
+        if (next?.status === 'completed') {
+          setSuccessMessage(`"${LOCAL_MODEL_OPTION_MAP[modelId]?.label ?? modelId}" 다운로드가 완료되었습니다.`);
+        } else if (next?.status === 'error') {
+          setError(next.detail ?? '다운로드에 실패했습니다.');
+        }
+      } else {
+        downloadPollRef.current[modelId] = setTimeout(poll, 2000);
+      }
+    };
+    if (downloadPollRef.current[modelId]) {
+      return;
+    }
+    downloadPollRef.current[modelId] = setTimeout(poll, 0);
+  };
+
+  const handleDownloadLocalModel = async (option: LocalModelOption) => {
+    setError(null);
+    setSuccessMessage(null);
+    try {
+      const response: DownloadLocalModelResponse = await downloadLocalModel({
+        repo_id: option.repoId,
+        filename: option.filename,
+        model_id: option.id,
+      });
+
+      const status = response.status === 'in_progress' ? 'downloading' : response.status;
+
+      if (status === 'completed') {
+        await fetchLocalModels();
+        await fetchDownloadStatuses();
+        setSuccessMessage(`"${option.label}" 로컬 모델이 준비되었습니다.`);
+      } else {
+        setLocalDownloadStates(prev => ({
+          ...prev,
+          [option.id]: {
+            status: status as LocalDownloadStatus['status'],
+            detail: response.detail,
+            updated_at: new Date().toISOString(),
+          },
+        }));
+        scheduleStatusPolling(option.id);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to download local model';
+      setError(message);
+      setLocalDownloadStates(prev => ({
+        ...prev,
+        [option.id]: {
+          status: 'error',
+          detail: message,
+          updated_at: new Date().toISOString(),
+        },
+      }));
+    }
+  };
+
+  const handleDeleteLocalModel = async (model: LocalModelInfo) => {
+    const option = LOCAL_MODEL_OPTION_MAP[model.id];
+    const displayName = option?.label ?? model.name ?? model.id;
+    const confirmed = window.confirm(`정말로 로컬 모델 "${displayName}"을 삭제할까요?`);
+    if (!confirmed) return;
+
+    setError(null);
+    setSuccessMessage(null);
+    setDeletingModelId(model.id);
+    try {
+      await deleteLocalModel(model.id);
+      await fetchLocalModels();
+      setSuccessMessage(`로컬 모델 "${displayName}"을(를) 삭제했습니다.`);
+      if (downloadPollRef.current[model.id]) {
+        clearTimeout(downloadPollRef.current[model.id]);
+        delete downloadPollRef.current[model.id];
+      }
+      setLocalDownloadStates(prev => {
+        const next = { ...prev };
+        delete next[model.id];
+        return next;
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete local model');
+    } finally {
+      setDeletingModelId(null);
     }
   };
 
@@ -253,6 +398,143 @@ export function SettingsModal({ open, onOpenChange, onSettingsSaved }: SettingsM
               <p className="text-xs text-muted-foreground">
                 Model to use for new conversations
               </p>
+            </div>
+
+            {/* Local Models */}
+            <div className="grid gap-2">
+              <label className="text-sm font-medium">Local Models</label>
+            <div className="grid gap-2">
+              {LOCAL_MODEL_OPTIONS.map(option => {
+                const downloadState = localDownloadStates[option.id]?.status ?? 'idle';
+                const downloadMessage = localDownloadStates[option.id]?.detail ?? undefined;
+                const installedModel = localModels.find(m => m.id === option.id);
+                const isInstalled = Boolean(installedModel);
+                const isDownloading = downloadState === 'queued' || downloadState === 'downloading';
+
+                return (
+                  <div
+                    key={option.id}
+                    className="flex items-start justify-between gap-4 rounded-md border border-border p-3"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-medium">{option.label}</span>
+                        <Badge variant={isInstalled ? 'secondary' : 'outline'}>
+                          {isInstalled ? '설치됨' : '미설치'}
+                        </Badge>
+                        {downloadState === 'completed' && (
+                          <Badge variant="secondary">다운로드 완료</Badge>
+                        )}
+                        {downloadState === 'queued' && (
+                          <Badge variant="secondary">대기 중</Badge>
+                        )}
+                        {downloadState === 'downloading' && (
+                          <Badge variant="secondary">다운로드 중</Badge>
+                        )}
+                        {downloadState === 'error' && (
+                          <Badge variant="destructive">다운로드 실패</Badge>
+                        )}
+                      </div>
+                      {option.description && (
+                        <p className="text-xs text-muted-foreground">{option.description}</p>
+                      )}
+                      <p className="text-xs text-muted-foreground">{option.filename}</p>
+                      {downloadState === 'error' && downloadMessage && (
+                        <p className="text-xs text-destructive">{downloadMessage}</p>
+                      )}
+                    </div>
+                    <div className="flex flex-col items-end gap-2">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => handleDownloadLocalModel(option)}
+                        disabled={
+                          isDownloading ||
+                          (isAnyDownloadInProgress && !isDownloading) ||
+                          loading ||
+                          saving ||
+                          resetting ||
+                          deletingModelId !== null
+                        }
+                      >
+                        {isDownloading ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            다운로드 중…
+                          </>
+                        ) : isInstalled ? (
+                          '재다운로드'
+                        ) : (
+                          '다운로드'
+                        )}
+                      </Button>
+                      {downloadState === 'error' && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleDownloadLocalModel(option)}
+                          disabled={isDownloading}
+                        >
+                          다시 시도
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+              {loadingLocalModels ? (
+                <p className="text-xs text-muted-foreground">Loading local models…</p>
+              ) : localModels.length > 0 ? (
+                <ul className="space-y-1 rounded-md border border-border p-3 text-xs text-muted-foreground">
+                  {localModels.map(localModel => {
+                    const option = LOCAL_MODEL_OPTION_MAP[localModel.id];
+                    const displayName = option?.label ?? localModel.name ?? localModel.id;
+                    const quantization = localModel.quantization ?? option?.quantization ?? 'custom';
+                    const sizeLabel =
+                      typeof localModel.size_bytes === 'number'
+                        ? ` · ${(localModel.size_bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
+                        : '';
+
+                    return (
+                      <li key={localModel.id} className="flex items-center justify-between gap-3">
+                        <div className="flex flex-col">
+                          <span className="font-medium text-foreground">{displayName}</span>
+                          <span className="text-muted-foreground">
+                            {quantization}
+                            {sizeLabel}
+                          </span>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive"
+                          disabled={
+                            loading ||
+                            saving ||
+                            resetting ||
+                            isAnyDownloadInProgress ||
+                            deletingModelId === localModel.id
+                          }
+                          onClick={() => handleDeleteLocalModel(localModel)}
+                          title="Delete local model"
+                        >
+                          {deletingModelId === localModel.id ? (
+                            <span className="text-xs">삭제 중...</span>
+                          ) : (
+                            <>
+                              <TrashIcon className="h-4 w-4" />
+                              <span className="sr-only">Delete</span>
+                            </>
+                          )}
+                        </Button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <p className="text-xs text-muted-foreground">No local models installed yet.</p>
+              )}
             </div>
 
             {/* Error Message */}

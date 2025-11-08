@@ -79,6 +79,20 @@ class AgentSettings(BaseModel):
         ge=1,
         description="Optional token cap for GPT-5 responses",
     )
+    max_context_tokens: int = Field(
+        default=8192,
+        ge=512,
+        description="Context window for local llama.cpp models",
+    )
+    n_gpu_layers: int = Field(
+        default=-1,
+        description="Number of layers to offload to GPU for llama.cpp (-1 = auto/all)",
+    )
+    n_threads: int = Field(
+        default=0,
+        ge=0,
+        description="CPU threads for llama.cpp (0 = auto)",
+    )
 
 
 class DataDirectory(BaseModel):

@@ -158,14 +158,41 @@ class AgentRunManager:
             preferred_tables=preferred_tables,
             metadata=run.metadata,
         )
+        repo = get_chat_repository()
+
+        previous_messages = repo.get_conversation_messages(run.conversation_id)
+        for message in previous_messages:
+            try:
+                role = MessageRole(message["role"])
+            except ValueError:
+                continue
+            content_payload = message.get("content")
+            content_text: str
+            metadata: Optional[Dict[str, Any]] = None
+            if isinstance(content_payload, dict):
+                content_text = str(content_payload.get("text") or "")
+                extra_metadata = dict(content_payload)
+                extra_metadata.pop("text", None)
+                metadata = extra_metadata or None
+            elif content_payload is None:
+                content_text = ""
+            else:
+                content_text = str(content_payload)
+            state.add_message(role, content_text, metadata=metadata)
+
+        if not previous_messages:
+            state.add_message(MessageRole.USER, run.question)
+
         state.context["sanitized_user_query"] = run.question
         if preferred_tables:
             state.context.setdefault("preferred_table_hints", preferred_tables)
         extracted = run.metadata.get("_extracted_tables") if isinstance(run.metadata, dict) else None
         if extracted and not preferred_tables:
             state.context["preferred_table_candidates"] = extracted
-        state.add_message(MessageRole.USER, run.question)
-        repo = get_chat_repository()
+        elif previous_messages:
+            last_role = previous_messages[-1].get("role")
+            if last_role not in {"user", "system", "assistant", "tool", "reasoning"}:
+                state.add_message(MessageRole.USER, run.question)
 
         final_state: Dict[str, Any] = {}
         try:

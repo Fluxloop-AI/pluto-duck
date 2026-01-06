@@ -29,10 +29,17 @@ export function useBoards({ projectId, enabled = true }: UseBoardsOptions) {
       const data = await fetchBoards(projectId);
       setBoards(data);
       
-      // Auto-select first board if available
-      if (data.length > 0) {
+      // Auto-select first board if available and no active board
+      if (data.length > 0 && !activeBoard) {
+        // Fetch detail for the first board
+        try {
+            const detail = await fetchBoardDetail(data[0].id);
+            setActiveBoard(detail);
+        } catch (e) {
+            console.error("Failed to load initial active board detail", e);
         setActiveBoard(data[0]);
-      } else {
+        }
+      } else if (data.length === 0) {
         setActiveBoard(null);
       }
     } catch (err) {
@@ -89,8 +96,16 @@ export function useBoards({ projectId, enabled = true }: UseBoardsOptions) {
     }
   }, [activeBoard, boards]);
 
-  const selectBoard = useCallback((board: Board) => {
-    setActiveBoard(board);
+  const selectBoard = useCallback(async (board: Board) => {
+    try {
+      // Fetch fresh details BEFORE setting activeBoard to avoid stale data overwrite
+      const detail = await fetchBoardDetail(board.id);
+      setActiveBoard(detail);
+    } catch (err) {
+      console.error('Failed to fetch board detail:', err);
+      // Fallback to list item only on error
+      setActiveBoard(board);
+    }
   }, []);
 
   useEffect(() => {

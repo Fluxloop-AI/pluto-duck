@@ -56,6 +56,7 @@ import {
   createContext,
   type FormEvent,
   type FormEventHandler,
+  forwardRef,
   Fragment,
   type HTMLAttributes,
   type KeyboardEventHandler,
@@ -763,12 +764,15 @@ export type PromptInputTextareaProps = ComponentProps<
   typeof InputGroupTextarea
 >;
 
-export const PromptInputTextarea = ({
+export const PromptInputTextarea = forwardRef<
+  HTMLTextAreaElement,
+  PromptInputTextareaProps
+>(({
   onChange,
   className,
   placeholder = "What would you like to know?",
   ...props
-}: PromptInputTextareaProps) => {
+}, ref) => {
   const controller = useOptionalPromptInputController();
   const attachments = usePromptInputAttachments();
   const [isComposing, setIsComposing] = useState(false);
@@ -837,6 +841,7 @@ export const PromptInputTextarea = ({
 
   return (
     <InputGroupTextarea
+      ref={ref}
       className={cn("field-sizing-content max-h-48 min-h-16", className)}
       name="message"
       onCompositionEnd={() => setIsComposing(false)}
@@ -848,7 +853,9 @@ export const PromptInputTextarea = ({
       {...controlledProps}
     />
   );
-};
+});
+
+PromptInputTextarea.displayName = "PromptInputTextarea";
 
 export type PromptInputHeaderProps = Omit<
   ComponentProps<typeof InputGroupAddon>,

@@ -157,8 +157,7 @@ DDL_STATEMENTS = [
         error_message VARCHAR,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        metadata JSON,
-        FOREIGN KEY (data_source_id) REFERENCES data_sources(id)
+        metadata JSON
     )
     """,
     """
@@ -180,8 +179,7 @@ DDL_STATEMENTS = [
         position INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        settings JSON,
-        FOREIGN KEY (project_id) REFERENCES projects(id)
+        settings JSON
     )
     """,
     """
@@ -200,8 +198,7 @@ DDL_STATEMENTS = [
         payload JSON NOT NULL,
         render_config JSON,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (board_id) REFERENCES boards(id)
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """,
     """

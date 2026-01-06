@@ -10,6 +10,7 @@ export interface Board {
   position: number;
   created_at: string;
   updated_at: string;
+  settings?: Record<string, any>; // Added settings field
 }
 
 export interface BoardItem {
@@ -247,4 +248,3 @@ export async function deleteAsset(assetId: string): Promise<void> {
     throw new Error('Failed to delete asset');
   }
 }
-

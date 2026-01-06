@@ -9,6 +9,10 @@ interface BoardListProps {
   activeId?: string;
   onSelect: (board: Board) => void;
   onDelete?: (board: Board) => void;
+  // Optional props to handle new interface calls if needed, but we keep it minimal for now to fix build
+  // If the parent passes onUpdate or onCreate, we can add them here as optional
+  onUpdate?: (boardId: string, data: any) => void;
+  onCreate?: () => void;
 }
 
 export function BoardList({ boards, activeId, onSelect, onDelete }: BoardListProps) {
@@ -96,4 +100,3 @@ export function BoardList({ boards, activeId, onSelect, onDelete }: BoardListPro
     </div>
   );
 }
-

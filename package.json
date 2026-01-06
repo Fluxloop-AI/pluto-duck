@@ -1,0 +1,13 @@
+{
+	"dependencies": {
+		"@lexical/code": "^0.39.0",
+		"@lexical/link": "^0.39.0",
+		"@lexical/list": "^0.39.0",
+		"@lexical/markdown": "^0.39.0",
+		"@lexical/react": "^0.39.0",
+		"@lexical/rich-text": "^0.39.0",
+		"@lexical/utils": "^0.39.0",
+		"LexicalDraggableBlockPlugin": "link:@lexical/react/LexicalDraggableBlockPlugin",
+		"lexical": "^0.39.0"
+	}
+}

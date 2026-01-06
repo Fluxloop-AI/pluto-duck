@@ -43,6 +43,7 @@ class BoardResponse(BaseModel):
     position: int
     created_at: str
     updated_at: str
+    settings: Optional[Dict[str, Any]] = None
 
 
 class CreateItemRequest(BaseModel):
@@ -148,6 +149,7 @@ def list_boards(
             position=board.position,
             created_at=board.created_at.isoformat(),
             updated_at=board.updated_at.isoformat(),
+            settings=board.settings,
         )
         for board in boards
     ]
@@ -179,6 +181,7 @@ def create_board(
         position=board.position,
         created_at=board.created_at.isoformat(),
         updated_at=board.updated_at.isoformat(),
+        settings=board.settings,
     )
 
 
@@ -202,6 +205,7 @@ def get_board(
         position=board.position,
         created_at=board.created_at.isoformat(),
         updated_at=board.updated_at.isoformat(),
+        settings=board.settings,
         items=[
             BoardItemResponse(
                 id=item.id,
@@ -252,6 +256,7 @@ def update_board(
         position=updated_board.position,
         created_at=updated_board.created_at.isoformat(),
         updated_at=updated_board.updated_at.isoformat(),
+        settings=updated_board.settings,
     )
 
 

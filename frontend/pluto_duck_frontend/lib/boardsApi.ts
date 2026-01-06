@@ -2,6 +2,21 @@ import { getBackendUrl } from './api';
 
 // ========== Types ==========
 
+// ========== Tab Types ==========
+
+export interface BoardTab {
+  id: string;
+  name: string;
+  content: string | null; // Lexical editor JSON content
+}
+
+export interface BoardSettings {
+  tabs?: BoardTab[];
+  activeTabId?: string;
+  // Legacy: single content field (will migrate to tabs)
+  content?: string;
+}
+
 export interface Board {
   id: string;
   project_id: string;
@@ -10,7 +25,7 @@ export interface Board {
   position: number;
   created_at: string;
   updated_at: string;
-  settings?: Record<string, any>; // Added settings field
+  settings?: BoardSettings;
 }
 
 export interface BoardItem {

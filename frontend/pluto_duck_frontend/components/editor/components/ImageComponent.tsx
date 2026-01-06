@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useRef, useState, useCallback } from 'react';
 import { Upload, X, Image as ImageIcon } from 'lucide-react';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { useLexicalNodeSelection } from '@lexical/react/useLexicalNodeSelection';
@@ -41,17 +41,18 @@ export function ImageComponent({
   const activeAnchor = useRef<string | null>(null);
 
   // Delete handling
-  const onDelete = (payload: KeyboardEvent) => {
+  const onDelete = useCallback((payload: KeyboardEvent) => {
     if (isSelected && $isNodeSelection($getSelection())) {
       const event: KeyboardEvent = payload;
       event.preventDefault();
       const node = $getNodeByKey(nodeKey);
       if (node) {
         node.remove();
+        return true; // Stop propagation - we handled this command
       }
     }
     return false;
-  };
+  }, [isSelected, nodeKey]);
 
   useEffect(() => {
     return mergeRegister(

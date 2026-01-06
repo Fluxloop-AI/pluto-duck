@@ -1,29 +1,150 @@
 'use client';
 
-import { PlusIcon, SettingsIcon } from 'lucide-react';
-import type { Board } from '../../lib/boardsApi';
+import { useState, useRef, useEffect } from 'react';
+import { PlusIcon, XIcon, MoreHorizontal, Pencil } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { cn } from '@/lib/utils';
+import type { Board, BoardTab } from '../../lib/boardsApi';
 
 interface BoardToolbarProps {
   board: Board | null;
-  onAddItem?: () => void;
-  onSettings?: () => void;
+  tabs: BoardTab[];
+  activeTabId: string | null;
+  onSelectTab: (tabId: string) => void;
+  onAddTab: () => void;
+  onRenameTab: (tabId: string, newName: string) => void;
+  onDeleteTab: (tabId: string) => void;
 }
 
-export function BoardToolbar({ board, onAddItem, onSettings }: BoardToolbarProps) {
+export function BoardToolbar({
+  board,
+  tabs,
+  activeTabId,
+  onSelectTab,
+  onAddTab,
+  onRenameTab,
+  onDeleteTab,
+}: BoardToolbarProps) {
+  const [editingTabId, setEditingTabId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Focus input when editing starts
+  useEffect(() => {
+    if (editingTabId && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editingTabId]);
+
+  const handleStartRename = (tab: BoardTab) => {
+    setEditingTabId(tab.id);
+    setEditingName(tab.name);
+  };
+
+  const handleFinishRename = () => {
+    if (editingTabId && editingName.trim()) {
+      onRenameTab(editingTabId, editingName.trim());
+    }
+    setEditingTabId(null);
+    setEditingName('');
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleFinishRename();
+    } else if (e.key === 'Escape') {
+      setEditingTabId(null);
+      setEditingName('');
+    }
+  };
+
+  if (!board) return null;
+
   return (
-    <div className="flex items-center justify-end border-b border-border bg-background px-2 pt-3 pb-1">
-      <div className="flex items-center gap-1.5">
-        {onAddItem && (
-          <button
-            onClick={onAddItem}
-            className="flex h-6 w-6 items-center justify-center rounded-md border border-border bg-card hover:bg-accent"
-            title="Add item"
+    <div className="flex items-center border-b border-border bg-background px-2 pt-2">
+      {/* Tab List */}
+      <div className="flex items-center gap-0.5 overflow-x-auto scrollbar-hide">
+        {tabs.map((tab) => (
+          <div
+            key={tab.id}
+            className={cn(
+              'group relative flex items-center gap-1 rounded-t-md border border-b-0 px-3 py-1.5 text-sm transition-colors',
+              activeTabId === tab.id
+                ? 'border-border bg-background text-foreground'
+                : 'border-transparent bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground'
+            )}
           >
-            <PlusIcon className="h-3.5 w-3.5" />
-          </button>
-        )}
+            {editingTabId === tab.id ? (
+              <input
+                ref={inputRef}
+                type="text"
+                value={editingName}
+                onChange={(e) => setEditingName(e.target.value)}
+                onBlur={handleFinishRename}
+                onKeyDown={handleKeyDown}
+                className="w-20 bg-transparent text-sm outline-none"
+              />
+            ) : (
+              <>
+                <button
+                  onClick={() => onSelectTab(tab.id)}
+                  onDoubleClick={() => handleStartRename(tab)}
+                  className="truncate max-w-[120px]"
+                >
+                  {tab.name}
+                </button>
+
+                {/* Tab Actions (visible on hover or when active) */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={cn(
+                        'h-4 w-4 p-0 opacity-0 transition-opacity group-hover:opacity-100',
+                        activeTabId === tab.id && 'opacity-50'
+                      )}
+                    >
+                      <MoreHorizontal className="h-3 w-3" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-32">
+                    <DropdownMenuItem onClick={() => handleStartRename(tab)}>
+                      <Pencil className="mr-2 h-3 w-3" />
+                      Rename
+                    </DropdownMenuItem>
+                    {tabs.length > 1 && (
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
+                        onClick={() => onDeleteTab(tab.id)}
+                      >
+                        <XIcon className="mr-2 h-3 w-3" />
+                        Delete
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
+            )}
+          </div>
+        ))}
+
+        {/* Add Tab Button */}
+        <button
+          onClick={onAddTab}
+          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+          title="Add new tab"
+        >
+          <PlusIcon className="h-4 w-4" />
+        </button>
       </div>
     </div>
   );
 }
-

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { executeQuery, QueryResult } from '../../../lib/boardsApi';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Loader2 } from 'lucide-react';
@@ -36,17 +36,18 @@ export function ChartComponent({ queryId, chartType, projectId, nodeKey }: Chart
   const chartRef = useRef<HTMLDivElement>(null);
 
   // Delete handling
-  const onDelete = (payload: KeyboardEvent) => {
+  const onDelete = useCallback((payload: KeyboardEvent) => {
     if (isSelected && $isNodeSelection($getSelection())) {
       const event: KeyboardEvent = payload;
       event.preventDefault();
       const node = $getNodeByKey(nodeKey);
       if (node) {
         node.remove();
+        return true; // Stop propagation - we handled this command
       }
     }
     return false;
-  };
+  }, [isSelected, nodeKey]);
 
   useEffect(() => {
     return mergeRegister(

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { PlusIcon, SettingsIcon, DatabaseIcon, PanelLeftClose, PanelLeftOpen, SquarePen, LayoutDashboard, PanelRightClose, PanelRightOpen } from 'lucide-react';
+import { PlusIcon, SettingsIcon, DatabaseIcon, PanelLeftClose, PanelLeftOpen, SquarePen, LayoutDashboard, PanelRightClose, PanelRightOpen, Package } from 'lucide-react';
 
 import { SettingsModal, MultiTabChatPanel } from '../components/chat';
 import {
@@ -12,6 +12,7 @@ import {
   ImportSQLiteModal,
 } from '../components/data-sources';
 import { BoardsView, BoardList, CreateBoardModal } from '../components/boards';
+import { AssetListView } from '../components/assets';
 import { ProjectSelector, CreateProjectModal } from '../components/projects';
 import { useBoards } from '../hooks/useBoards';
 import { useProjects } from '../hooks/useProjects';
@@ -24,6 +25,8 @@ import { loadLocalModel, unloadLocalModel } from '../lib/modelsApi';
 import { fetchDataSources, fetchDataSourceDetail, type DataSource, type DataSourceTable } from '../lib/dataSourcesApi';
 import { fetchProject, type Project, type ProjectListItem } from '../lib/projectsApi';
 import { useBackendStatus } from '../hooks/useBackendStatus';
+
+type MainView = 'boards' | 'assets';
 
 export default function WorkspacePage() {
   const { isReady: backendReady, isChecking: backendChecking } = useBackendStatus();
@@ -45,6 +48,7 @@ export default function WorkspacePage() {
   const [showCreateProjectModal, setShowCreateProjectModal] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [chatPanelCollapsed, setChatPanelCollapsed] = useState(false);
+  const [mainView, setMainView] = useState<MainView>('boards');
   const [chatPanelWidth, setChatPanelWidth] = useState(500);
   const [chatTabs, setChatTabs] = useState<ChatTab[]>([]);
   const [activeChatTabId, setActiveChatTabId] = useState<string | null>(null);
@@ -339,11 +343,19 @@ export default function WorkspacePage() {
           data-tauri-drag-region
           className="flex h-full flex-1 select-none items-center justify-center gap-2"
         >
-          {activeBoard && (
+          {mainView === 'boards' && activeBoard && (
             <>
               <LayoutDashboard className="h-3.5 w-3.5 text-foreground" />
               <span className="text-xs font-medium text-foreground">
                 {activeBoard.name}
+              </span>
+            </>
+          )}
+          {mainView === 'assets' && (
+            <>
+              <Package className="h-3.5 w-3.5 text-foreground" />
+              <span className="text-xs font-medium text-foreground">
+                Asset Library
               </span>
             </>
           )}
@@ -399,12 +411,48 @@ export default function WorkspacePage() {
             </div>
 
             <div className="flex-1 overflow-y-auto px-3 py-3">
+              {/* View Tabs */}
+              <div className="mb-3 flex rounded-lg border border-border bg-card p-1">
+                <button
+                  type="button"
+                  onClick={() => setMainView('boards')}
+                  className={`flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                    mainView === 'boards'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <LayoutDashboard className="h-3.5 w-3.5" />
+                  Boards
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMainView('assets')}
+                  className={`flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                    mainView === 'assets'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <Package className="h-3.5 w-3.5" />
+                  Assets
+                </button>
+              </div>
+
+              {mainView === 'boards' && (
               <BoardList
                 boards={boards}
                 activeId={activeBoard?.id}
                 onSelect={(board: Board) => selectBoard(board)}
                 onDelete={(board: Board) => deleteBoard(board.id)}
               />
+              )}
+
+              {mainView === 'assets' && (
+                <div className="text-xs text-muted-foreground">
+                  View saved analyses in the main panel
+                </div>
+              )}
             </div>
 
             <div className="space-y-2 px-3 pb-4">
@@ -430,7 +478,11 @@ export default function WorkspacePage() {
 
         <div className="relative flex flex-1 flex-col overflow-hidden bg-muted/5">
           {defaultProjectId ? (
+            mainView === 'boards' ? (
             <BoardsView projectId={defaultProjectId} activeBoard={activeBoard} />
+            ) : (
+              <AssetListView projectId={defaultProjectId} />
+            )
           ) : (
             <div className="flex h-full items-center justify-center">
               <Loader />

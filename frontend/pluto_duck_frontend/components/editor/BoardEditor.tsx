@@ -19,7 +19,7 @@ import { useRef, useState, useCallback } from 'react';
 
 import { editorTheme } from './theme';
 import type { Board } from '../../lib/boardsApi';
-import { ChartNode, ImageNode } from './nodes';
+import { ChartNode, ImageNode, AssetNode } from './nodes';
 import SlashCommandPlugin from './plugins/SlashCommandPlugin';
 import DraggableBlockPlugin from './plugins/DraggableBlockPlugin';
 import { InitialContentPlugin } from './plugins/InitialContentPlugin';
@@ -56,6 +56,7 @@ export function BoardEditor({
       AutoLinkNode,
       ChartNode,
       ImageNode,
+      AssetNode,
     ],
   };
 

@@ -20,10 +20,12 @@ import {
   Quote, 
   Code, 
   BarChartBig, 
-  Image as ImageIcon 
+  Image as ImageIcon,
+  Database,
 } from 'lucide-react';
 import { $createChartNode } from '../nodes/ChartNode';
 import { $createImageNode } from '../nodes/ImageNode';
+import { $createAssetNode } from '../nodes/AssetNode';
 import { $setBlocksType } from '@lexical/selection';
 
 class SlashMenuOption extends MenuOption {
@@ -135,6 +137,24 @@ export default function SlashCommandPlugin({ projectId }: { projectId: string })
             const paragraphNode = $createParagraphNode();
             imageNode.insertAfter(paragraphNode);
             paragraphNode.select();
+        }
+      });
+    }),
+    new SlashMenuOption('Asset', <Database size={18} />, ['asset', 'analysis', 'data', 'query'], (editor) => {
+      editor.update(() => {
+        // Insert Asset reference - will show a picker in real implementation
+        // For now, use a placeholder that prompts for selection
+        const analysisId = window.prompt('Enter Analysis ID:');
+        if (analysisId) {
+          const assetNode = $createAssetNode(analysisId, projectId);
+          const selection = $getSelection();
+          if ($isRangeSelection(selection)) {
+            selection.insertNodes([assetNode]);
+            // Insert a paragraph after the asset to allow typing
+            const paragraphNode = $createParagraphNode();
+            assetNode.insertAfter(paragraphNode);
+            paragraphNode.select();
+          }
         }
       });
     }),

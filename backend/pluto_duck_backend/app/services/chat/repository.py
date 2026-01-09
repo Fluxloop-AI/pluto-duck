@@ -240,6 +240,91 @@ DDL_STATEMENTS = [
     """
     CREATE INDEX IF NOT EXISTS idx_assets_item ON board_item_assets(board_item_id)
     """,
+    # =========================================================================
+    # SourceService - Live Database Connections (ATTACH) & Cache
+    # =========================================================================
+    """
+    CREATE SCHEMA IF NOT EXISTS _sources
+    """,
+    """
+    CREATE SCHEMA IF NOT EXISTS cache
+    """,
+    """
+    -- Attached external databases (Postgres, SQLite, MySQL, DuckDB)
+    CREATE TABLE IF NOT EXISTS _sources.attached (
+        id VARCHAR PRIMARY KEY,
+        name VARCHAR UNIQUE NOT NULL,
+        source_type VARCHAR NOT NULL,  -- postgres, sqlite, mysql, duckdb
+        connection_config JSON NOT NULL,
+        attached_at TIMESTAMP NOT NULL,
+        status VARCHAR NOT NULL,  -- active, detached, error
+        error_message VARCHAR,
+        metadata JSON
+    )
+    """,
+    """
+    -- Cached tables from external sources
+    CREATE TABLE IF NOT EXISTS _sources.cached_tables (
+        id VARCHAR PRIMARY KEY,
+        source_name VARCHAR NOT NULL,
+        source_table VARCHAR NOT NULL,
+        local_table VARCHAR UNIQUE NOT NULL,
+        cached_at TIMESTAMP NOT NULL,
+        row_count BIGINT,
+        expires_at TIMESTAMP,
+        filter_sql VARCHAR,
+        metadata JSON
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_sources_cached_source 
+        ON _sources.cached_tables(source_name, source_table)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_sources_cached_expires 
+        ON _sources.cached_tables(expires_at)
+    """,
+    # =========================================================================
+    # duckpipe - Pipeline Engine (Saved Analyses / Asset Library)
+    # =========================================================================
+    """
+    CREATE SCHEMA IF NOT EXISTS _duckpipe
+    """,
+    """
+    CREATE SCHEMA IF NOT EXISTS analysis
+    """,
+    """
+    -- Execution history for all Analysis runs
+    CREATE TABLE IF NOT EXISTS _duckpipe.run_history (
+        run_id VARCHAR PRIMARY KEY,
+        analysis_id VARCHAR NOT NULL,
+        started_at TIMESTAMP NOT NULL,
+        finished_at TIMESTAMP,
+        status VARCHAR NOT NULL,  -- running, success, failed
+        rows_affected BIGINT,
+        error VARCHAR,
+        duration_ms INTEGER,
+        params JSON
+    )
+    """,
+    """
+    -- Latest state for each Analysis (for freshness checks)
+    CREATE TABLE IF NOT EXISTS _duckpipe.run_state (
+        analysis_id VARCHAR PRIMARY KEY,
+        last_run_id VARCHAR,
+        last_run_at TIMESTAMP,
+        last_run_status VARCHAR,
+        last_run_error VARCHAR
+    )
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_duckpipe_run_history_analysis 
+        ON _duckpipe.run_history(analysis_id, started_at DESC)
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_duckpipe_run_history_status 
+        ON _duckpipe.run_history(status, started_at DESC)
+    """,
 ]
 
 DEFAULT_SETTINGS: Dict[str, Any] = {

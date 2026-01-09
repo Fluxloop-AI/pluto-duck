@@ -1,0 +1,1214 @@
+# Pluto Duck: Local Agentic Data Workbench
+
+작성일: 2026-01-07  
+상태: Draft  
+관련: `docs/plans/deepagents-backend-migration.md`
+
+---
+
+## 1. 서비스 정의
+
+### 핵심 컨셉: "Chat to Artifact"
+
+대화는 **수단**이고, 목적은 **관리 가능한 자산(Artifact)**을 남기는 것.
+
+- **핵심 철학**: "Chat is ephemeral, State is persistent."  
+  (채팅은 휘발되지만, 상태는 파일과 DB에 남는다)
+- **아키텍처 패턴**: Local-First, File-System based State, DuckDB as the Engine
+- **UX 메타포**: **Studio (공방)** — 채팅창(작업 지시)과 워크벤치(결과물 보드/테이블)가 공존
+
+### 이 시스템이 해결하는 문제
+
+| 기존 문제 | 해결책 |
+|----------|--------|
+| 외부 DB와 내부 DuckDB 동기화 혼란 | **Zero-Copy Federation** — Live Query가 기본 |
+| Import 대기 시간 | **연결 즉시 분석** — ATTACH 후 바로 쿼리 |
+| 가공(파이프라인 vs 일회성) 개념 모호 | **Saved Analysis** — 명확한 자산 단위 |
+| Chat 기반 UX의 가시성 부족 | **Registry First** — 홈 화면이 자산 목록 |
+
+---
+
+## 2. DuckDB Federation 활용
+
+### DuckDB Extensions 현황
+
+| Extension | 대상 | 기능 |
+|-----------|------|------|
+| `postgres` | PostgreSQL | ATTACH + Live Query |
+| `mysql` | MySQL/MariaDB | ATTACH + Live Query |
+| `sqlite` | SQLite | ATTACH + Live Query |
+| `httpfs` | S3, GCS, HTTP | Parquet/CSV 직접 읽기 |
+| `iceberg` | Iceberg Tables | 레이크하우스 |
+| `delta` | Delta Lake | 레이크하우스 |
+
+```sql
+-- Postgres 바로 붙어서 쿼리
+ATTACH 'postgresql://user:pass@host/db' AS pg (TYPE POSTGRES);
+SELECT * FROM pg.public.orders WHERE created_at > '2024-01-01';
+
+-- S3의 Parquet 바로 읽기
+SELECT * FROM read_parquet('s3://bucket/data/*.parquet');
+
+-- 여러 소스 조인도 가능!
+SELECT o.*, c.name 
+FROM pg.orders o 
+JOIN read_csv('customers.csv') c ON o.customer_id = c.id;
+```
+
+---
+
+## 3. 시스템 아키텍처: 3-Zone Model
+
+### 아키텍처 다이어그램
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                   PLUTO DUCK: LOCAL AGENTIC DATA WORKBENCH             │
+├────────────────────────────────────────────────────────────────────────┤
+│                                                                        │
+│   ┌──────────────────────────────────────────────────────────────┐    │
+│   │                    EXTERNAL SOURCES                           │    │
+│   │   ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐        │    │
+│   │   │Postgres │  │  MySQL  │  │   S3    │  │  Files  │        │    │
+│   │   └────┬────┘  └────┬────┘  └────┬────┘  └────┬────┘        │    │
+│   └────────┼────────────┼────────────┼────────────┼──────────────┘    │
+│            │            │            │            │                    │
+│            └────────────┴─────┬──────┴────────────┘                    │
+│                               │                                        │
+│                        ┌──────▼──────┐                                 │
+│                        │   ATTACH    │  ← 연결만. 데이터 복사 X        │
+│                        │ (Live Link) │                                 │
+│                        └──────┬──────┘                                 │
+│                               │                                        │
+│   ┌───────────────────────────▼────────────────────────────────────┐  │
+│   │                      LOCAL DUCKDB                               │  │
+│   │                                                                 │  │
+│   │   ┌─────────────────────────────────────────────────────────┐  │  │
+│   │   │  RAW ZONE (Source Attach)                                │  │  │
+│   │   │  • pg.public.orders       → Live Query to Postgres       │  │  │
+│   │   │  • mysql_db.sales         → Live Query to MySQL          │  │  │
+│   │   │  • s3://bucket/events/*   → Live Query to S3             │  │  │
+│   │   │  ※ Zero-Copy: 데이터 저장 없음, 메타데이터만 보관         │  │  │
+│   │   └─────────────────────────────────────────────────────────┘  │  │
+│   │                           ↓                                     │  │
+│   │                    (필요시 캐시)                                 │  │
+│   │                           ↓                                     │  │
+│   │   ┌─────────────────────────────────────────────────────────┐  │  │
+│   │   │  WORK ZONE (Session Cache)                               │  │  │
+│   │   │  • cache.orders_2024      ← 무거운 분석용 로컬 복사본      │  │  │
+│   │   │  • temp.daily_summary     ← 임시 집계 결과                 │  │  │
+│   │   │  ※ TTL 기반 삭제 또는 대화 종료 시 정리                    │  │  │
+│   │   └─────────────────────────────────────────────────────────┘  │  │
+│   │                           ↓                                     │  │
+│   │                    (분석 자산화)                                 │  │
+│   │                           ↓                                     │  │
+│   │   ┌─────────────────────────────────────────────────────────┐  │  │
+│   │   │  ASSET ZONE (Materialized)                               │  │  │
+│   │   │  • analysis.monthly_revenue  ← Saved Analysis 결과       │  │  │
+│   │   │  • analysis.customer_cohort  ← 재실행 가능한 분석         │  │  │
+│   │   │  ※ 영구 저장, Parquet 파일로 백업 가능                    │  │  │
+│   │   └─────────────────────────────────────────────────────────┘  │  │
+│   │                                                                 │  │
+│   └─────────────────────────────────────────────────────────────────┘  │
+│                                                                        │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+### 3-Zone 정의
+
+| Zone | 이름 | 설명 | 수명 | 예시 |
+|------|------|------|------|------|
+| **Raw** | Source Attach | 외부 연결 (Live Query) | 연결 설정만 저장 | `pg.orders` |
+| **Work** | Session Cache | 분석 중 임시 데이터 | TTL 또는 세션 종료 시 삭제 | `cache.orders_2024` |
+| **Asset** | Materialized | 저장된 분석 결과 | 영구 | `analysis.monthly_revenue` |
+
+### 물리적 디렉토리 구조
+
+```
+~/.pluto-duck/
+├── warehouse.duckdb              # 메인 DB (메타데이터 + Asset Zone)
+├── sessions/
+│   └── {conversation_id}/
+│       └── work.duckdb           # Work Zone (임시, TTL 후 삭제)
+├── assets/
+│   └── {analysis_id}/
+│       └── result.parquet        # Asset Zone (영구 파일)
+├── connections/
+│   └── {source_id}.json          # Raw Zone (연결 설정만)
+└── deepagents/
+    ├── user/
+    │   └── agent.md              # 사용자 메모리
+    └── projects/{project_id}/
+        ├── agent.md              # 프로젝트 메모리
+        └── skills/               # 프로젝트 스킬
+```
+
+---
+
+## 4. Deepagents 런타임 특성 연계
+
+### 핵심 런타임 특성
+
+| 특성 | 설명 | 데이터 시스템 연계 |
+|------|------|-------------------|
+| **Virtual FS** | `/workspace/`, `/memories/`, `/skills/` | 중간 산출물을 파일로 offload |
+| **Todo/Skill 루프** | 반복 가능한 워크플로 패턴화 | 분석 템플릿으로 활용 |
+| **Tool-first 실행** | 도메인 tool 호출이 파이프라인 단계 | `run_sql`, `cache_table`, `save_analysis` |
+| **HITL 게이팅** | 승인/거부/편집 + 재개 | 데이터 변경 작업에 적용 |
+| **No shell 정책** | DB/FS/tool로만 작업 완결 | DuckDB API 직접 호출 |
+| **이벤트 스트리밍** | SSE로 reasoning/tool/message | 실시간 진행 상황 표시 |
+
+### Agent 행동 규칙
+
+```markdown
+## Data Access Strategy
+
+1. **탐색/미리보기**: Live Query (Raw Zone)
+   - "테이블 보여줘" → SELECT * FROM pg.orders LIMIT 10
+   - 빠르고 가벼움, 항상 최신
+   
+2. **분석 쿼리**: 상황에 따라 판단
+   - 간단한 집계 → Live Query (원본에서 집계)
+   - 복잡한 분석 → Smart Cache 제안
+     - "데이터가 많네요(X초 이상/Y GB 이상). 로컬에 캐시할까요?"
+   
+3. **반복 분석**: Saved Analysis
+   - "이거 나중에도 볼거야" → Analysis로 저장
+   - "매주 보고 싶어" → refresh_schedule 설정
+```
+
+---
+
+## 5. 핵심 워크플로: 4단계 루프
+
+### ① Intent & Plan (Todo 루프)
+
+```
+User: "지난주 마케팅 데이터를 분석해서 채널별 ROI 보여줘"
+
+Agent: (write_todos 실행)
+       Plan:
+       1. CSV 소스 연결 (Source)
+       2. 데이터 정제 및 조인 (Transform)
+       3. 집계 테이블 생성 (Materialization)
+       4. 차트 시각화 (Artifact)
+
+UX: 채팅창 우측에 "Plan 패널" 실시간 갱신
+```
+
+### ② Execution & Gating (HITL)
+
+```
+Agent: "다음 SQL을 실행할까요?"
+       
+       CREATE TABLE cache.marketing_data AS
+       SELECT * FROM read_csv('/workspace/marketing.csv')
+       WHERE week >= '2024-W01';
+
+User: [✓ 승인] / [✎ 수정] / [✗ 거부]
+
+Agent: (승인 시) 실행 로그 SSE 스트리밍
+       "12,345건 처리 완료 (2.3초)"
+```
+
+### ③ Materialization & Asset 저장 (자동 제안)
+
+Agent가 분석을 완료하면 **자동으로 Asset 저장을 제안**합니다.
+
+```
+Agent: (분석 수행 후)
+       "분석 결과입니다: [차트/테이블]"
+       
+       ┌─────────────────────────────────────────────┐
+       │ 💡 이 분석을 Asset Library에 저장할까요?    │
+       │                                             │
+       │ [💾 저장] [📌 Board에 바로 추가] [건너뛰기] │
+       └─────────────────────────────────────────────┘
+
+User: [💾 저장] 클릭
+
+Agent: "이름을 정해주세요."
+       
+       ┌─────────────────────────────────────────────┐
+       │ Asset 저장                                  │
+       │                                             │
+       │ 이름: [채널별 ROI 분석        ]             │
+       │ 갱신: [○ 수동] [○ 매일] [● 매주] [○ 매월]  │
+       │                                             │
+       │ [저장]                                      │
+       └─────────────────────────────────────────────┘
+
+Agent: → Asset Library에 Saved Analysis 생성
+       {
+         name: "채널별 ROI 분석",
+         sql: "SELECT ...",
+         refresh_schedule: "weekly",
+         depends_on: ["pg.marketing", "pg.costs"]
+       }
+       
+       "저장했어요! Asset Library에서 언제든 다시 볼 수 있어요.
+        Board에도 추가할까요?"
+```
+
+### 자동 제안 규칙
+
+| 상황 | 제안 |
+|------|------|
+| 단순 조회 (`SELECT ... LIMIT 10`) | 제안 안 함 |
+| 집계/분석 쿼리 | "Asset에 저장할까요?" 제안 |
+| 사용자가 "저장해줘" 명시 | 즉시 저장 플로우 |
+| 이미 저장된 Asset 재실행 | "업데이트할까요?" 제안 |
+
+### ④ Presentation & Board (자산화)
+
+```
+User: "이거 매출 대시보드에 추가해줘"
+
+Agent: → Board Component 생성
+       {
+         board_id: "sales-dashboard",
+         type: "chart",
+         analysis_id: "channel-roi",
+         chart_type: "bar"
+       }
+
+Board 열 때:
+- last_refreshed_at 확인
+- 설정된 정책(Lazy/On-Access)에 따라 자동 갱신
+```
+
+---
+
+## 6. 에셋(Asset) 시스템
+
+### Asset Library + Board 구조
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Workspace (Project)                                        │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  [고정 메뉴]                                                │
+│  ├─ 💬 Chat              ← 작업 지시, 대화                  │
+│  ├─ 📦 Asset Library     ← 자산이 쌓이는 곳 (NEW)          │
+│  ├─ 📊 Boards            ← 리포트 만들고 보여주는 곳        │
+│  └─ 🔗 Data Sources      ← 연결 관리                       │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Asset Library ↔ Board 관계
+
+```
+Asset Library (저장소)              Board (프레젠테이션)
+┌─────────────────────────┐         ┌─────────────────────────┐
+│ 📦 Assets               │         │ 📊 매출 대시보드         │
+│                         │         │                         │
+│ • 월별 매출 (Analysis)  │───┬────→│  [월별 매출 차트]       │
+│ • 코호트 분석           │   │     │  [고객별 테이블]        │
+│ • 채널별 ROI            │───┼────→│  [ROI 카드]            │
+│ • 고객 세그먼트         │   │     │                         │
+│ • marketing.csv (File)  │   │     └─────────────────────────┘
+│                         │   │     
+│                         │   │     ┌─────────────────────────┐
+│                         │   └────→│ 📊 주간 리포트          │
+│                         │         │                         │
+│                         │         │  [주간 매출 차트]       │
+│                         │         │  [ROI 요약]            │
+│                         │         └─────────────────────────┘
+└─────────────────────────┘
+
+※ 직접 참조: 하나의 Asset이 여러 Board에서 재사용 가능
+※ Asset 수정 시 모든 참조 Board에 반영
+```
+
+### 자산 유형 (Asset Library에 포함)
+
+| 유형 | 설명 | 저장 위치 |
+|------|------|----------|
+| **Saved Analysis** | 재실행 가능한 분석 (SQL + 결과) | `warehouse.duckdb:analyses` + `assets/{id}/` |
+| **Cached Table** | "보관" 선택한 캐시 테이블 | `warehouse.duckdb:cached_tables` |
+| **Uploaded File** | 업로드한 CSV/Parquet 등 | `assets/files/{id}/` |
+| **Report** | Markdown 문서 | `assets/reports/{id}.md` |
+
+### 기타 시스템 엔티티 (Asset Library 외부)
+
+| 유형 | 설명 | 저장 위치 |
+|------|------|----------|
+| **Connection** | 외부 소스 연결 설정 | `connections/{id}.json` |
+| **Board** | 대시보드 (Asset 참조 컴포넌트 모음) | `warehouse.duckdb:boards` |
+| **Work Cache** | 임시 세션 캐시 (TTL) | `sessions/{conv}/work.duckdb` |
+| **Memory** | 사용자/프로젝트 메모리 | `deepagents/` |
+| **Skill** | 분석 템플릿/가이드 | `deepagents/*/skills/` |
+
+### Saved Analysis 데이터 모델
+
+```sql
+CREATE TABLE analyses (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  project_id TEXT,
+  
+  -- 분석 로직
+  source_sql TEXT NOT NULL,           -- 원본 쿼리
+  
+  -- 스케줄
+  refresh_schedule TEXT,              -- "manual", "daily", "weekly", "on_access"
+  last_refreshed_at TIMESTAMP,
+  
+  -- 출력
+  result_table TEXT,                  -- "analysis.channel_roi"
+  
+  -- 메타
+  created_by TEXT,                    -- "user" or "agent:{run_id}"
+  created_at TIMESTAMP,
+  updated_at TIMESTAMP,
+  tags TEXT[]
+);
+
+CREATE TABLE analysis_dependencies (
+  analysis_id TEXT REFERENCES analyses(id),
+  depends_on_type TEXT,               -- "source", "cache", "analysis"
+  depends_on_ref TEXT,                -- "pg.orders" or analysis_id
+  PRIMARY KEY (analysis_id, depends_on_type, depends_on_ref)
+);
+```
+
+---
+
+## 7. UI 구조: Asset Library + Board
+
+### 메뉴 구조
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Workspace: "My Project"                                    │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  [사이드바 - 고정 메뉴]                                      │
+│  ├─ 💬 Chat                    ← 대화/작업 지시             │
+│  ├─ 📦 Asset Library           ← 자산 목록 (NEW)           │
+│  ├─ 📊 Boards                  ← 리포트/대시보드            │
+│  │   ├─ 매출 대시보드                                       │
+│  │   ├─ 주간 리포트                                         │
+│  │   └─ [+ New Board]                                       │
+│  └─ 🔗 Data Sources            ← 연결 관리                 │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Asset Library 화면
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  📦 Asset Library                         [+ New Query]     │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  🔍 Search...              [All] [Analysis] [Files] [Cache] │
+│                                                             │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ 📊 월별 매출 추이                                    │   │
+│  │    Type: Analysis  •  Updated: 2h ago  •  Weekly     │   │
+│  │    Used in: 매출 대시보드, 주간 리포트               │   │
+│  │    [▶ Run] [👁 Preview] [✏️ Edit] [📌 Add to Board] │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ 📊 고객 코호트 분석                                  │   │
+│  │    Type: Analysis  •  Updated: 3d ago  •  Manual     │   │
+│  │    Used in: -                                        │   │
+│  │    [▶ Run] [👁 Preview] [✏️ Edit] [📌 Add to Board] │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ 📁 marketing_2024.csv                               │   │
+│  │    Type: File  •  Uploaded: 1w ago  •  12,345 rows   │   │
+│  │    Used in: 채널 분석                                │   │
+│  │    [👁 Preview] [🗑 Delete]                          │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ 💾 orders_2024 (Cached)                              │   │
+│  │    Type: Cache  •  Cached: 5d ago  •  500K rows      │   │
+│  │    Source: pg.orders WHERE year=2024                 │   │
+│  │    [🔄 Refresh] [👁 Preview] [🗑 Delete]             │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Board 화면 (Asset 참조)
+
+```
+Board: "매출 대시보드"
+┌─────────────────────────────────────────────────────────────┐
+│  [상단 툴바]  Last Updated: 2h ago   [🔄 Refresh All]       │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌──────────────────┐  ┌──────────────────┐                │
+│  │  월별 매출        │  │  고객별 매출      │                │
+│  │  (차트)          │  │  (테이블)        │                │
+│  │  → Asset: 월별 매출 추이              │                │
+│  │  [🔄] [⚙️]       │  │  [🔄] [⚙️]       │                │
+│  └──────────────────┘  └──────────────────┘                │
+│                                                             │
+│  ┌──────────────────────────────────────┐                  │
+│  │  주간 성장률                          │                  │
+│  │  (KPI 카드)                          │                  │
+│  │  → Asset: 채널별 ROI                 │                  │
+│  │  [🔄] [⚙️]                           │                  │
+│  └──────────────────────────────────────┘                  │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+
+각 컴포넌트:
+- Asset 직접 참조 (analysis_id)
+- [🔄] Refresh → 해당 Asset 재실행
+- [⚙️] Edit → 차트 타입/표시 옵션 변경 (Asset SQL은 Asset Library에서)
+```
+
+### Board에서 Asset 추가 플로우
+
+```
+[📌 Add Component] 클릭 →
+
+┌─────────────────────────────────────┐
+│  Add from Asset Library             │
+├─────────────────────────────────────┤
+│  🔍 Search assets...                │
+│                                     │
+│  📊 월별 매출 추이          [Add]   │
+│  📊 고객 코호트 분석        [Add]   │
+│  📊 채널별 ROI              [Add]   │
+│  📁 marketing_2024.csv      [Add]   │
+│                                     │
+│  ─────────────────────────────────  │
+│  Or create new:                     │
+│  [+ New Query] [+ Text Block]       │
+└─────────────────────────────────────┘
+```
+
+### Refresh 동작
+
+```
+Asset Library에서:
+[▶ Run] → 해당 Asset만 갱신
+
+Board에서:
+[🔄 Refresh All] → Board에 포함된 모든 Asset의 의존성 순서대로 갱신
+[🔄] (컴포넌트별) → 해당 Asset만 갱신
+```
+
+---
+
+## 8. 의사결정 레버 (확정된 값)
+
+| 결정 축 | 결정 | 이유 |
+|---------|------|------|
+| **Live vs Cache** | Hybrid (Smart Default) | 탐색은 Live, 무거우면 에이전트가 캐시 제안 |
+| **가공의 단위** | Saved Analysis | dbt보다 가벼움, 사용자 친화적 |
+| **갱신 트리거** | Lazy Evaluation (On-Access) | 로컬 앱이므로 스케줄보다 접근 시 갱신 |
+| **가시성의 중심** | Asset Library + Board | Asset Library = 저장소, Board = 프레젠테이션 |
+| **신뢰성 장치** | Lineage + Run History | 의존성 추적 + 실행 이력 |
+| **Work Zone** | 별도 DuckDB 파일 | Resume 가능, checkpointer와 일관성 |
+| **Asset 참조 방식** | 직접 참조 | Asset 수정 시 모든 Board에 반영 (Single Source of Truth) |
+| **Asset 생성** | Agent 자동 제안 | 분석 후 "Asset에 저장할까요?" 자동 제안 |
+
+---
+
+## 9. 확정된 결정: duckpipe (자체 경량 엔진)
+
+### 결정: dbt 제거, 자체 라이브러리 개발
+
+dbt를 사용하지 않고, **`duckpipe`라는 내부 라이브러리**를 개발하여 "Invisible Pipeline"을 구현합니다.
+
+### 왜 이 결정인가
+
+| dbt 내재화 | duckpipe (자체 개발) |
+|-----------|---------------------|
+| 패키징 복잡 | **패키징 단순** ✅ |
+| 과잉 기능 (80% 안 씀) | **필요한 것만** ✅ |
+| 파일 기반 구조 | **DB 기반 (우리 모델과 일치)** ✅ |
+| dbt 버전 종속 | **자체 통제** ✅ |
+
+### duckpipe 개요
+
+```
+duckpipe가 하는 것:
+├── SQL 기반 Analysis 정의
+├── 의존성 자동 추출 (sqlglot)
+├── DAG 구성 + Topological Sort
+├── Materialization (VIEW/TABLE/PARQUET)
+├── Freshness 체크 + Selective Refresh
+└── 실행 이력 + 상태 관리
+
+duckpipe가 안 하는 것 (Pluto Duck이 함):
+├── UI/API
+├── Agent/LLM 연동
+├── HITL 승인
+└── 연결 관리
+```
+
+### 개발 전략
+
+1. **내부 라이브러리로 시작**: `backend/duckpipe/`
+2. **API 안정화 후**: 외부 OSS/패키지 분리 고려
+
+상세 스펙: [`docs/plans/duckpipe-spec.md`](./duckpipe-spec.md)
+
+---
+
+## 10. 다음 단계
+
+### 구현 로드맵
+
+**Phase 0: duckpipe 개발** (2주) ✅ 완료
+- [x] `backend/duckpipe/` 라이브러리 구조 생성
+- [x] Analysis 모델 + Pipeline 클래스
+- [x] DAG + topological sort (graphlib)
+- [x] sqlglot 기반 의존성 추출
+- [x] 기본 실행 (VIEW/TABLE/APPEND/PARQUET)
+- [x] 메타데이터 저장 (DuckDB `_duckpipe` 스키마)
+- [x] Typed Ref Model (ADR-003)
+- [x] Safe Parameter Binding (ADR-004)
+- [x] Plan before Execute (ADR-005)
+- [x] Identifier Safety (ADR-006)
+- [x] 단위 테스트 (62개 통과)
+
+**Phase 1: Live + Cache 플로우** (1주) ✅ 완료
+- [x] DuckDB ATTACH 기반 Source 연결 (`SourceService`)
+- [x] `cache_table` / `attach_postgres` / `attach_sqlite` Agent tools
+- [x] Smart Cache 제안 로직 (`suggest_cache` tool)
+- [x] Work Zone 파일 구조 (`WorkZoneService`)
+- [x] Work Zone TTL 정리 로직 (`cleanup_expired()`)
+- [x] Source/Cache REST API (`/api/v1/source/*`)
+- [x] 단위 테스트 (42개 통과)
+
+**Phase 2: Asset 시스템 + duckpipe 연동** (2주) ✅ 완료
+- [x] AssetService (duckpipe Pipeline 래핑)
+- [x] Asset CRUD REST API (`/api/v1/asset/*`)
+- [x] `save_analysis` / `run_analysis` / `list_analyses` Agent tools
+- [x] `get_lineage` / `get_freshness` Agent tools
+- [x] Freshness 체크 + 실행 이력
+- [x] 단위 테스트 (28개 통과)
+
+> 📌 상세 연동 스펙은 아래 "Asset 시스템 연동 상세 스펙" 섹션 참조
+> 💡 Agent 자동 제안 로직은 Phase 3 UI 구현 후 Agent prompt 최적화와 함께 진행
+
+**Phase 3: UI - Asset Library** (2주) ✅ 완료
+- [x] Asset Library API 클라이언트 (`assetsApi.ts`)
+- [x] Asset Library 메뉴 추가 (Sidebar 탭 전환)
+- [x] Asset 목록 화면 (`AssetListView`)
+- [x] Asset 상세/편집 모달 (`AssetDetailModal`)
+- [x] Asset 생성 모달 (`CreateAssetModal`)
+- [x] 실행 계획 미리보기 (`ExecutionPlanView`)
+- [ ] Board에서 Asset 참조 구현 (향후)
+- [x] On-Access Refresh ✅
+
+**Phase 4: 안정화** ✅ 완료!
+- [x] Lineage 시각화 (React Flow 기반 그래프 뷰) ✅
+- [x] 에러 핸들링 / 부분 실패 (`continue_on_failure` 옵션) ✅
+- [x] Asset 검색/필터 고도화 (태그, 타입, 상태, 정렬) ✅
+- [x] Board에서 Asset 참조 (`/asset` 슬래시 명령어) ✅
+- [ ] (선택) duckpipe OSS 분리
+
+---
+
+## 11. Asset 시스템 연동 상세 스펙
+
+> Phase 2 시작 시 참조할 duckpipe ↔ Pluto Duck 연동 설계
+
+### 11.1 아키텍처 개요
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Pluto Duck Backend                            │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐         │
+│  │ AssetService│───▶│  duckpipe   │───▶│  DuckDB     │         │
+│  │  (래핑)     │    │  Pipeline   │    │  (실행)     │         │
+│  └─────────────┘    └─────────────┘    └─────────────┘         │
+│        │                  ▲                                     │
+│        │                  │ YAML                                │
+│        ▼                  │                                     │
+│  ┌─────────────┐    ┌─────────────┐                            │
+│  │ Asset API   │    │ FileStore   │                            │
+│  │ (REST)      │    │ (analyses/) │                            │
+│  └─────────────┘    └─────────────┘                            │
+│        │                                                        │
+│        ▼                                                        │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │                    Agent Tools                               ││
+│  │  save_analysis │ run_analysis │ list_analyses │ get_lineage ││
+│  └─────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 11.2 AssetService 설계
+
+```python
+# backend/pluto_duck_backend/app/services/asset/service.py
+
+from duckpipe import Pipeline, Analysis, ExecutionPlan
+from duckpipe.storage import FileMetadataStore
+
+class AssetService:
+    """
+    duckpipe Pipeline을 Pluto Duck 서비스 레이어로 래핑.
+    - Connection 관리 (DuckDB 연결 주입)
+    - 프로젝트별 격리
+    - 실행 이력 API
+    """
+    
+    def __init__(self, project_id: str, db_path: Path):
+        self.project_id = project_id
+        self.db_path = db_path
+        self.analyses_dir = db_path.parent / "analyses"
+        self.store = FileMetadataStore(self.analyses_dir)
+        self._pipeline: Pipeline | None = None
+    
+    def _get_pipeline(self, conn: duckdb.DuckDBPyConnection) -> Pipeline:
+        """Connection을 주입받아 Pipeline 인스턴스 반환"""
+        if self._pipeline is None:
+            self._pipeline = Pipeline(self.store)
+        return self._pipeline
+    
+    # === CRUD ===
+    
+    async def create_analysis(
+        self,
+        analysis_id: str,
+        sql: str,
+        name: str | None = None,
+        description: str | None = None,
+        materialization: str = "view",
+        parameters: list[dict] | None = None,
+        tags: list[str] | None = None,
+    ) -> Analysis:
+        """새 Analysis 생성 (YAML 파일로 저장)"""
+        analysis = Analysis(
+            id=analysis_id,
+            sql=sql,
+            name=name or analysis_id,
+            description=description,
+            materialization=materialization,
+            parameters=parameters or [],
+            tags=tags or [],
+        )
+        self.store.save(analysis)
+        return analysis
+    
+    async def get_analysis(self, analysis_id: str) -> Analysis | None:
+        """Analysis 조회"""
+        return self.store.load(analysis_id)
+    
+    async def list_analyses(self, tags: list[str] | None = None) -> list[Analysis]:
+        """모든 Analysis 목록 (태그 필터 가능)"""
+        all_analyses = self.store.list_all()
+        if tags:
+            return [a for a in all_analyses if set(tags) & set(a.tags)]
+        return all_analyses
+    
+    async def update_analysis(self, analysis_id: str, **updates) -> Analysis:
+        """Analysis 수정"""
+        analysis = self.store.load(analysis_id)
+        if not analysis:
+            raise AssetNotFoundError(analysis_id)
+        
+        for key, value in updates.items():
+            if hasattr(analysis, key):
+                setattr(analysis, key, value)
+        
+        self.store.save(analysis)
+        return analysis
+    
+    async def delete_analysis(self, analysis_id: str) -> None:
+        """Analysis 삭제"""
+        self.store.delete(analysis_id)
+    
+    # === 실행 ===
+    
+    async def compile_analysis(
+        self,
+        analysis_id: str,
+        conn: duckdb.DuckDBPyConnection,
+        params: dict | None = None,
+    ) -> ExecutionPlan:
+        """
+        실행 계획 생성 (HITL 승인용)
+        - Agent가 사용자에게 실행 계획 보여주기 전 호출
+        """
+        pipeline = self._get_pipeline(conn)
+        return pipeline.compile(analysis_id, params=params)
+    
+    async def execute_plan(
+        self,
+        plan: ExecutionPlan,
+        conn: duckdb.DuckDBPyConnection,
+    ) -> ExecutionResult:
+        """
+        승인된 실행 계획 실행
+        - HITL 승인 후 호출
+        """
+        pipeline = self._get_pipeline(conn)
+        return pipeline.execute(plan, conn)
+    
+    async def run_analysis(
+        self,
+        analysis_id: str,
+        conn: duckdb.DuckDBPyConnection,
+        params: dict | None = None,
+    ) -> ExecutionResult:
+        """
+        즉시 실행 (승인 없이)
+        - 이미 승인된 Analysis 재실행 시 사용
+        """
+        plan = await self.compile_analysis(analysis_id, conn, params)
+        return await self.execute_plan(plan, conn)
+    
+    # === 상태 조회 ===
+    
+    async def get_freshness(
+        self,
+        analysis_id: str,
+        conn: duckdb.DuckDBPyConnection,
+    ) -> dict:
+        """
+        Analysis 신선도 상태 조회
+        - last_run_at: 마지막 실행 시간
+        - is_stale: 재실행 필요 여부
+        - stale_reason: stale 사유 (의존성 변경 등)
+        """
+        pipeline = self._get_pipeline(conn)
+        return pipeline.get_freshness_status(analysis_id, conn)
+    
+    async def get_lineage(
+        self,
+        analysis_id: str,
+        conn: duckdb.DuckDBPyConnection,
+    ) -> dict:
+        """
+        Lineage 정보 조회
+        - upstream: 의존하는 Analysis/Source 목록
+        - downstream: 이 Analysis에 의존하는 Analysis 목록
+        """
+        pipeline = self._get_pipeline(conn)
+        return {
+            "upstream": pipeline.get_upstream(analysis_id),
+            "downstream": pipeline.get_downstream(analysis_id),
+        }
+    
+    async def get_run_history(
+        self,
+        analysis_id: str,
+        conn: duckdb.DuckDBPyConnection,
+        limit: int = 10,
+    ) -> list[dict]:
+        """실행 이력 조회"""
+        result = conn.execute("""
+            SELECT run_id, started_at, finished_at, status, error_message, row_count
+            FROM _duckpipe.run_history
+            WHERE analysis_id = ?
+            ORDER BY started_at DESC
+            LIMIT ?
+        """, [analysis_id, limit]).fetchall()
+        
+        return [
+            {
+                "run_id": r[0],
+                "started_at": r[1],
+                "finished_at": r[2],
+                "status": r[3],
+                "error_message": r[4],
+                "row_count": r[5],
+            }
+            for r in result
+        ]
+```
+
+### 11.3 Agent Tools 설계
+
+```python
+# backend/pluto_duck_backend/agent/core/deep/tools/asset.py
+
+@tool(name="save_analysis")
+async def save_analysis(
+    sql: str,
+    name: str,
+    description: str | None = None,
+    materialization: Literal["view", "table", "append", "parquet"] = "view",
+    parameters: list[dict] | None = None,
+    tags: list[str] | None = None,
+) -> str:
+    """
+    현재 분석을 재사용 가능한 Asset으로 저장합니다.
+    
+    Args:
+        sql: 저장할 SQL 쿼리
+        name: Asset 이름 (사람이 읽기 쉬운 형태)
+        description: 설명 (선택)
+        materialization: 저장 방식
+            - view: 가상 뷰 (실행 시 계산)
+            - table: 실제 테이블 (결과 저장)
+            - append: 기존 테이블에 추가
+            - parquet: Parquet 파일로 내보내기
+        parameters: 동적 파라미터 정의 (선택)
+        tags: 분류 태그 (선택)
+    
+    Returns:
+        저장된 Analysis ID
+    """
+    # Agent context에서 서비스 및 연결 획득
+    asset_service = get_asset_service()
+    
+    # ID 생성 (name을 snake_case로 변환)
+    analysis_id = to_snake_case(name)
+    
+    analysis = await asset_service.create_analysis(
+        analysis_id=analysis_id,
+        sql=sql,
+        name=name,
+        description=description,
+        materialization=materialization,
+        parameters=parameters,
+        tags=tags,
+    )
+    
+    return f"✅ '{name}' Asset이 저장되었습니다. (ID: {analysis_id})"
+
+
+@tool(name="run_analysis")
+async def run_analysis(
+    analysis_id: str,
+    params: dict | None = None,
+    force: bool = False,
+) -> str:
+    """
+    저장된 Analysis를 실행합니다.
+    
+    Args:
+        analysis_id: 실행할 Analysis ID
+        params: 파라미터 값 (파라미터가 정의된 경우 필수)
+        force: True면 freshness 상관없이 강제 실행
+    
+    Returns:
+        실행 결과 요약
+    """
+    asset_service = get_asset_service()
+    conn = get_duckdb_connection()
+    
+    # Freshness 체크
+    if not force:
+        freshness = await asset_service.get_freshness(analysis_id, conn)
+        if not freshness["is_stale"]:
+            return f"ℹ️ '{analysis_id}'는 이미 최신 상태입니다. (마지막 실행: {freshness['last_run_at']})"
+    
+    # 실행 계획 생성 (HITL 승인용)
+    plan = await asset_service.compile_analysis(analysis_id, conn, params)
+        
+    # 실행 계획을 사용자에게 보여주고 승인 요청
+    # (Agent framework의 HITL 메커니즘 활용)
+    approval_message = format_execution_plan(plan)
+    
+    # 승인 후 실행
+    result = await asset_service.execute_plan(plan, conn)
+    
+    return format_execution_result(result)
+
+
+@tool(name="list_analyses")
+async def list_analyses(
+    tags: list[str] | None = None,
+    show_freshness: bool = False,
+) -> str:
+    """
+    저장된 Analysis 목록을 조회합니다.
+    
+    Args:
+        tags: 필터링할 태그 목록 (선택)
+        show_freshness: True면 각 Analysis의 신선도 상태도 표시
+    
+    Returns:
+        Analysis 목록 (테이블 형식)
+    """
+    asset_service = get_asset_service()
+    conn = get_duckdb_connection()
+    
+    analyses = await asset_service.list_analyses(tags)
+    
+    if not analyses:
+        return "저장된 Analysis가 없습니다."
+    
+    # 테이블 형식으로 포맷
+    rows = []
+    for a in analyses:
+        row = {
+            "ID": a.id,
+            "Name": a.name,
+            "Type": a.materialization,
+            "Tags": ", ".join(a.tags) if a.tags else "-",
+        }
+        
+        if show_freshness:
+            freshness = await asset_service.get_freshness(a.id, conn)
+            row["Status"] = "🟢 Fresh" if not freshness["is_stale"] else "🟡 Stale"
+            row["Last Run"] = freshness.get("last_run_at", "-")
+        
+        rows.append(row)
+    
+    return format_as_table(rows)
+
+
+@tool(name="get_lineage")
+async def get_lineage(analysis_id: str) -> str:
+    """
+    Analysis의 데이터 계보(Lineage)를 조회합니다.
+    
+    Args:
+        analysis_id: 조회할 Analysis ID
+    
+    Returns:
+        상위/하위 의존성 트리
+    """
+    asset_service = get_asset_service()
+    conn = get_duckdb_connection()
+    
+    lineage = await asset_service.get_lineage(analysis_id, conn)
+    
+    return format_lineage_tree(lineage)
+```
+
+### 11.4 Asset REST API 설계
+
+```python
+# backend/pluto_duck_backend/app/api/v1/asset/router.py
+
+router = APIRouter(prefix="/asset", tags=["asset"])
+
+# CRUD
+@router.post("/analyses", response_model=AnalysisResponse)
+async def create_analysis(request: CreateAnalysisRequest): ...
+
+@router.get("/analyses", response_model=list[AnalysisResponse])
+async def list_analyses(tags: list[str] = Query(None)): ...
+
+@router.get("/analyses/{analysis_id}", response_model=AnalysisResponse)
+async def get_analysis(analysis_id: str): ...
+
+@router.patch("/analyses/{analysis_id}", response_model=AnalysisResponse)
+async def update_analysis(analysis_id: str, request: UpdateAnalysisRequest): ...
+
+@router.delete("/analyses/{analysis_id}")
+async def delete_analysis(analysis_id: str): ...
+
+# 실행
+@router.post("/analyses/{analysis_id}/compile", response_model=ExecutionPlanResponse)
+async def compile_analysis(analysis_id: str, request: CompileRequest): ...
+
+@router.post("/analyses/{analysis_id}/execute", response_model=ExecutionResultResponse)
+async def execute_analysis(analysis_id: str, request: ExecuteRequest): ...
+
+# 상태
+@router.get("/analyses/{analysis_id}/freshness", response_model=FreshnessResponse)
+async def get_freshness(analysis_id: str): ...
+
+@router.get("/analyses/{analysis_id}/lineage", response_model=LineageResponse)
+async def get_lineage(analysis_id: str): ...
+
+@router.get("/analyses/{analysis_id}/history", response_model=list[RunHistoryResponse])
+async def get_run_history(analysis_id: str, limit: int = 10): ...
+```
+
+### 11.5 Agent 자동 제안 로직
+
+```python
+# backend/pluto_duck_backend/agent/core/deep/hooks/asset_suggestion.py
+
+class AssetSuggestionHook:
+    """
+    Agent가 복잡한 분석을 완료했을 때 Asset 저장을 제안하는 훅.
+    
+    제안 조건:
+    1. SQL이 일정 복잡도 이상 (JOIN 2개 이상, CTE 사용 등)
+    2. 같은 패턴의 쿼리가 2회 이상 반복됨
+    3. 사용자가 "이거 저장해", "나중에 또 볼게" 등의 의도 표현
+    """
+    
+    COMPLEXITY_THRESHOLD = 3  # JOIN/CTE/SUBQUERY 개수
+    
+    async def on_query_complete(
+        self,
+        sql: str,
+        result: QueryResult,
+        context: AgentContext,
+    ) -> str | None:
+        """쿼리 완료 후 호출, 제안 메시지 반환"""
+        
+        # 복잡도 분석
+        complexity = self._analyze_complexity(sql)
+        
+        if complexity >= self.COMPLEXITY_THRESHOLD:
+            return self._format_suggestion(sql, result)
+        
+        # 반복 패턴 감지
+        if self._is_repeated_pattern(sql, context):
+            return self._format_suggestion(sql, result)
+        
+        return None
+    
+    def _analyze_complexity(self, sql: str) -> int:
+        """SQL 복잡도 점수 계산"""
+        import sqlglot
+        
+        score = 0
+        parsed = sqlglot.parse_one(sql)
+        
+        # JOIN 개수
+        score += len(list(parsed.find_all(sqlglot.exp.Join)))
+        
+        # CTE 개수
+        score += len(list(parsed.find_all(sqlglot.exp.CTE)))
+        
+        # Subquery 개수
+        score += len(list(parsed.find_all(sqlglot.exp.Subquery)))
+        
+        # Window function 사용
+        if list(parsed.find_all(sqlglot.exp.Window)):
+            score += 1
+        
+        return score
+    
+    def _format_suggestion(self, sql: str, result: QueryResult) -> str:
+        return (
+            "💡 이 분석을 Asset으로 저장하시겠어요?\n"
+            "저장하면 나중에 바로 실행하거나 Board에 추가할 수 있어요.\n\n"
+            f"```sql\n{sql}\n```\n\n"
+            "저장하려면 '저장해줘' 또는 '월별_매출_분석으로 저장해줘'라고 해주세요."
+        )
+```
+
+### 11.6 Board ↔ Asset 연동
+
+```typescript
+// frontend/pluto_duck_frontend/components/boards/AssetBlock.tsx
+
+interface AssetBlockProps {
+  analysisId: string;
+  params?: Record<string, unknown>;
+  refreshOnLoad?: boolean;
+}
+
+/**
+ * Board에서 Asset을 참조하는 블록.
+ * - 결과 테이블/차트 렌더링
+ * - On-Access Refresh 지원
+ * - 파라미터 바인딩 UI
+ */
+export function AssetBlock({ analysisId, params, refreshOnLoad }: AssetBlockProps) {
+  const { data: analysis } = useQuery(['analysis', analysisId], () => 
+    fetchAnalysis(analysisId)
+  );
+  
+  const { data: freshness } = useQuery(['freshness', analysisId], () =>
+    fetchFreshness(analysisId)
+  );
+  
+  const executeMutation = useMutation(executeAnalysis);
+  
+  // On-Access Refresh
+  useEffect(() => {
+    if (refreshOnLoad && freshness?.is_stale) {
+      executeMutation.mutate({ analysisId, params });
+    }
+  }, [refreshOnLoad, freshness]);
+  
+  // ... 렌더링 로직
+}
+```
+
+### 11.7 dbt 제거 계획
+
+Phase 2 완료 후 dbt 의존성 제거:
+
+```python
+# pyproject.toml 변경
+
+[project.optional-dependencies]
+# dbt = ["dbt-core>=1.5.0", "dbt-duckdb>=1.5.0"]  # 제거
+legacy = ["dbt-core>=1.5.0", "dbt-duckdb>=1.5.0"]  # 마이그레이션 기간 유지
+
+# 제거 대상 파일
+# - backend/pluto_duck_backend/app/services/transformation/  (전체)
+# - backend/pluto_duck_backend/app/api/v1/dbt/  (전체)
+# - backend/pluto_duck_backend/agent/core/deep/tools/dbt.py
+# - backend/pluto_duck_backend/templates/dbt/  (전체)
+```
+
+---
+
+## 부록: 사용자 시나리오 상세
+
+### 시나리오 1: 연결 → 즉시 탐색
+
+```
+User: "회사 Postgres DB 연결해줘"
+Agent: (ATTACH 실행)
+       "연결됐어요. 테이블 목록:"
+       - public.orders (Live)
+       - public.customers (Live)
+       - public.products (Live)
+
+User: "orders 좀 보여줘"
+Agent: SELECT * FROM pg.orders LIMIT 5
+       (실시간 결과 표시)
+       
+User: "총 몇 건이야?"
+Agent: SELECT COUNT(*) FROM pg.orders
+       → "1,234,567건이에요"
+```
+
+### 시나리오 2: 무거운 분석 → Smart Cache
+
+```
+User: "2024년 전체 주문으로 코호트 분석 해줘"
+
+Agent: (판단: 데이터 많음)
+       "데이터가 약 50만 건이네요. 
+        로컬에 캐시하면 분석이 빨라져요. 캐시할까요?"
+
+User: "응"
+
+Agent: CREATE TABLE cache.orders_2024 AS 
+       SELECT * FROM pg.orders 
+       WHERE order_date >= '2024-01-01';
+       
+       "50만 건을 로컬로 가져왔어요. (3.2초)"
+       
+       (로컬 테이블 대상으로 복잡한 코호트 분석 수행)
+       
+       "분석 결과입니다: ..."
+```
+
+### 시나리오 3: 분석 자산화
+
+```
+User: "이 월별 매출 분석, 매달 보고 싶어"
+
+Agent: "Saved Analysis로 저장할게요."
+       
+       Name: "월별 매출 추이"
+       SQL: SELECT DATE_TRUNC('month', order_date) as month,
+                   SUM(amount) as revenue
+            FROM pg.orders
+            GROUP BY 1
+       Schedule: Weekly
+       
+       "저장했어요. 다음에 '월별 매출 업데이트해줘'라고 하거나,
+        Registry에서 [▶] 버튼을 누르면 최신 데이터로 갱신돼요."
+
+User: (일주일 후, Registry에서)
+      [▶ Run Now] 클릭
+
+System: "최신 데이터로 갱신했어요. (2.1초)"
+```

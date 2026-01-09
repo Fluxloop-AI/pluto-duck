@@ -1,6 +1,6 @@
 # Pluto-Duck OSS
 
-Local-first analytics studio powered by DuckDB, dbt, and an AI-assisted query agent.
+Local-first analytics studio powered by DuckDB and an AI-assisted query agent.
 
 <p align="center">
   <img src="docs/screen1.png" alt="Chat Interface" width="45%" />
@@ -17,8 +17,8 @@ Get powerful analytics capabilities without uploading your data to the cloud.
 - **🔒 Privacy First**: All data and computation stay on your local machine, never transmitted externally
 - **💬 Natural Language Queries**: Ask questions and get insights by conversing with an AI agent
 - **🚀 High Performance**: DuckDB-powered analytics engine handles large datasets with speed
-- **🔌 Flexible Connectivity**: Easily connect CSV, Parquet, PostgreSQL, SQLite, and more
-- **🛠️ Professional Grade**: Structured data transformation management through dbt integration
+- **🔌 Live Data Federation**: Connect PostgreSQL, SQLite, MySQL databases with zero-copy ATTACH
+- **📊 Asset Management**: Save, version, and execute SQL analyses with automatic lineage tracking
 
 ## Product Direction
 
@@ -31,11 +31,10 @@ Pluto Duck evolves in stages, developing in the following directions:
 
 ## Project Layout
 
-- `backend/pluto_duck_backend`: FastAPI service, ingestion/transformation engines, and AI agent.
+- `backend/pluto_duck_backend`: FastAPI service, data services, and AI agent.
+- `backend/duckpipe`: Lightweight SQL pipeline library for analysis management.
 - `packages/pluto_duck_cli`: Typer-based CLI entrypoint (`pluto-duck`).
-- `frontend/pluto_duck_frontend`: Minimal chat/front-end client (placeholder).
-- `dbt_projects/core`: Reference dbt project used by the transformation service.
-- `legacy/`: Snapshot of prior closed-source implementation for reference only (ignored by git).
+- `frontend/pluto_duck_frontend`: Next.js web client with chat and board interfaces.
 
 ## Getting Started
 
@@ -81,10 +80,13 @@ Agent responses are also available via `/api/v1/agent/{run_id}/events` as SSE st
 
 ## Roadmap Highlights
 
-- Phase 1: Extract clean OSS backend, focus on ingestion, dbt integration, public API, CLI.
-- Phase 2: Ship minimal chat frontend for end-to-end local experience.
-- Phase 3: Prepare for optional managed/cloud offering with premium features.
-- **Phase 4: macOS desktop app with Tauri** ✅ **Complete**
+- ✅ Phase 1: Clean OSS backend with public API and CLI
+- ✅ Phase 2: Chat frontend with multi-board interface
+- ✅ Phase 3: macOS desktop app with Tauri
+- ✅ Phase 4: **New Data Architecture**
+  - Live data federation via DuckDB ATTACH
+  - duckpipe: lightweight SQL pipeline library
+  - Asset management with lineage tracking
 
-See `docs/plans/` for detailed design notes.
+See `docs/plans/` for detailed design notes and `docs/Pluto_Duck_new_flow.md` for the new architecture.
 

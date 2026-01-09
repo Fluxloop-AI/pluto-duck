@@ -20,14 +20,19 @@ from pluto_duck_backend.app.services.source import (
     AttachError,
     CacheError,
     SourceNotFoundError,
+    get_source_service,
 )
 
 
-def build_source_tools(*, warehouse_path: Path) -> List[StructuredTool]:
-    """Build source and cache tools bound to a specific warehouse."""
+def build_source_tools(*, project_id: str) -> List[StructuredTool]:
+    """Build source and cache tools bound to a specific project.
+    
+    Args:
+        project_id: Project identifier for isolation
+    """
 
     def _get_service() -> SourceService:
-        return SourceService(warehouse_path)
+        return get_source_service(project_id)
 
     # =========================================================================
     # Source Connection Tools

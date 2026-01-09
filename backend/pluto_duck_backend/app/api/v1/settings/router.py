@@ -32,7 +32,6 @@ class SettingsResponse(BaseModel):
     llm_api_key: Optional[str] = None  # Masked
     llm_model: Optional[str] = None
     data_sources: Optional[Any] = None
-    dbt_project: Optional[Any] = None
     ui_preferences: Dict[str, Any] = {"theme": "dark"}
     default_project_id: Optional[str] = None
 
@@ -71,7 +70,6 @@ def get_settings() -> SettingsResponse:
         llm_api_key=mask_api_key(settings.get("llm_api_key")),
         llm_model=settings.get("llm_model"),
         data_sources=settings.get("data_sources"),
-        dbt_project=settings.get("dbt_project"),
         ui_preferences=settings.get("ui_preferences") or {"theme": "dark"},
         default_project_id=repo._default_project_id,
     )

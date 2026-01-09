@@ -16,12 +16,13 @@ import { Input } from '../ui/input';
 import { createDataSource, importTable } from '../../lib/dataSourcesApi';
 
 interface ImportParquetModalProps {
+  projectId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onImportSuccess?: () => void;
 }
 
-export function ImportParquetModal({ open, onOpenChange, onImportSuccess }: ImportParquetModalProps) {
+export function ImportParquetModal({ projectId, open, onOpenChange, onImportSuccess }: ImportParquetModalProps) {
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -59,14 +60,14 @@ export function ImportParquetModal({ open, onOpenChange, onImportSuccess }: Impo
 
     setImporting(true);
     try {
-      const source = await createDataSource({
+      const source = await createDataSource(projectId, {
         name: name.trim(),
         description: description.trim() || undefined,
         connector_type: 'parquet',
         source_config: { path: filePath.trim() },
       });
 
-      const table = await importTable(source.id, {
+      const table = await importTable(projectId, source.name, {
         target_table: tableName.trim(),
         overwrite,
       });

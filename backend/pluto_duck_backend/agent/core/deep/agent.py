@@ -162,9 +162,21 @@ def build_deep_agent(
 
     system_prompt = get_runtime_system_prompt()
 
+    # Get project_id from conversation for source isolation
+    project_id = None
+    try:
+        conversation = repo.get_conversation(conversation_id)
+        if conversation:
+            project_id = conversation.project_id
+    except Exception:
+        pass  # Fallback to no project_id - source tools won't be available
+
     return create_deep_agent(
         model=chat_model,
-        tools=list(tools) if tools is not None else build_default_tools(workspace_root=workspace_root),
+        tools=list(tools) if tools is not None else build_default_tools(
+            workspace_root=workspace_root,
+            project_id=project_id,
+        ),
         system_prompt=system_prompt,
         backend=backend,
         middleware=middleware,

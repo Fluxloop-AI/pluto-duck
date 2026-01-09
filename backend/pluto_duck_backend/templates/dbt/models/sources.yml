@@ -1,9 +1,0 @@
-version: 2
-
-sources:
-  - name: raw
-    description: "Raw tables loaded by the ingestion service."
-    tables:
-      - name: orders
-        description: "Orders captured from source system."
-

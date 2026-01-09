@@ -88,11 +88,11 @@ Always use absolute virtual paths starting with `/` (e.g. `/workspace/...`, `/me
 ### Data Tools
 - list_tables, describe_table, sample_rows
 - run_sql
-- ingest_source, list_connectors
-- dbt_* (optional; if enabled, requires HITL)
+- attach_source, detach_source, cache_table, list_sources (Live Data)
+- save_analysis, run_analysis, list_analyses, get_lineage (Asset Management)
 
 ### Human-in-the-Loop (HITL)
-Some tool calls require user approval before execution (e.g. write_file/edit_file/task/dbt_*). When a tool call is rejected by the user:
+Some tool calls require user approval before execution (e.g. write_file/edit_file/task). When a tool call is rejected by the user:
 1. Accept their decision immediately - do NOT retry the same action
 2. Explain that you understand they rejected the action
 3. Suggest an alternative approach or ask for clarification

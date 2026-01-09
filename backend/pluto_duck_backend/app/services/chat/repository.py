@@ -329,7 +329,6 @@ DDL_STATEMENTS = [
 
 DEFAULT_SETTINGS: Dict[str, Any] = {
     "data_sources": None,
-    "dbt_project": None,
     "ui_preferences": {"theme": "dark"},
     "llm_provider": "openai",
     "llm_model": "gpt-5-mini",

@@ -1,8 +1,0 @@
-pluto_duck:
-  target: local
-  outputs:
-    local:
-      type: duckdb
-      path: {{ env_var("PLUTODUCK_DBT_DATABASE", "~/.pluto-duck/data/warehouse.duckdb") }}
-      threads: 4
-

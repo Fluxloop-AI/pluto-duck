@@ -7,8 +7,6 @@ from typing import Callable, Dict, List, Optional
 
 from pluto_duck_backend.app.core.config import get_settings
 from pluto_duck_backend.app.services.execution.manager import get_execution_manager
-from pluto_duck_backend.app.services.ingestion import IngestionJob, IngestionService, get_registry
-from pluto_duck_backend.app.services.transformation import DbtService
 import duckdb
 
 
@@ -67,72 +65,12 @@ def _build_default_catalog() -> ActionCatalog:
             "error": job.error,
         }
 
-    def ingestion_handler(connector: str, target_table: str, config: Optional[dict] = None, overwrite: bool = False) -> dict:
-        registry = get_registry()
-        service = IngestionService(registry)
-        settings = get_settings()
-        job = IngestionJob(
-            connector=connector,
-            target_table=target_table,
-            warehouse_path=settings.duckdb.path,
-            overwrite=overwrite,
-            config=config or {},
-        )
-        return service.run(job)
-
-    def dbt_run_handler(select: Optional[List[str]] = None, vars: Optional[dict] = None) -> dict:
-        settings = get_settings()
-        service = DbtService(
-            settings.dbt.project_path,
-            settings.dbt.profiles_path,
-            settings.data_dir.artifacts / "dbt",
-            settings.duckdb.path,
-        )
-        return service.run(select=select, vars=vars)
-
-    def dbt_test_handler(select: Optional[List[str]] = None) -> dict:
-        settings = get_settings()
-        service = DbtService(
-            settings.dbt.project_path,
-            settings.dbt.profiles_path,
-            settings.data_dir.artifacts / "dbt",
-            settings.duckdb.path,
-        )
-        return service.test(select=select)
-
     catalog.register(
         ActionDefinition(
             subject="query",
             action="run",
             description="Execute SQL against the local DuckDB warehouse.",
             handler=query_handler,
-        )
-    )
-
-    catalog.register(
-        ActionDefinition(
-            subject="ingestion",
-            action="run",
-            description="Run an ingestion connector to load data into DuckDB.",
-            handler=ingestion_handler,
-        )
-    )
-
-    catalog.register(
-        ActionDefinition(
-            subject="dbt",
-            action="run",
-            description="Run dbt models in the configured project.",
-            handler=dbt_run_handler,
-        )
-    )
-
-    catalog.register(
-        ActionDefinition(
-            subject="dbt",
-            action="test",
-            description="Run dbt tests in the configured project.",
-            handler=dbt_test_handler,
         )
     )
 

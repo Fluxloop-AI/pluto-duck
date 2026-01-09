@@ -1127,23 +1127,40 @@ export function AssetBlock({ analysisId, params, refreshOnLoad }: AssetBlockProp
 }
 ```
 
-### 11.7 dbt 제거 계획
+### 11.7 레거시 코드 정리 ✅ 완료 (2026-01-09)
 
-Phase 2 완료 후 dbt 의존성 제거:
+duckpipe와 SourceService로 마이그레이션 완료 후, 레거시 코드를 정리했습니다.
 
-```python
-# pyproject.toml 변경
+#### 삭제된 항목
 
-[project.optional-dependencies]
-# dbt = ["dbt-core>=1.5.0", "dbt-duckdb>=1.5.0"]  # 제거
-legacy = ["dbt-core>=1.5.0", "dbt-duckdb>=1.5.0"]  # 마이그레이션 기간 유지
+| 분류 | 삭제된 파일/폴더 | 대체 |
+|------|------------------|------|
+| **DBT** | `app/services/transformation/` | duckpipe |
+| **DBT** | `app/api/v1/dbt/` | `/api/v1/asset` |
+| **DBT** | `agent/tools/dbt.py` | `agent/tools/asset.py` |
+| **DBT** | `templates/dbt/` | - |
+| **Ingestion** | `app/services/ingestion/` | SourceService.cache_table |
+| **Ingestion** | `app/api/v1/ingest/` | `/api/v1/source` |
+| **Ingestion** | `agent/tools/ingest.py` | `agent/tools/source.py` |
+| **data_sources** | `app/services/data_sources/` | SourceService |
+| **data_sources** | `app/api/v1/data_sources/` | `/api/v1/source` |
 
-# 제거 대상 파일
-# - backend/pluto_duck_backend/app/services/transformation/  (전체)
-# - backend/pluto_duck_backend/app/api/v1/dbt/  (전체)
-# - backend/pluto_duck_backend/agent/core/deep/tools/dbt.py
-# - backend/pluto_duck_backend/templates/dbt/  (전체)
+#### 통합된 시스템
+
 ```
+기존:
+  data_sources (메타데이터) + ingestion (데이터 복사) + dbt (변환)
+  → 3개 시스템이 분리되어 혼란
+
+현재:
+  SourceService (ATTACH + Cache) + duckpipe (Analysis 관리)
+  → 2개 시스템으로 통합, 명확한 역할 분리
+```
+
+#### 프론트엔드 호환성
+
+`dataSourcesApi.ts`는 `sourceApi.ts`를 래핑하는 호환성 레이어로 유지됩니다.
+신규 코드는 `sourceApi.ts`를 직접 사용해야 합니다.
 
 ---
 

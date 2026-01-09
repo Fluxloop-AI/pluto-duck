@@ -96,7 +96,7 @@ When writing or updating agent memory, decide whether each fact, configuration, 
 **Store here:**
 - Project-specific architecture and conventions
 - Important tables / naming conventions
-- How ingestion/DBT is configured for this project
+- How data sources and pipelines are configured for this project
 - Reproducible analysis conventions for this project
 
 ### Project Memory Files: `{project_deepagents_dir}/*.md`

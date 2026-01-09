@@ -1,7 +1,7 @@
 """HITL approval persistence middleware (Phase 1).
 
 Responsibilities:
-- Detect tool calls that are subject to HITL approval (write_file/edit_file/task/dbt_*)
+- Detect tool calls that are subject to HITL approval (write_file/edit_file/task)
 - Create a persistent approval row in DuckDB via ChatRepository
 - Attach a lightweight mapping of tool_call_id -> approval_id into runtime state (best-effort)
 
@@ -33,9 +33,7 @@ class PlutoDuckHITLConfig:
 
 
 def _needs_approval(tool_name: str) -> bool:
-    if tool_name in {"write_file", "edit_file", "task"}:
-        return True
-    return tool_name.startswith("dbt_")
+    return tool_name in {"write_file", "edit_file", "task"}
 
 
 def _preview_for_tool(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -51,8 +49,6 @@ def _preview_for_tool(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
             "subagent_type": args.get("subagent_type"),
             "description_preview": description[:500],
         }
-    if tool_name.startswith("dbt_"):
-        return {"args": args}
     return {"args": args}
 
 

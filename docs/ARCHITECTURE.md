@@ -1,58 +1,182 @@
 # Pluto-Duck OSS Architecture Overview
 
-This document summarizes the target architecture. For full detail, refer to
-`.cursor/plans/backend-spec.plan.md` and `.cursor/plans/pluto-duck-re-architecture-plan-9662a618.plan.md`.
+This document summarizes the system architecture. For detailed specifications, see `docs/plans/` and `docs/Pluto_Duck_new_flow.md`.
 
-## Layers
+## Core Concepts
 
-1. **CLI & API**
-   - `packages/pluto_duck_cli`: Typer-based CLI.
-   - `backend/pluto_duck_backend/app/api`: FastAPI server exposing public endpoints.
-2. **Services**
-   - Ingestion (`app/services/ingestion`): pluggable connectors stream data into DuckDB.
-   - Transformation (`app/services/transformation`): thin wrapper around dbt CLI.
-   - Execution (`app/services/execution`): DuckDB query execution and metadata capture.
-3. **Agent**
-   - `backend/pluto_duck_backend/agent`: LangGraph-compatible workflow for NL query planning, SQL generation, verification, and result assembly.
-4. **Infrastructure**
-   - Local DuckDB warehouse, artifacts directory, configuration store.
+Pluto Duck is a **Local Agentic Data Workbench** that provides:
+
+1. **Live Data Federation**: Connect external databases (PostgreSQL, SQLite, MySQL) via DuckDB ATTACH
+2. **SQL Pipeline Management**: Save, execute, and track SQL analyses with automatic lineage
+3. **AI Agent**: Natural language interface for data exploration and analysis
+4. **Board System**: Collaborative workspace for organizing analyses and results
+
+## Architecture Layers
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         Frontend (Next.js)                          │
+│  ├── Chat Interface      - AI conversation with agent              │
+│  ├── Board Editor        - Lexical-based collaborative workspace   │
+│  └── Asset Library       - Saved analyses and lineage graph        │
+├─────────────────────────────────────────────────────────────────────┤
+│                         API Layer (FastAPI)                         │
+│  ├── /api/v1/source      - Data federation (ATTACH + Cache)        │
+│  ├── /api/v1/asset       - Analysis CRUD and execution             │
+│  ├── /api/v1/query       - Ad-hoc SQL execution                    │
+│  ├── /api/v1/agent       - AI agent interactions                   │
+│  └── /api/v1/boards      - Board management                        │
+├─────────────────────────────────────────────────────────────────────┤
+│                         Service Layer                               │
+│  ├── SourceService       - External DB connections and caching     │
+│  ├── AssetService        - Analysis management (wraps duckpipe)    │
+│  ├── WorkZoneService     - Conversation-scoped workspaces          │
+│  └── BoardsService       - Board CRUD and content                  │
+├─────────────────────────────────────────────────────────────────────┤
+│                         duckpipe Library                            │
+│  ├── Pipeline            - DAG execution orchestrator              │
+│  ├── Analysis            - SQL + metadata definition               │
+│  └── Parsing             - SQL analysis and parameter binding      │
+├─────────────────────────────────────────────────────────────────────┤
+│                         Storage (DuckDB)                            │
+│  ├── Main Warehouse      - User data and cached tables             │
+│  ├── _sources schema     - Attached source metadata                │
+│  ├── _duckpipe schema    - Analysis runtime state                  │
+│  └── analysis schema     - Materialized analysis results           │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+## Data Zones
+
+### 1. Source Zone (External Data)
+- **Live Sources**: External databases connected via `ATTACH` (zero-copy federation)
+- **Cached Tables**: Local copies of external data for performance
+
+### 2. Analysis Zone (Managed Pipeline)
+- **Analyses**: Saved SQL with metadata, dependencies, and lineage
+- **Materialization**: Views or tables created from analysis execution
+
+### 3. Work Zone (Ephemeral)
+- **Conversation-scoped**: Temporary tables for agent interactions
+- **Automatic cleanup**: Removed when conversation ends
+
+## Key Components
+
+### SourceService
+Manages connections to external databases using DuckDB's ATTACH mechanism.
+
+```python
+# Attach an external database
+source_service.attach_source(
+    name="sales",
+    source_type="postgres",
+    config={"host": "localhost", "database": "sales_db", ...},
+    project_id="proj_123",
+    description="Sales database"
+)
+
+# Cache a table locally for performance
+source_service.cache_table("sales", "orders", filter_sql="WHERE date >= '2024-01-01'")
+```
+
+### duckpipe Library
+Lightweight SQL pipeline library for managing analyses with lineage tracking.
+
+```python
+from duckpipe import Pipeline, Analysis
+
+# Define an analysis
+analysis = Analysis(
+    id="daily_revenue",
+    name="Daily Revenue",
+    sql="SELECT date, SUM(amount) FROM {{ ref('source:orders') }} GROUP BY date",
+    materialized="table"
+)
+
+# Compile and execute
+pipeline = Pipeline(project_dir="./analyses")
+plan = pipeline.compile("daily_revenue", conn)
+result = pipeline.execute(plan, conn)
+```
+
+### AssetService
+Application layer wrapping duckpipe for Pluto Duck.
+
+- CRUD for analyses within projects
+- Execution with connection management
+- Lineage and freshness tracking
+- Run history
+
+## Agent Architecture
+
+The AI agent uses a deep agent pattern with:
+
+1. **Tools**: Query execution, source management, analysis creation
+2. **Skills**: Reusable workflows loaded from SKILL.md files
+3. **HITL**: Human-in-the-loop approval for sensitive operations
+
+### Agent Tools
+
+| Tool | Description |
+|------|-------------|
+| `run_sql` | Execute ad-hoc SQL query |
+| `list_tables`, `describe_table` | Schema exploration |
+| `attach_source`, `cache_table` | Data source management |
+| `save_analysis`, `run_analysis` | Analysis management |
+| `get_lineage`, `get_freshness` | Pipeline monitoring |
 
 ## Data Layout
 
-- Default root: `~/.pluto-duck/`
-  - `data/warehouse.duckdb`
-  - `artifacts/dbt/`
-  - `artifacts/queries/`
-  - `configs/`
+Default root: `~/Library/Application Support/PlutoDuck` (macOS) or `~/.pluto-duck`
 
-## Packaging
+```
+{data_dir}/
+├── data/
+│   └── warehouse.duckdb      # Main DuckDB warehouse
+├── deepagents/
+│   ├── user/
+│   │   └── skills/           # User-level skills
+│   └── projects/
+│       └── {project_id}/
+│           ├── skills/       # Project-specific skills
+│           └── analyses/     # duckpipe analysis definitions (YAML + SQL)
+├── configs/                  # Application configuration
+├── logs/                     # Log files
+└── runtime/                  # Temporary runtime files
+```
 
-- Python package published as `pluto-duck` with extras for connectors and dbt.
-- Docker image to follow (`docker run -p 8000:8000 pluto-duck:oss`).
-- CLI entrypoint: `pluto-duck`.
+## API Reference
+
+### Source Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/source` | Attach a new source |
+| GET | `/api/v1/source` | List sources (with project filter) |
+| GET | `/api/v1/source/{name}` | Get source details with cached tables |
+| DELETE | `/api/v1/source/{name}` | Detach a source |
+| POST | `/api/v1/source/cache` | Cache a table locally |
+
+### Asset Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/asset/analysis` | Create a new analysis |
+| GET | `/api/v1/asset/analyses` | List analyses |
+| POST | `/api/v1/asset/analysis/{id}/compile` | Compile execution plan |
+| POST | `/api/v1/asset/analysis/{id}/execute` | Execute analysis |
+| GET | `/api/v1/asset/lineage-graph` | Get full lineage graph |
 
 ## Testing Strategy
 
-- Unit tests for connectors, config parsing, agent nodes.
-- Integration tests with DuckDB fixtures and dbt sample project.
-- CLI smoke tests via pytest subprocess.
+- **Unit tests**: duckpipe parsing, analysis definitions, service logic
+- **Integration tests**: Full pipeline execution with DuckDB fixtures
+- **API tests**: FastAPI endpoint testing with pytest
+- **Frontend**: Component testing with React Testing Library
 
-## Agent Event Stream
+## Performance Considerations
 
-The agent orchestrator uses LangGraph to emit structured events over Server-Sent Events (SSE) and the CLI stream command. Each event contains `type`, `subtype`, `content`, and `timestamp` fields:
-
-- `reasoning.start` / `reasoning.chunk`: LLM controller updates. `content` includes the latest decision (planner/schema/sql/verifier/finalize) and an optional reasoning message.
-- `tool.chunk` / `tool.end`: Tool execution snapshots.
-  - `planner`: emits the current plan as an array of `{description, status, metadata}`.
-  - `schema`: shares the `schema_preview` table list.
-  - `sql`: includes the generated SQL statement.
-  - `verifier`: provides query verification result metadata (`run_id`, `result_table`, `rows_affected`, `error`).
-- `message.final`: Finalization payload with context flags (e.g., `finished: true`).
-- `run.chunk` / `run.end` / `run.error`: Generic updates for nodes without specialized handlers and overall completion/error states.
-
-Consumers (CLI, frontend) should parse the `content` object based on `type`/`subtype`. The `/api/v1/agent/{run_id}/events` endpoint streams these events; `pluto-duck agent-stream` prints them for debugging.
-
-Agent responses are also available via `/api/v1/agent/{run_id}/events` as SSE streams. Each event carries structured JSON describing reasoning updates, tool outputs, and final summaries (see `docs/ARCHITECTURE.md`).
-
-For hands-on CLI usage with a real GPT-5 provider, follow `docs/AGENT_CLI_GUIDE.md`.
-
+1. **Zero-Copy Federation**: Use ATTACH for live queries on small/medium datasets
+2. **Smart Caching**: Cache large or frequently-accessed tables
+3. **Connection Pooling**: Single-writer constraint management
+4. **Incremental Materialization**: Use `append` mode for large tables

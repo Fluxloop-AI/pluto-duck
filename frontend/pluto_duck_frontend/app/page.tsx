@@ -127,7 +127,7 @@ export default function WorkspacePage() {
     debouncedSaveState(state);
   }, [defaultProjectId, chatTabs, activeChatTabId, backendReady, debouncedSaveState]);
 
-  // Load default model from settings and data sources
+  // Load default model and project from settings
   useEffect(() => {
     if (backendReady) {
       void (async () => {
@@ -142,17 +142,24 @@ export default function WorkspacePage() {
         } catch (error) {
           console.error('Failed to load default model from settings', error);
         }
-        
+      })();
+    }
+  }, [backendReady]);
+
+  // Load data sources when project is selected
+  useEffect(() => {
+    if (backendReady && defaultProjectId) {
+      void (async () => {
         try {
-          const sources = await fetchDataSources();
+          const sources = await fetchDataSources(defaultProjectId);
           setDataSources(sources);
           const details = await Promise.all(
             sources.map(async source => {
               try {
-                const detail = await fetchDataSourceDetail(source.id);
+                const detail = await fetchDataSourceDetail(defaultProjectId, source.name);
                 return detail;
               } catch (error) {
-                console.error('Failed to load source detail', source.id, error);
+                console.error('Failed to load source detail', source.name, error);
                 return null;
               }
             })
@@ -169,7 +176,7 @@ export default function WorkspacePage() {
         }
       })();
     }
-  }, [backendReady]);
+  }, [backendReady, defaultProjectId]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -531,6 +538,7 @@ export default function WorkspacePage() {
         onSettingsSaved={(model) => setSelectedModel(model)}
       />
       <DataSourcesModal
+        projectId={defaultProjectId || ''}
         open={dataSourcesOpen}
         onOpenChange={setDataSourcesOpen}
         onImportClick={handleImportClick}
@@ -549,16 +557,19 @@ export default function WorkspacePage() {
         onSubmit={handleCreateProject}
       />
       <ImportCSVModal
+        projectId={defaultProjectId || ''}
         open={importCSVOpen}
         onOpenChange={setImportCSVOpen}
         onImportSuccess={handleImportSuccess}
       />
       <ImportParquetModal
+        projectId={defaultProjectId || ''}
         open={importParquetOpen}
         onOpenChange={setImportParquetOpen}
         onImportSuccess={handleImportSuccess}
       />
       <ImportPostgresModal
+        projectId={defaultProjectId || ''}
         open={importPostgresOpen}
         onOpenChange={(open) => {
           setImportPostgresOpen(open);
@@ -568,6 +579,7 @@ export default function WorkspacePage() {
         existingSource={selectedSourceForImport}
       />
       <ImportSQLiteModal
+        projectId={defaultProjectId || ''}
         open={importSQLiteOpen}
         onOpenChange={(open) => {
           setImportSQLiteOpen(open);

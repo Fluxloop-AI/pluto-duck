@@ -29,20 +29,6 @@ def _get_template_path() -> Path:
     return Path(__file__).parent.parent.parent / "templates"
 
 
-def _ensure_dbt_project(target_path: Path) -> None:
-    """Copy the bundled dbt template to target_path if it doesn't exist."""
-    if target_path.exists() and (target_path / "dbt_project.yml").exists():
-        # Project already exists, don't overwrite
-        return
-    
-    template_path = _get_template_path() / "dbt"
-    if not template_path.exists():
-        raise RuntimeError(f"DBT template not found at {template_path}")
-    
-    # Copy template to target
-    target_path.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(template_path, target_path, dirs_exist_ok=True)
-
 def _ensure_default_agent_skills(target_skills_dir: Path) -> None:
     """Copy bundled default skills into the user's skills directory if missing.
 
@@ -69,13 +55,6 @@ class DuckDBSettings(BaseModel):
 
     path: Path = Field(default_factory=lambda: DEFAULT_DATA_ROOT / "data" / "warehouse.duckdb")
     threads: int = Field(default=4, ge=1, description="Number of DuckDB threads to use")
-
-
-class DbtSettings(BaseModel):
-    """Configuration for the bundled dbt project."""
-
-    project_path: Path = Field(default_factory=lambda: DEFAULT_DATA_ROOT / "dbt")
-    profiles_path: Optional[Path] = None
 
 
 class AgentSettings(BaseModel):
@@ -136,7 +115,6 @@ class PlutoDuckSettings(BaseSettings):
 
     data_dir: DataDirectory = Field(default_factory=DataDirectory)
     duckdb: DuckDBSettings = Field(default_factory=DuckDBSettings)
-    dbt: DbtSettings = Field(default_factory=DbtSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)
     log_level: str = Field(default="INFO", description="Log verbosity")
     enable_telemetry: bool = Field(default=False, description="Send anonymous usage metrics")
@@ -160,14 +138,6 @@ class PlutoDuckSettings(BaseSettings):
             self.agent.provider = agent_provider_override
 
         self.data_dir.ensure()
-        # Fill derived paths if not explicitly provided
-        if self.dbt.project_path == DEFAULT_DATA_ROOT / "dbt":
-            self.dbt.project_path = self.data_dir.root / "dbt"
-        if self.dbt.profiles_path is None:
-            self.dbt.profiles_path = self.data_dir.configs / "dbt_profiles"
-        
-        # Initialize dbt project from template if it doesn't exist
-        _ensure_dbt_project(self.dbt.project_path)
 
         # Seed default agent skills (developer-provided) for all users
         _ensure_default_agent_skills(self.data_dir.root / "deepagents" / "user" / "skills")

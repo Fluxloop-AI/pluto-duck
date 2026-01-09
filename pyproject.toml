@@ -12,7 +12,7 @@ license = { text = "Apache-2.0" }
 authors = [
     { name = "Pluto-Duck OSS Team" }
 ]
-keywords = ["duckdb", "analytics", "local-first", "ai", "dbt"]
+keywords = ["duckdb", "analytics", "local-first", "ai", "data-pipeline"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: Apache Software License",
@@ -45,7 +45,6 @@ dependencies = [
 
 [project.optional-dependencies]
 postgres = ["psycopg[binary]>=3.2,<4.0"]
-dbt = ["dbt-core>=1.8,<2.0"]
 packaging = [
     "pyinstaller>=6.11,<7.0",
     "llama-cpp-python>=0.3.2",

@@ -65,14 +65,12 @@ class AppendMessageResponse(BaseModel):
 
 class SettingsResponse(BaseModel):
   data_sources: Optional[Any] = None
-  dbt_project: Optional[Any] = None
   ui_preferences: Optional[Any] = None
   llm_provider: Optional[Any] = None
 
 
 class UpdateSettingsRequest(BaseModel):
   data_sources: Optional[Any] = None
-  dbt_project: Optional[Any] = None
   ui_preferences: Optional[Any] = None
   llm_provider: Optional[Any] = None
 

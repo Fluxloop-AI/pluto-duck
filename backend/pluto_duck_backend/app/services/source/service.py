@@ -8,6 +8,9 @@ This service manages:
 IMPORTANT: DuckDB ATTACH is connection-scoped. This service stores connection
 configs and re-attaches on each connection. For sensitive configs (passwords),
 the full config is stored encrypted or in a separate secure store.
+
+NOTE: This service is now project-scoped. Each project has its own warehouse
+file for complete data isolation.
 """
 
 from __future__ import annotations
@@ -30,8 +33,9 @@ from .errors import AttachError, CacheError, SourceNotFoundError, TableNotFoundE
 
 
 # Store full configs (including passwords) in memory for re-attachment
+# Keyed by project_id -> source_name -> config
 # In production, this should use a secure store (e.g., keyring, encrypted file)
-_FULL_CONFIGS: Dict[str, Dict[str, Any]] = {}
+_FULL_CONFIGS: Dict[str, Dict[str, Dict[str, Any]]] = {}
 
 
 class SourceType(str, Enum):
@@ -63,6 +67,10 @@ class AttachedSource:
     status: str  # "attached", "error", "detached"
     error_message: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
+    # UI-friendly fields (merged from data_sources)
+    project_id: Optional[str] = None
+    description: Optional[str] = None
+    table_count: int = 0
 
 
 @dataclass
@@ -106,7 +114,10 @@ _DDL_STATEMENTS = [
         attached_at TIMESTAMP NOT NULL,
         status VARCHAR NOT NULL,
         error_message VARCHAR,
-        metadata JSON
+        metadata JSON,
+        project_id VARCHAR,
+        description VARCHAR,
+        updated_at TIMESTAMP
     )
     """,
     """
@@ -125,6 +136,13 @@ _DDL_STATEMENTS = [
     """
     CREATE SCHEMA IF NOT EXISTS cache
     """,
+]
+
+# Migration: Add columns if they don't exist (for existing databases)
+_MIGRATION_STATEMENTS = [
+    "ALTER TABLE _sources.attached ADD COLUMN IF NOT EXISTS project_id VARCHAR",
+    "ALTER TABLE _sources.attached ADD COLUMN IF NOT EXISTS description VARCHAR",
+    "ALTER TABLE _sources.attached ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
 ]
 
 
@@ -150,13 +168,14 @@ class SourceService:
     - Sources are attached to DuckDB as named databases (e.g., "pg", "sales")
     - Tables can be accessed live (zero-copy) or cached locally
     - Cache lives in the "cache" schema of the main warehouse
+    - Each project has its own isolated warehouse for data separation
 
     IMPORTANT: DuckDB ATTACH is connection-scoped. Each new connection must
     re-attach sources. This service stores full configs and re-attaches
     automatically when needed.
 
     Example usage:
-        service = SourceService(warehouse_path)
+        service = get_source_service("my_project_id")
 
         # Attach a Postgres database
         service.attach_source(
@@ -175,8 +194,23 @@ class SourceService:
         # SELECT * FROM cache.sales_orders
     """
 
-    def __init__(self, warehouse_path: Path):
+    def __init__(self, project_id: str, warehouse_path: Optional[Path] = None):
+        """Initialize source service for a specific project.
+
+        Args:
+            project_id: Project identifier for isolation
+            warehouse_path: Optional override path. If None, uses default project path.
+        """
+        self.project_id = project_id
+        
+        if warehouse_path is None:
+            settings = get_settings()
+            warehouse_path = (
+                settings.data_dir.root / "data" / "projects" / project_id / "warehouse.duckdb"
+            )
+        
         self.warehouse_path = warehouse_path
+        self.warehouse_path.parent.mkdir(parents=True, exist_ok=True)
         self._ensure_metadata_tables()
 
     def _connect(self) -> duckdb.DuckDBPyConnection:
@@ -220,7 +254,8 @@ class SourceService:
             source_type = SourceType(source_type_str)
             
             # Get full config from memory cache (with passwords)
-            full_config = _FULL_CONFIGS.get(name)
+            project_configs = _FULL_CONFIGS.get(self.project_id, {})
+            full_config = project_configs.get(name)
             if full_config is None:
                 # Fall back to stored config (may not have passwords)
                 full_config = json.loads(config_json) if config_json else {}
@@ -235,10 +270,16 @@ class SourceService:
         return con
 
     def _ensure_metadata_tables(self) -> None:
-        """Ensure metadata tables exist."""
+        """Ensure metadata tables exist and run migrations."""
         with self._connect() as con:
             for ddl in _DDL_STATEMENTS:
                 con.execute(ddl)
+            # Run migrations for existing databases
+            for migration in _MIGRATION_STATEMENTS:
+                try:
+                    con.execute(migration)
+                except duckdb.CatalogException:
+                    pass  # Column already exists or table doesn't exist yet
 
     # =========================================================================
     # ATTACH Operations
@@ -251,6 +292,7 @@ class SourceService:
         config: Dict[str, Any],
         *,
         read_only: bool = True,
+        description: Optional[str] = None,
     ) -> AttachedSource:
         """Attach an external database as a named source.
 
@@ -259,6 +301,7 @@ class SourceService:
             source_type: Type of database ("postgres", "sqlite", etc.)
             config: Connection configuration (host, database, user, password, etc.)
             read_only: Whether to attach in read-only mode (default True)
+            description: Optional human-readable description
 
         Returns:
             AttachedSource with connection details
@@ -285,22 +328,28 @@ class SourceService:
                 # Execute ATTACH
                 con.execute(attach_sql)
 
-                # Store full config in memory for re-attachment
-                _FULL_CONFIGS[name] = config.copy()
+                # Store full config in memory for re-attachment (project-scoped)
+                if self.project_id not in _FULL_CONFIGS:
+                    _FULL_CONFIGS[self.project_id] = {}
+                _FULL_CONFIGS[self.project_id][name] = config.copy()
 
                 # Record in metadata (sanitized - no passwords)
                 con.execute(
                     """
                     INSERT INTO _sources.attached (
                         id, name, source_type, connection_config,
-                        attached_at, status, error_message, metadata
-                    ) VALUES (?, ?, ?, ?, ?, 'attached', NULL, ?)
+                        attached_at, status, error_message, metadata,
+                        project_id, description, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, 'attached', NULL, ?, ?, ?, ?)
                     ON CONFLICT (name) DO UPDATE SET
                         source_type = EXCLUDED.source_type,
                         connection_config = EXCLUDED.connection_config,
                         attached_at = EXCLUDED.attached_at,
                         status = 'attached',
-                        error_message = NULL
+                        error_message = NULL,
+                        project_id = EXCLUDED.project_id,
+                        description = COALESCE(EXCLUDED.description, _sources.attached.description),
+                        updated_at = EXCLUDED.updated_at
                     """,
                     [
                         source_id,
@@ -309,6 +358,9 @@ class SourceService:
                         json.dumps(sanitized_config),
                         now,
                         json.dumps({}),
+                        self.project_id,
+                        description,
+                        now,
                     ],
                 )
 
@@ -319,6 +371,8 @@ class SourceService:
                     connection_config=sanitized_config,
                     attached_at=now,
                     status="attached",
+                    project_id=self.project_id,
+                    description=description,
                 )
 
             except duckdb.Error as e:
@@ -327,11 +381,13 @@ class SourceService:
                     """
                     INSERT INTO _sources.attached (
                         id, name, source_type, connection_config,
-                        attached_at, status, error_message, metadata
-                    ) VALUES (?, ?, ?, ?, ?, 'error', ?, ?)
+                        attached_at, status, error_message, metadata,
+                        project_id, description, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, 'error', ?, ?, ?, ?, ?)
                     ON CONFLICT (name) DO UPDATE SET
                         status = 'error',
-                        error_message = EXCLUDED.error_message
+                        error_message = EXCLUDED.error_message,
+                        updated_at = EXCLUDED.updated_at
                     """,
                     [
                         source_id,
@@ -341,6 +397,9 @@ class SourceService:
                         now,
                         str(e),
                         json.dumps({}),
+                        self.project_id,
+                        description,
+                        now,
                     ],
                 )
                 raise AttachError(name, str(e)) from e
@@ -432,8 +491,9 @@ class SourceService:
         Returns:
             True if detached, False if not found
         """
-        # Remove from memory cache
-        _FULL_CONFIGS.pop(name, None)
+        # Remove from memory cache (project-scoped)
+        if self.project_id in _FULL_CONFIGS:
+            _FULL_CONFIGS[self.project_id].pop(name, None)
 
         with self._connect() as con:
             # Check if source exists first
@@ -457,41 +517,36 @@ class SourceService:
             return True
 
     def list_sources(self) -> List[AttachedSource]:
-        """List all attached sources."""
+        """List all attached sources for this project.
+        
+        Since each project has its own warehouse, no filtering is needed.
+        """
         with self._connect() as con:
             rows = con.execute(
                 """
-                SELECT id, name, source_type, connection_config,
-                       attached_at, status, error_message, metadata
-                FROM _sources.attached
-                WHERE status != 'detached'
-                ORDER BY attached_at DESC
+                SELECT a.id, a.name, a.source_type, a.connection_config,
+                       a.attached_at, a.status, a.error_message, a.metadata,
+                       a.project_id, a.description,
+                       (SELECT COUNT(*) FROM _sources.cached_tables c WHERE c.source_name = a.name)
+                FROM _sources.attached a
+                WHERE a.status != 'detached'
+                ORDER BY COALESCE(a.updated_at, a.attached_at) DESC
                 """
             ).fetchall()
 
-        return [
-            AttachedSource(
-                id=row[0],
-                name=row[1],
-                source_type=SourceType(row[2]),
-                connection_config=json.loads(row[3]) if row[3] else {},
-                attached_at=row[4].replace(tzinfo=UTC) if row[4].tzinfo is None else row[4],
-                status=row[5],
-                error_message=row[6],
-                metadata=json.loads(row[7]) if row[7] else {},
-            )
-            for row in rows
-        ]
+        return [self._row_to_attached_source(row) for row in rows]
 
     def get_source(self, name: str) -> Optional[AttachedSource]:
         """Get a specific attached source by name."""
         with self._connect() as con:
             row = con.execute(
                 """
-                SELECT id, name, source_type, connection_config,
-                       attached_at, status, error_message, metadata
-                FROM _sources.attached
-                WHERE name = ? AND status != 'detached'
+                SELECT a.id, a.name, a.source_type, a.connection_config,
+                       a.attached_at, a.status, a.error_message, a.metadata,
+                       a.project_id, a.description,
+                       (SELECT COUNT(*) FROM _sources.cached_tables c WHERE c.source_name = a.name)
+                FROM _sources.attached a
+                WHERE a.name = ? AND a.status != 'detached'
                 """,
                 [name],
             ).fetchone()
@@ -499,15 +554,80 @@ class SourceService:
         if not row:
             return None
 
+        return self._row_to_attached_source(row)
+
+    def get_source_by_id(self, source_id: str) -> Optional[AttachedSource]:
+        """Get a specific attached source by ID."""
+        with self._connect() as con:
+            row = con.execute(
+                """
+                SELECT a.id, a.name, a.source_type, a.connection_config,
+                       a.attached_at, a.status, a.error_message, a.metadata,
+                       a.project_id, a.description,
+                       (SELECT COUNT(*) FROM _sources.cached_tables c WHERE c.source_name = a.name)
+                FROM _sources.attached a
+                WHERE a.id = ? AND a.status != 'detached'
+                """,
+                [source_id],
+            ).fetchone()
+
+        if not row:
+            return None
+
+        return self._row_to_attached_source(row)
+
+    def update_source(
+        self,
+        name: str,
+        *,
+        description: Optional[str] = None,
+    ) -> Optional[AttachedSource]:
+        """Update source metadata (description)."""
+        now = datetime.now(UTC)
+        with self._connect() as con:
+            updates = []
+            params = []
+            
+            if description is not None:
+                updates.append("description = ?")
+                params.append(description)
+            
+            if not updates:
+                return self.get_source(name)
+            
+            updates.append("updated_at = ?")
+            params.append(now)
+            params.append(name)
+            
+            con.execute(
+                f"""
+                UPDATE _sources.attached
+                SET {", ".join(updates)}
+                WHERE name = ?
+                """,
+                params,
+            )
+        
+        return self.get_source(name)
+
+    def _row_to_attached_source(self, row: tuple) -> AttachedSource:
+        """Convert database row to AttachedSource."""
+        attached_at = row[4]
+        if attached_at and attached_at.tzinfo is None:
+            attached_at = attached_at.replace(tzinfo=UTC)
+        
         return AttachedSource(
             id=row[0],
             name=row[1],
             source_type=SourceType(row[2]),
             connection_config=json.loads(row[3]) if row[3] else {},
-            attached_at=row[4].replace(tzinfo=UTC) if row[4].tzinfo is None else row[4],
+            attached_at=attached_at,
             status=row[5],
             error_message=row[6],
             metadata=json.loads(row[7]) if row[7] else {},
+            project_id=row[8],
+            description=row[9],
+            table_count=row[10] or 0,
         )
 
     def list_source_tables(self, source_name: str) -> List[SourceTable]:
@@ -913,9 +1033,15 @@ class SourceService:
             return f"약 {row_count:,}건으로 큰 테이블이에요. 필요한 기간만 필터해서 캐시하세요."
 
 
-@lru_cache(maxsize=1)
-def get_source_service() -> SourceService:
-    """Get singleton source service instance."""
-    settings = get_settings()
-    return SourceService(warehouse_path=settings.duckdb.path)
+@lru_cache(maxsize=32)
+def get_source_service(project_id: str) -> SourceService:
+    """Get source service instance for a specific project.
+    
+    Args:
+        project_id: Project identifier for isolation
+        
+    Returns:
+        SourceService bound to the project's warehouse
+    """
+    return SourceService(project_id)
 

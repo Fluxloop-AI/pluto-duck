@@ -110,9 +110,8 @@ description: Workflow for answering analytical questions with DuckDB using Pluto
 다음 행위들은 승인 대상일 수 있습니다:
 - 파일 쓰기/수정: `write_file`, `edit_file`
 - 서브에이전트/태스크: `task`
-- `dbt_*` 등 위험/비용이 큰 작업(정책에 따라)
 
-스킬은 이를 전제로 “거부 시 재시도 금지” 같은 운영 규칙을 포함하는 것이 좋습니다.
+스킬은 이를 전제로 "거부 시 재시도 금지" 같은 운영 규칙을 포함하는 것이 좋습니다.
 
 ---
 

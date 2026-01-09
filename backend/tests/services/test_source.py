@@ -27,8 +27,8 @@ def temp_warehouse(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def source_service(temp_warehouse: Path) -> SourceService:
-    """Create a SourceService instance."""
-    return SourceService(temp_warehouse)
+    """Create a SourceService instance with a test project."""
+    return SourceService("test_project", temp_warehouse)
 
 
 @pytest.fixture
@@ -57,7 +57,7 @@ class TestSourceServiceInit:
 
     def test_creates_metadata_tables(self, temp_warehouse: Path):
         """Ensure metadata tables are created on init."""
-        service = SourceService(temp_warehouse)
+        service = SourceService("test_project", temp_warehouse)
 
         with duckdb.connect(str(temp_warehouse)) as con:
             # Check schema exists

@@ -14,6 +14,7 @@ import { Input } from '../ui/input';
 import { createDataSource, importTablesBulk, testConnection, type DataSource } from '../../lib/dataSourcesApi';
 
 interface ImportPostgresModalProps {
+  projectId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onImportSuccess?: () => void;
@@ -22,7 +23,7 @@ interface ImportPostgresModalProps {
 
 type Step = 'connection' | 'tables';
 
-export function ImportPostgresModal({ open, onOpenChange, onImportSuccess, existingSource }: ImportPostgresModalProps) {
+export function ImportPostgresModal({ projectId, open, onOpenChange, onImportSuccess, existingSource }: ImportPostgresModalProps) {
   const [step, setStep] = useState<Step>('connection');
   const [testing, setTesting] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -99,13 +100,13 @@ export function ImportPostgresModal({ open, onOpenChange, onImportSuccess, exist
       setAvailableTables(testResult.tables);
       
       // Create data source
-      const source = await createDataSource({
+      const source = await createDataSource(projectId, {
         name: name.trim(),
         description: description.trim() || undefined,
         connector_type: 'postgres',
         source_config: { dsn: dsn.trim() },
       });
-      setSourceId(source.id);
+      setSourceId(source.name);  // Use name instead of id for project-scoped sources
       
       // Move to step 2
       setStep('tables');
@@ -145,7 +146,7 @@ export function ImportPostgresModal({ open, onOpenChange, onImportSuccess, exist
         };
       });
 
-      const result = await importTablesBulk(sourceId, { tables });
+      const result = await importTablesBulk(projectId, sourceId, { tables });
       const successCount = result.results.filter(r => r.status === 'active').length;
       const failCount = result.results.filter(r => r.status === 'error').length;
       

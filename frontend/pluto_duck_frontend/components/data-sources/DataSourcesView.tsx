@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { DatabaseIcon } from 'lucide-react';
 import {
   Dialog,
@@ -22,32 +22,35 @@ import { SourceCard } from './SourceCard';
 import { ConnectorGrid } from './ConnectorGrid';
 
 interface DataSourcesModalProps {
+  projectId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onImportClick: (connectorType: string, source?: DataSource) => void;
   refreshTrigger?: number;
 }
 
-export function DataSourcesModal({ open, onOpenChange, onImportClick, refreshTrigger }: DataSourcesModalProps) {
+export function DataSourcesModal({ projectId, open, onOpenChange, onImportClick, refreshTrigger }: DataSourcesModalProps) {
   const [sources, setSources] = useState<DataSource[]>([]);
   const [tablesBySource, setTablesBySource] = useState<Record<string, DataSourceTable[]>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const loadSources = async () => {
+  const loadSources = useCallback(async () => {
+    if (!projectId) return;
+    
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchDataSources();
+      const data = await fetchDataSources(projectId);
       setSources(data);
       const details = await Promise.all(
         data.map(async source => {
           try {
-            const detail = await fetchDataSourceDetail(source.id);
-            return { id: source.id, tables: detail.tables };
+            const detail = await fetchDataSourceDetail(projectId, source.name);
+            return { id: source.id, name: source.name, tables: detail.tables };
           } catch (detailError) {
-            console.error('Failed to load tables for source', source.id, detailError);
-            return { id: source.id, tables: [] };
+            console.error('Failed to load tables for source', source.name, detailError);
+            return { id: source.id, name: source.name, tables: [] };
           }
         })
       );
@@ -62,17 +65,20 @@ export function DataSourcesModal({ open, onOpenChange, onImportClick, refreshTri
     } finally {
       setLoading(false);
     }
-  };
+  }, [projectId]);
 
   useEffect(() => {
-    if (open) {
+    if (open && projectId) {
       loadSources();
     }
-  }, [open, refreshTrigger]);
+  }, [open, projectId, refreshTrigger, loadSources]);
 
   const handleDelete = async (sourceId: string) => {
+    const source = sources.find(s => s.id === sourceId);
+    if (!source) return;
+    
     try {
-      await deleteDataSource(sourceId, false); // Don't drop table by default
+      await deleteDataSource(projectId, source.name, false); // Don't drop table by default
       await loadSources();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete data source');
@@ -80,6 +86,9 @@ export function DataSourcesModal({ open, onOpenChange, onImportClick, refreshTri
   };
 
   const handleSyncTable = async (sourceId: string, tableId: string) => {
+    const source = sources.find(s => s.id === sourceId);
+    if (!source) return;
+    
     try {
       setTablesBySource(prev => ({
         ...prev,
@@ -87,7 +96,7 @@ export function DataSourcesModal({ open, onOpenChange, onImportClick, refreshTri
           table.id === tableId ? { ...table, status: 'syncing' } : table
         ),
       }));
-      await syncTable(sourceId, tableId);
+      await syncTable(projectId, source.name, tableId);
       await loadSources();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to sync table');
@@ -96,8 +105,11 @@ export function DataSourcesModal({ open, onOpenChange, onImportClick, refreshTri
   };
 
   const handleDeleteTable = async (sourceId: string, tableId: string) => {
+    const source = sources.find(s => s.id === sourceId);
+    if (!source) return;
+    
     try {
-      await deleteTable(sourceId, tableId, false);
+      await deleteTable(projectId, source.name, tableId, false);
       await loadSources();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to remove table');

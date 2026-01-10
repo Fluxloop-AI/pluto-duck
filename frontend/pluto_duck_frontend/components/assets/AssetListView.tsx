@@ -24,6 +24,7 @@ import { AssetDetailModal } from './AssetDetailModal';
 import { CreateAssetModal } from './CreateAssetModal';
 import { ExecutionPlanView } from './ExecutionPlanView';
 import { LineageGraphView } from './LineageGraphView';
+import { FilePreviewModal } from './FilePreviewModal';
 import {
   listAnalyses,
   deleteAnalysis,
@@ -39,7 +40,6 @@ import {
   listFileAssets,
   deleteFileAsset,
   refreshFileAsset,
-  previewFileData,
   type FileAsset,
 } from '@/lib/fileAssetApi';
 
@@ -80,6 +80,10 @@ export function AssetListView({ projectId }: AssetListViewProps) {
   const [executionPlan, setExecutionPlan] = useState<ExecutionPlan | null>(null);
   const [executionResult, setExecutionResult] = useState<ExecutionResult | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
+  
+  // File Asset Modal State
+  const [selectedFileAsset, setSelectedFileAsset] = useState<FileAsset | null>(null);
+  const [showFilePreviewModal, setShowFilePreviewModal] = useState(false);
 
   // Fetch analyses and file assets
   const fetchAnalyses = useCallback(async () => {
@@ -306,15 +310,9 @@ export function AssetListView({ projectId }: AssetListViewProps) {
   };
 
   // File Asset Handlers
-  const handleViewFileAsset = async (fileAsset: FileAsset) => {
-    try {
-      const preview = await previewFileData(projectId, fileAsset.id, 100);
-      console.log('[AssetListView] File preview:', preview);
-      // TODO: Open preview modal
-      alert(`Preview: ${preview.columns.join(', ')}\n\nFirst row: ${JSON.stringify(preview.rows[0])}\n\nTotal: ${preview.total_rows} rows`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to preview file');
-    }
+  const handleViewFileAsset = (fileAsset: FileAsset) => {
+    setSelectedFileAsset(fileAsset);
+    setShowFilePreviewModal(true);
   };
 
   const handleRefreshFileAsset = async (fileAsset: FileAsset) => {
@@ -617,11 +615,14 @@ export function AssetListView({ projectId }: AssetListViewProps) {
               }}
             />
           ) : isLoading ? (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div 
+              className="grid gap-4"
+              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}
+            >
               {[1, 2, 3].map((i) => (
                 <div
                   key={i}
-                  className="h-40 animate-pulse rounded-lg border border-border bg-muted/50"
+                  className="h-[200px] animate-pulse rounded-lg border border-border bg-muted/50"
                 />
               ))}
             </div>
@@ -642,7 +643,12 @@ export function AssetListView({ projectId }: AssetListViewProps) {
               </button>
             </div>
           ) : viewMode === 'grid' ? (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div 
+              className="grid gap-4"
+              style={{ 
+                gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+              }}
+            >
               {filteredAnalyses.map((analysis) => (
                 <AssetCard
                   key={analysis.id}
@@ -673,11 +679,14 @@ export function AssetListView({ projectId }: AssetListViewProps) {
         ) : (
           // Files Tab Content
           isLoading ? (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div 
+              className="grid gap-4"
+              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}
+            >
               {[1, 2, 3].map((i) => (
                 <div
                   key={i}
-                  className="h-40 animate-pulse rounded-lg border border-border bg-muted/50"
+                  className="h-[200px] animate-pulse rounded-lg border border-border bg-muted/50"
                 />
               ))}
             </div>
@@ -690,7 +699,10 @@ export function AssetListView({ projectId }: AssetListViewProps) {
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div 
+              className="grid gap-4"
+              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}
+            >
               {fileAssets
                 .filter((f) => {
                   if (!searchQuery) return true;
@@ -746,6 +758,18 @@ export function AssetListView({ projectId }: AssetListViewProps) {
           isExecuting={isExecuting}
           onExecute={handleExecutePlan}
           onCancel={handleCancelExecution}
+        />
+      )}
+
+      {selectedFileAsset && (
+        <FilePreviewModal
+          open={showFilePreviewModal}
+          fileAsset={selectedFileAsset}
+          projectId={projectId}
+          onClose={() => {
+            setShowFilePreviewModal(false);
+            setSelectedFileAsset(null);
+          }}
         />
       )}
     </div>

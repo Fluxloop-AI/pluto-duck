@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import {
   FileSpreadsheet,
   FileArchive,
@@ -9,7 +8,6 @@ import {
   Trash2,
   RefreshCw,
   HardDrive,
-  Table,
   Rows,
   Columns,
 } from 'lucide-react';
@@ -35,8 +33,6 @@ export function FileAssetCard({
   onRefresh,
   onDelete,
 }: FileAssetCardProps) {
-  const [isHovered, setIsHovered] = useState(false);
-
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return '-';
     return new Date(dateStr).toLocaleDateString('ko-KR', {
@@ -62,34 +58,26 @@ export function FileAssetCard({
   const FileIcon = fileAsset.file_type === 'csv' ? FileSpreadsheet : FileArchive;
 
   return (
-    <div
-      className="group relative flex flex-col rounded-lg border border-border bg-card p-4 transition-all hover:border-primary/50 hover:shadow-md"
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-    >
+    <div className="group relative flex flex-col rounded-lg border border-border bg-card p-4 transition-all hover:border-primary/50 hover:shadow-md min-w-[280px] w-full h-[180px] overflow-hidden">
       {/* Header */}
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-2">
-          <span className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10">
+      <div className="flex items-start justify-between min-w-0">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <span className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 flex-shrink-0">
             <FileIcon className="h-4 w-4 text-primary" />
           </span>
-          <div>
-            <h3 className="font-medium text-foreground">{fileAsset.name}</h3>
-            <p className="text-xs text-muted-foreground font-mono">{fileAsset.table_name}</p>
+          <div className="min-w-0 flex-1">
+            <h3 className="font-medium text-foreground truncate" title={fileAsset.name}>{fileAsset.name}</h3>
+            <p className="text-xs text-muted-foreground font-mono truncate" title={fileAsset.table_name}>{fileAsset.table_name}</p>
           </div>
         </div>
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-muted opacity-0 group-hover:opacity-100 transition-opacity">
+            <button className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-muted opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
               <MoreVertical className="h-4 w-4" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => onView(fileAsset)}>
-              <Eye className="mr-2 h-4 w-4" />
-              Preview Data
-            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onRefresh(fileAsset)}>
               <RefreshCw className="mr-2 h-4 w-4" />
               Re-import
@@ -114,15 +102,15 @@ export function FileAssetCard({
       )}
 
       {/* File Type Badge */}
-      <div className="mt-3 flex items-center gap-2">
+      <div className="mt-2 flex items-center gap-2">
         <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground uppercase">
           {fileAsset.file_type}
         </span>
       </div>
 
-      {/* Stats */}
-      <div className="mt-auto pt-4 flex items-center justify-between border-t border-border/50 mt-4">
-        <div className="flex items-center gap-4 text-xs text-muted-foreground">
+      {/* Stats Row */}
+      <div className="mt-auto flex items-center justify-between text-xs text-muted-foreground py-2 border-t border-border/50">
+        <div className="flex items-center gap-3">
           <span className="flex items-center gap-1" title="Rows">
             <Rows className="h-3 w-3" />
             {formatNumber(fileAsset.row_count)}
@@ -136,24 +124,25 @@ export function FileAssetCard({
             {formatFileSize(fileAsset.file_size_bytes)}
           </span>
         </div>
+        <span>{formatDate(fileAsset.created_at)}</span>
       </div>
 
-      {/* Imported date */}
-      <div className="mt-2 text-xs text-muted-foreground">
-        Imported {formatDate(fileAsset.created_at)}
-      </div>
-
-      {/* Quick View Button (on hover) */}
-      {isHovered && (
+      {/* Action Buttons - Always visible at bottom */}
+      <div className="flex items-center gap-2">
         <button
           onClick={() => onView(fileAsset)}
-          className="absolute bottom-4 right-4 flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-all hover:bg-primary/90"
+          className="flex-1 flex items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
         >
           <Eye className="h-3 w-3" />
           Preview
         </button>
-      )}
+        <button
+          onClick={() => onRefresh(fileAsset)}
+          className="flex items-center justify-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+        >
+          <RefreshCw className="h-3 w-3" />
+        </button>
+      </div>
     </div>
   );
 }
-

@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import {
-  X,
   Play,
   Save,
   Clock,
@@ -162,12 +161,6 @@ export function AssetDetailModal({
               <Play className="mr-2 h-4 w-4" />
               Run
             </Button>
-            <button
-              onClick={onClose}
-              className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-muted"
-            >
-              <X className="h-4 w-4" />
-            </button>
           </div>
         </div>
 

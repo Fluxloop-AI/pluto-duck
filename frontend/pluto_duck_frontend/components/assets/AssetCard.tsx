@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import {
   Clock,
   Play,
@@ -8,7 +7,6 @@ import {
   Eye,
   Trash2,
   GitBranch,
-  RefreshCw,
   CheckCircle,
   AlertCircle,
 } from 'lucide-react';
@@ -39,8 +37,6 @@ export function AssetCard({
   onDelete,
   onViewLineage,
 }: AssetCardProps) {
-  const [isHovered, setIsHovered] = useState(false);
-
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return '-';
     return new Date(dateStr).toLocaleDateString('ko-KR', {
@@ -79,38 +75,26 @@ export function AssetCard({
   };
 
   return (
-    <div
-      className="group relative flex flex-col rounded-lg border border-border bg-card p-4 transition-all hover:border-primary/50 hover:shadow-md"
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-    >
+    <div className="group relative flex flex-col rounded-lg border border-border bg-card p-4 transition-all hover:border-primary/50 hover:shadow-md min-w-[280px] w-full h-[220px] overflow-hidden">
       {/* Header */}
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-lg" title={analysis.materialization}>
+      <div className="flex items-start justify-between min-w-0">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <span className="text-lg flex-shrink-0" title={analysis.materialization}>
             {getMaterializationIcon(analysis.materialization)}
           </span>
-          <div>
-            <h3 className="font-medium text-foreground">{analysis.name}</h3>
-            <p className="text-xs text-muted-foreground font-mono">{analysis.id}</p>
+          <div className="min-w-0 flex-1">
+            <h3 className="font-medium text-foreground truncate" title={analysis.name}>{analysis.name}</h3>
+            <p className="text-xs text-muted-foreground font-mono truncate" title={analysis.id}>{analysis.id}</p>
           </div>
         </div>
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-muted opacity-0 group-hover:opacity-100 transition-opacity">
+            <button className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-muted opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
               <MoreVertical className="h-4 w-4" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => onView(analysis)}>
-              <Eye className="mr-2 h-4 w-4" />
-              View Details
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onRun(analysis)}>
-              <Play className="mr-2 h-4 w-4" />
-              Run
-            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onViewLineage(analysis)}>
               <GitBranch className="mr-2 h-4 w-4" />
               View Lineage
@@ -136,7 +120,7 @@ export function AssetCard({
 
       {/* Tags */}
       {analysis.tags.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-1">
+        <div className="mt-2 flex flex-wrap gap-1">
           {analysis.tags.slice(0, 3).map((tag) => (
             <span
               key={tag}
@@ -153,30 +137,34 @@ export function AssetCard({
         </div>
       )}
 
-      {/* Footer */}
-      <div className="mt-auto pt-4 flex items-center justify-between border-t border-border/50 mt-4">
-        <FreshnessIndicator />
+      {/* Spacer to push footer to bottom */}
+      <div className="flex-1" />
 
-        <div className="flex items-center gap-2">
-          {freshness?.last_run_at && (
-            <span className="text-xs text-muted-foreground">
-              {formatDate(freshness.last_run_at)}
-            </span>
-          )}
-        </div>
+      {/* Status Row */}
+      <div className="flex items-center justify-between text-xs text-muted-foreground py-2 border-t border-border/50">
+        <FreshnessIndicator />
+        {freshness?.last_run_at && (
+          <span>{formatDate(freshness.last_run_at)}</span>
+        )}
       </div>
 
-      {/* Quick Run Button (on hover) */}
-      {isHovered && (
+      {/* Action Buttons - Always visible at bottom */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => onView(analysis)}
+          className="flex-1 flex items-center justify-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+        >
+          <Eye className="h-3 w-3" />
+          View
+        </button>
         <button
           onClick={() => onRun(analysis)}
-          className="absolute bottom-4 right-4 flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-all hover:bg-primary/90"
+          className="flex-1 flex items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
         >
           <Play className="h-3 w-3" />
           Run
         </button>
-      )}
+      </div>
     </div>
   );
 }
-

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { X, Plus, Sparkles } from 'lucide-react';
+import { Plus, Sparkles } from 'lucide-react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -100,12 +100,6 @@ export function CreateAssetModal({
             <Sparkles className="h-5 w-5 text-primary" />
             <h2 className="text-lg font-semibold">Create New Analysis</h2>
           </div>
-          <button
-            onClick={handleClose}
-            className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-muted"
-          >
-            <X className="h-4 w-4" />
-          </button>
         </div>
 
         {/* Content */}

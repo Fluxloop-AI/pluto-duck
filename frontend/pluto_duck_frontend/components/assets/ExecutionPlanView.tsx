@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { X, Play, CheckCircle, XCircle, SkipForward, Clock, ArrowDown, AlertTriangle } from 'lucide-react';
+import { Play, CheckCircle, XCircle, SkipForward, Clock, ArrowDown, AlertTriangle } from 'lucide-react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import {
@@ -69,12 +69,6 @@ export function ExecutionPlanView({
               Target: <span className="font-mono">{plan.target_id}</span>
             </p>
           </div>
-          <button
-            onClick={onCancel}
-            className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-muted"
-          >
-            <X className="h-4 w-4" />
-          </button>
         </div>
 
         {/* Content */}

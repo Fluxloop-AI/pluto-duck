@@ -30,7 +30,7 @@ import {
 // Custom Node Components
 // ============================================================================
 
-interface AnalysisNodeData {
+interface AnalysisNodeData extends Record<string, unknown> {
   label: string;
   materialization: string | null;
   isStale: boolean | null;
@@ -38,7 +38,9 @@ interface AnalysisNodeData {
   onSelect?: (id: string) => void;
 }
 
-function AnalysisNode({ data, id }: NodeProps<Node<AnalysisNodeData>>) {
+type AnalysisNodeType = Node<AnalysisNodeData, 'analysis'>;
+
+function AnalysisNode({ data, id }: NodeProps<AnalysisNodeType>) {
   const getIcon = () => {
     switch (data.materialization) {
       case 'view':
@@ -101,12 +103,14 @@ function AnalysisNode({ data, id }: NodeProps<Node<AnalysisNodeData>>) {
   );
 }
 
-interface SourceNodeData {
+interface SourceNodeData extends Record<string, unknown> {
   label: string;
   type: 'source' | 'file';
 }
 
-function SourceNode({ data }: NodeProps<Node<SourceNodeData>>) {
+type SourceNodeType = Node<SourceNodeData, 'source' | 'file'>;
+
+function SourceNode({ data }: NodeProps<SourceNodeType>) {
   return (
     <div className="px-4 py-3 rounded-lg bg-muted border border-border shadow-md">
       <Handle type="source" position={Position.Right} className="!bg-blue-500 !w-3 !h-3" />
@@ -281,8 +285,8 @@ export function LineageGraphView({
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [nodes, setNodes, onNodesChange] = useNodesState([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
   const fetchGraph = useCallback(async () => {
     setIsLoading(true);

@@ -4,11 +4,12 @@ These tools allow the agent to:
 1. Save analyses as reusable assets
 2. Run saved analyses
 3. Query freshness and lineage
-4. List and search assets
+4. List and search assets (analyses and file assets)
 """
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
@@ -20,12 +21,22 @@ from pluto_duck_backend.app.services.asset import (
     AssetService,
     get_asset_service,
     AssetNotFoundError,
+    FileAssetService,
+    get_file_asset_service,
 )
 from pluto_duck_backend.app.services.asset.errors import AssetValidationError
 
+logger = logging.getLogger("pluto_duck_backend.agent.tools.asset")
 
-def build_asset_tools(*, warehouse_path: Path) -> List[StructuredTool]:
-    """Build asset tools bound to a specific warehouse."""
+
+def build_asset_tools(*, warehouse_path: Path, project_id: Optional[str] = None) -> List[StructuredTool]:
+    """Build asset tools bound to a specific warehouse and project.
+    
+    Args:
+        warehouse_path: Path to the DuckDB warehouse
+        project_id: Project ID for asset isolation
+    """
+    print(f"[build_asset_tools] project_id={project_id}", flush=True)
 
     def _get_connection() -> duckdb.DuckDBPyConnection:
         return duckdb.connect(str(warehouse_path))
@@ -41,7 +52,10 @@ def build_asset_tools(*, warehouse_path: Path) -> List[StructuredTool]:
         materialization: Literal["view", "table", "append", "parquet"] = "view",
         tags: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        """Save the current analysis as a reusable Asset.
+        """Save the current analysis as a reusable Asset in the Asset Library.
+
+        ⚠️ IMPORTANT: This is the ONLY way to create views/tables that appear in the Asset Library.
+        Do NOT use run_sql("CREATE VIEW ...") - those won't be tracked or visible to the user.
 
         Saved analyses can be:
         - Executed later with `run_analysis`
@@ -70,7 +84,9 @@ def build_asset_tools(*, warehouse_path: Path) -> List[StructuredTool]:
                 tags=["sales", "reporting"]
             )
         """
-        service = get_asset_service()
+        print(f"[save_analysis] Called with name={name}, project_id={project_id}", flush=True)
+        service = get_asset_service(project_id)
+        print(f"[save_analysis] AssetService project_id={service.project_id}", flush=True)
 
         try:
             analysis = service.create_analysis(
@@ -80,6 +96,7 @@ def build_asset_tools(*, warehouse_path: Path) -> List[StructuredTool]:
                 materialization=materialization,
                 tags=tags,
             )
+            print(f"[save_analysis] Created analysis id={analysis.id}, project_id={service.project_id}", flush=True)
 
             return {
                 "status": "success",
@@ -91,6 +108,7 @@ def build_asset_tools(*, warehouse_path: Path) -> List[StructuredTool]:
                 "hint": f"run_analysis('{analysis.id}')로 실행하거나 Registry에서 관리할 수 있어요.",
             }
         except AssetValidationError as e:
+            print(f"[save_analysis] Validation error: {e}", flush=True)
             return {
                 "status": "error",
                 "message": f"❌ 저장 실패: {e}",
@@ -119,7 +137,7 @@ def build_asset_tools(*, warehouse_path: Path) -> List[StructuredTool]:
             run_analysis("monthly_sales")
             run_analysis("cohort_analysis", params={"start_date": "2024-01-01"})
         """
-        service = get_asset_service()
+        service = get_asset_service(project_id)
 
         with _get_connection() as conn:
             try:
@@ -185,7 +203,7 @@ def build_asset_tools(*, warehouse_path: Path) -> List[StructuredTool]:
         Returns:
             List of analyses with details
         """
-        service = get_asset_service()
+        service = get_asset_service(project_id)
         analyses = service.list_analyses(tags)
 
         if not analyses:
@@ -243,7 +261,7 @@ def build_asset_tools(*, warehouse_path: Path) -> List[StructuredTool]:
         Returns:
             Analysis details including SQL, parameters, tags
         """
-        service = get_asset_service()
+        service = get_asset_service(project_id)
         analysis = service.get_analysis(analysis_id)
 
         if not analysis:
@@ -290,7 +308,7 @@ def build_asset_tools(*, warehouse_path: Path) -> List[StructuredTool]:
         Returns:
             Lineage information with upstream and downstream dependencies
         """
-        service = get_asset_service()
+        service = get_asset_service(project_id)
 
         try:
             lineage = service.get_lineage(analysis_id)
@@ -320,7 +338,7 @@ def build_asset_tools(*, warehouse_path: Path) -> List[StructuredTool]:
         Returns:
             Freshness status with is_stale flag and details
         """
-        service = get_asset_service()
+        service = get_asset_service(project_id)
 
         with _get_connection() as conn:
             try:
@@ -355,7 +373,7 @@ def build_asset_tools(*, warehouse_path: Path) -> List[StructuredTool]:
         Returns:
             Status message
         """
-        service = get_asset_service()
+        service = get_asset_service(project_id)
 
         if service.delete_analysis(analysis_id):
             return {
@@ -366,6 +384,55 @@ def build_asset_tools(*, warehouse_path: Path) -> List[StructuredTool]:
         return {
             "status": "error",
             "message": f"❌ '{analysis_id}' Asset을 찾을 수 없어요.",
+        }
+
+    # =========================================================================
+    # List File Assets (CSV/Parquet)
+    # =========================================================================
+
+    def list_files() -> Dict[str, Any]:
+        """List all imported file assets (CSV/Parquet).
+
+        File assets are imported via the UI and stored as DuckDB tables.
+        Use this to discover what file data is available for analysis.
+
+        Returns:
+            List of file assets with table names and metadata
+
+        Example:
+            files = list_files()
+            # Returns: {"files": [{"name": "고객 데이터", "table_name": "customers", ...}]}
+            # Then query: run_sql("SELECT * FROM customers")
+        """
+        file_service = get_file_asset_service(project_id)
+        files = file_service.list_files()
+
+        if not files:
+            return {
+                "status": "success",
+                "message": "임포트된 파일이 없어요.",
+                "files": [],
+            }
+
+        file_list = [
+            {
+                "id": f.id,
+                "name": f.name,
+                "table_name": f.table_name,
+                "file_type": f.file_type,
+                "row_count": f.row_count,
+                "column_count": f.column_count,
+                "description": f.description,
+                "created_at": f.created_at.isoformat() if f.created_at else None,
+            }
+            for f in files
+        ]
+
+        return {
+            "status": "success",
+            "count": len(file_list),
+            "files": file_list,
+            "hint": "run_sql('SELECT * FROM {table_name}')로 데이터를 조회할 수 있어요.",
         }
 
     # =========================================================================
@@ -417,5 +484,13 @@ def build_asset_tools(*, warehouse_path: Path) -> List[StructuredTool]:
             func=delete_analysis,
             description="저장된 Analysis를 삭제합니다.",
         ),
+        # File Asset tools
+        StructuredTool.from_function(
+            name="list_files",
+            func=list_files,
+            description=(
+                "임포트된 파일(CSV/Parquet) 목록을 조회합니다. "
+                "파일이 어떤 테이블로 저장되었는지 확인하고 run_sql로 쿼리할 수 있어요."
+            ),
+        ),
     ]
-

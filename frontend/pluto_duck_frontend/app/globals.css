@@ -69,3 +69,34 @@
   }
 }
 
+/* Asset Embed - Isolate from prose styles */
+.asset-embed-wrapper {
+  display: block;
+  position: relative;
+}
+
+/* Reset prose styles inside asset container */
+.prose .asset-embed-container,
+.prose .asset-embed-container * {
+  /* Don't inherit prose typography for the component UI */
+}
+
+/* Specifically reset recharts elements that get affected by prose */
+.prose .asset-embed-container .recharts-wrapper * {
+  font-size: revert;
+  font-weight: revert;
+  line-height: normal;
+  margin: 0;
+}
+
+/* Ensure recharts text doesn't inherit prose heading styles */
+.prose .asset-embed-container .recharts-text,
+.prose .asset-embed-container .recharts-cartesian-axis-tick-value,
+.prose .asset-embed-container .recharts-legend-item-text,
+.prose .asset-embed-container tspan {
+  font-size: 12px !important;
+  font-weight: 400 !important;
+  font-style: normal !important;
+}
+
+

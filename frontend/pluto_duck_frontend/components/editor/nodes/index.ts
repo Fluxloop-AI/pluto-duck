@@ -1,4 +1,2 @@
-export * from './ChartNode';
 export * from './ImageNode';
-export * from './AssetNode';
-
+export * from './AssetEmbedNode';

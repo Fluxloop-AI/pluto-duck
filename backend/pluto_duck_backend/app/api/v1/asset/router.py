@@ -418,6 +418,59 @@ def execute_analysis(
     )
 
 
+class AnalysisDataResponse(BaseModel):
+    """Response for analysis data."""
+
+    columns: List[str]
+    rows: List[List[Any]]
+    total_rows: int
+
+
+@router.get("/analyses/{analysis_id}/data", response_model=AnalysisDataResponse)
+def get_analysis_data(
+    analysis_id: str,
+    project_id: Optional[str] = Query(None),
+    limit: int = Query(1000, ge=1, le=10000),
+    offset: int = Query(0, ge=0),
+) -> AnalysisDataResponse:
+    """Get the result data from an analysis.
+
+    Returns the materialized data (table/view) for the analysis.
+    Use after executing the analysis to fetch its output.
+    """
+    service = get_asset_service(project_id)
+    analysis = service.get_analysis(analysis_id)
+
+    if not analysis:
+        raise HTTPException(status_code=404, detail=f"Analysis '{analysis_id}' not found")
+
+    # The result table is stored in the analysis schema
+    result_table = analysis.result_table
+    if not result_table:
+        raise HTTPException(status_code=400, detail="Analysis has no result table")
+
+    with _get_connection() as conn:
+        try:
+            # Get total count
+            count_result = conn.execute(f"SELECT COUNT(*) FROM {result_table}").fetchone()
+            total_rows = count_result[0] if count_result else 0
+
+            # Get data with pagination
+            result = conn.execute(
+                f"SELECT * FROM {result_table} LIMIT {limit} OFFSET {offset}"
+            )
+            columns = [desc[0] for desc in result.description] if result.description else []
+            rows = [list(row) for row in result.fetchall()]
+
+            return AnalysisDataResponse(
+                columns=columns,
+                rows=rows,
+                total_rows=total_rows,
+            )
+        except duckdb.Error as e:
+            raise HTTPException(status_code=500, detail=f"Failed to fetch data: {e}")
+
+
 # =============================================================================
 # Status Endpoints
 # =============================================================================

@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useCallback, useRef, useState } from 'react';
+import { Fragment, memo, useCallback, useRef, useState } from 'react';
 import { AtSignIcon, CopyIcon, RefreshCcwIcon, ChevronRightIcon, CheckIcon, XIcon } from 'lucide-react';
 import type { ToolUIPart } from 'ai';
 import { Conversation, ConversationContent, ConversationScrollButton } from '../ai-elements/conversation';
@@ -152,6 +152,241 @@ function getToolApproval(event: any): { id: string; approved?: boolean; reason?:
   return undefined;
 }
 
+// Memoized conversation messages to prevent re-renders on input change
+interface ConversationMessagesProps {
+  turns: ChatTurn[];
+  lastAssistantMessageId: string | null;
+  loading: boolean;
+  isStreaming: boolean;
+  onCopy: (text: string) => void;
+  onRegenerate: () => void;
+}
+
+const ConversationMessages = memo(function ConversationMessages({
+  turns,
+  lastAssistantMessageId,
+  loading,
+  isStreaming,
+  onCopy,
+  onRegenerate,
+}: ConversationMessagesProps) {
+  return (
+    <>
+      {loading && (
+        <div className="px-4 py-6">
+          <div className="mx-auto">
+            <Loader />
+          </div>
+        </div>
+      )}
+
+      {turns.map(turn => (
+        <div key={turn.key} className="group px-4 py-6 space-y-4">
+          {turn.userMessages.map(message => (
+            <div key={message.id} className="flex justify-end">
+              <div className="rounded-2xl bg-primary px-4 py-3 text-primary-foreground">
+                <p className="text-sm">
+                  {typeof message.content === 'object' && message.content?.text
+                    ? message.content.text
+                    : typeof message.content === 'string'
+                      ? message.content
+                      : JSON.stringify(message.content)}
+                </p>
+              </div>
+            </div>
+          ))}
+
+          {turn.otherMessages.map(message => (
+            <div key={message.id} className="rounded-2xl border border-border px-4 py-3 text-sm text-muted-foreground">
+              {typeof message.content === 'string' ? message.content : JSON.stringify(message.content)}
+            </div>
+          ))}
+
+          {turn.runId && (turn.isActive || turn.reasoningText) && (
+            <Reasoning isStreaming={turn.isActive} defaultOpen={true}>
+              <ReasoningTrigger />
+              <ReasoningContent>{turn.reasoningText || ''}</ReasoningContent>
+            </Reasoning>
+          )}
+
+          {turn.toolEvents.length > 0 && (
+            <div className="space-y-2">
+              {turn.toolEvents.map((event, index) => {
+                // Handle tool events
+                if (event.type === 'tool') {
+                  const toolState = getToolState(event);
+                  const toolType = getToolType(event);
+                  const toolInput = getToolInput(event);
+                  const toolOutput = getToolOutput(event);
+                  const errorText = getToolError(event);
+                  const approval = getToolApproval(event);
+
+                  return (
+                    <Tool key={`${turn.key}-tool-${index}`} defaultOpen>
+                      <ToolHeader
+                        state={toolState}
+                        type={toolType}
+                        title={event.subtype}
+                      />
+                      <ToolContent>
+                        {toolInput && <ToolInput input={toolInput} />}
+                        
+                        {/* Approval workflow */}
+                        <Confirmation approval={approval} state={toolState}>
+                          <ConfirmationTitle>
+                            <ConfirmationRequest>
+                              This tool requires your approval to execute.
+                            </ConfirmationRequest>
+                            <ConfirmationAccepted>
+                              <CheckIcon className="size-4 text-green-600 dark:text-green-400" />
+                              <span>Approved</span>
+                            </ConfirmationAccepted>
+                            <ConfirmationRejected>
+                              <XIcon className="size-4 text-destructive" />
+                              <span>
+                                Rejected
+                                {approval?.reason && `: ${approval.reason}`}
+                              </span>
+                            </ConfirmationRejected>
+                          </ConfirmationTitle>
+                          <ConfirmationActions>
+                            <ConfirmationAction
+                              onClick={() => {
+                                // TODO: Implement approval rejection
+                                console.log('Tool rejected');
+                              }}
+                              variant="outline"
+                            >
+                              Reject
+                            </ConfirmationAction>
+                            <ConfirmationAction
+                              onClick={() => {
+                                // TODO: Implement approval acceptance
+                                console.log('Tool approved');
+                              }}
+                              variant="default"
+                            >
+                              Approve
+                            </ConfirmationAction>
+                          </ConfirmationActions>
+                        </Confirmation>
+
+                        {(toolOutput || errorText) && (
+                          <ToolOutput output={toolOutput} errorText={errorText} />
+                        )}
+                      </ToolContent>
+                    </Tool>
+                  );
+                }
+                
+                // Handle plan events
+                if (event.type === 'plan') {
+                  const planData = getPlanData(event);
+                  const isPlanStreaming = event.subtype === 'start' || event.subtype === 'chunk';
+                  
+                  return (
+                    <Plan key={`${turn.key}-plan-${index}`} defaultOpen isStreaming={isPlanStreaming}>
+                      <PlanHeader>
+                        <div className="flex-1">
+                          <PlanTitle>{planData.title}</PlanTitle>
+                          {planData.description && (
+                            <p className="text-sm text-muted-foreground mt-1">{planData.description}</p>
+                          )}
+                        </div>
+                        <PlanAction>
+                          <PlanTrigger />
+                        </PlanAction>
+                      </PlanHeader>
+                      <PlanContent>
+                        <div className="space-y-2">
+                          {planData.tasks.map((taskText, taskIndex) => (
+                            <TaskItem key={taskIndex}>
+                              {taskIndex + 1}. {taskText}
+                            </TaskItem>
+                          ))}
+                        </div>
+                      </PlanContent>
+                    </Plan>
+                  );
+                }
+
+                // Fallback for other event types
+                return (
+                  <div
+                    key={`${turn.key}-event-${index}`}
+                    className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-900 dark:text-amber-100"
+                  >
+                    <header className="mb-1 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-200">
+                      <span>
+                        {event.type}.{event.subtype ?? 'event'}
+                      </span>
+                      {event.timestamp && (
+                        <time className="font-normal text-slate-500">
+                          {new Date(event.timestamp).toLocaleTimeString()}
+                        </time>
+                      )}
+                    </header>
+                    <pre className="overflow-x-auto whitespace-pre-wrap break-words text-[11px]">
+                      {typeof event.content === 'string'
+                        ? event.content
+                        : JSON.stringify(event.content, null, 2)}
+                    </pre>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {turn.assistantMessages.map(message => (
+            <div key={message.id} className="flex gap-4">
+              <div className="flex-1 space-y-4">
+                <div className="prose prose-sm dark:prose-invert max-w-none">
+                  <Response>
+                    {typeof message.content === 'object' && message.content?.text
+                      ? message.content.text
+                      : typeof message.content === 'string'
+                        ? message.content
+                        : JSON.stringify(message.content)}
+                  </Response>
+                </div>
+
+                {message.id === lastAssistantMessageId && (
+                  <Actions className="opacity-0 transition-opacity group-hover:opacity-100">
+                    <Action onClick={onRegenerate} label="Retry">
+                      <RefreshCcwIcon className="size-3" />
+                    </Action>
+                    <Action
+                      onClick={() => {
+                        const text =
+                          typeof message.content === 'object' && message.content?.text
+                            ? message.content.text
+                            : JSON.stringify(message.content);
+                        onCopy(text);
+                      }}
+                      label="Copy"
+                    >
+                      <CopyIcon className="size-3" />
+                    </Action>
+                  </Actions>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
+
+      {/* Loading indicator during streaming */}
+      {isStreaming && turns.length > 0 && (
+        <div className="px-4 py-6">
+          <div className="mx-auto">
+            <Loader />
+          </div>
+        </div>
+      )}
+    </>
+  );
+});
+
 interface ChatPanelProps {
   activeSession: ChatSessionSummary | null;
   turns: ChatTurn[];
@@ -239,239 +474,18 @@ export function ChatPanel({
 
   return (
     <div className="flex h-full w-full flex-col bg-background">
-      {/* Messages area */}
+      {/* Messages area - using memoized component to prevent re-renders on input change */}
       <div className="flex-1 min-h-0">
         <Conversation className="h-full">
           <ConversationContent>
-            {loading && (
-              <div className="px-4 py-6">
-                <div className="mx-auto">
-                  <Loader />
-                </div>
-              </div>
-            )}
-
-            {turns.map(turn => (
-                <div key={turn.key} className="group px-4 py-6 space-y-4">
-                  {turn.userMessages.map(message => (
-                    <div key={message.id} className="flex justify-end">
-                      <div className="rounded-2xl bg-primary px-4 py-3 text-primary-foreground">
-                        <p className="text-sm">
-                          {typeof message.content === 'object' && message.content?.text
-                            ? message.content.text
-                            : typeof message.content === 'string'
-                              ? message.content
-                              : JSON.stringify(message.content)}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-
-                  {turn.otherMessages.map(message => (
-                    <div key={message.id} className="rounded-2xl border border-border px-4 py-3 text-sm text-muted-foreground">
-                      {typeof message.content === 'string' ? message.content : JSON.stringify(message.content)}
-                    </div>
-                  ))}
-
-                  {turn.runId && (turn.isActive || turn.reasoningText) && (
-                    <Reasoning isStreaming={turn.isActive} defaultOpen={true}>
-                      <ReasoningTrigger />
-                      <ReasoningContent>{turn.reasoningText || ''}</ReasoningContent>
-                    </Reasoning>
-                  )}
-
-                  {turn.toolEvents.length > 0 && (
-                    <div className="space-y-2">
-                      {turn.toolEvents.map((event, index) => {
-                        // Handle tool events
-                        if (event.type === 'tool') {
-                          const toolState = getToolState(event);
-                          const toolType = getToolType(event);
-                          const toolInput = getToolInput(event);
-                          const toolOutput = getToolOutput(event);
-                          const errorText = getToolError(event);
-                          const approval = getToolApproval(event);
-
-                          return (
-                            <Tool key={`${turn.key}-tool-${index}`} defaultOpen>
-                              <ToolHeader
-                                state={toolState}
-                                type={toolType}
-                                title={event.subtype}
-                              />
-                              <ToolContent>
-                                {toolInput && <ToolInput input={toolInput} />}
-                                
-                                {/* Approval workflow */}
-                                <Confirmation approval={approval} state={toolState}>
-                                  <ConfirmationTitle>
-                                    <ConfirmationRequest>
-                                      This tool requires your approval to execute.
-                                    </ConfirmationRequest>
-                                    <ConfirmationAccepted>
-                                      <CheckIcon className="size-4 text-green-600 dark:text-green-400" />
-                                      <span>Approved</span>
-                                    </ConfirmationAccepted>
-                                    <ConfirmationRejected>
-                                      <XIcon className="size-4 text-destructive" />
-                                      <span>
-                                        Rejected
-                                        {approval?.reason && `: ${approval.reason}`}
-                                      </span>
-                                    </ConfirmationRejected>
-                                  </ConfirmationTitle>
-                                  <ConfirmationActions>
-                                    <ConfirmationAction
-                                      onClick={() => {
-                                        // TODO: Implement approval rejection
-                                        console.log('Tool rejected');
-                                      }}
-                                      variant="outline"
-                                    >
-                                      Reject
-                                    </ConfirmationAction>
-                                    <ConfirmationAction
-                                      onClick={() => {
-                                        // TODO: Implement approval acceptance
-                                        console.log('Tool approved');
-                                      }}
-                                      variant="default"
-                                    >
-                                      Approve
-                                    </ConfirmationAction>
-                                  </ConfirmationActions>
-                                </Confirmation>
-
-                                {(toolOutput || errorText) && (
-                                  <ToolOutput output={toolOutput} errorText={errorText} />
-                                )}
-                              </ToolContent>
-                            </Tool>
-                          );
-                        }
-                        
-                        // Handle plan events
-                        if (event.type === 'plan') {
-                          const planData = getPlanData(event);
-                          const isStreaming = event.subtype === 'start' || event.subtype === 'chunk';
-                          
-                          return (
-                            <Plan key={`${turn.key}-plan-${index}`} defaultOpen isStreaming={isStreaming}>
-                              <PlanHeader>
-                                <div className="flex-1">
-                                  <PlanTitle>{planData.title}</PlanTitle>
-                                  {planData.description && (
-                                    <p className="text-sm text-muted-foreground mt-1">{planData.description}</p>
-                                  )}
-                                </div>
-                                <PlanAction>
-                                  <PlanTrigger />
-                                </PlanAction>
-                              </PlanHeader>
-                              <PlanContent>
-                                <div className="space-y-2">
-                                  {planData.tasks.map((taskText, taskIndex) => (
-                                    <TaskItem key={taskIndex}>
-                                      {taskIndex + 1}. {taskText}
-                                    </TaskItem>
-                                  ))}
-                                </div>
-                              </PlanContent>
-                            </Plan>
-                          );
-                        }
-
-                        // Fallback for other event types
-                        return (
-                          <div
-                            key={`${turn.key}-event-${index}`}
-                            className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-900 dark:text-amber-100"
-                          >
-                            <header className="mb-1 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-200">
-                              <span>
-                                {event.type}.{event.subtype ?? 'event'}
-                              </span>
-                              {event.timestamp && (
-                                <time className="font-normal text-slate-500">
-                                  {new Date(event.timestamp).toLocaleTimeString()}
-                                </time>
-                              )}
-                            </header>
-                            <pre className="overflow-x-auto whitespace-pre-wrap break-words text-[11px]">
-                              {typeof event.content === 'string'
-                                ? event.content
-                                : JSON.stringify(event.content, null, 2)}
-                            </pre>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {turn.assistantMessages.map(message => (
-                    <div key={message.id} className="flex gap-4">
-                      <div className="flex-1 space-y-4">
-                        <div className="prose prose-sm dark:prose-invert max-w-none">
-                          <Response>
-                            {typeof message.content === 'object' && message.content?.text
-                              ? message.content.text
-                              : typeof message.content === 'string'
-                                ? message.content
-                                : JSON.stringify(message.content)}
-                          </Response>
-                        </div>
-
-                        {message.id === lastAssistantMessageId && (
-                          <Actions className="opacity-0 transition-opacity group-hover:opacity-100">
-                            <Action onClick={handleRegenerate} label="Retry">
-                              <RefreshCcwIcon className="size-3" />
-                            </Action>
-                            <Action
-                              onClick={() => {
-                                const text =
-                                  typeof message.content === 'object' && message.content?.text
-                                    ? message.content.text
-                                    : JSON.stringify(message.content);
-                                handleCopy(text);
-                              }}
-                              label="Copy"
-                            >
-                              <CopyIcon className="size-3" />
-                            </Action>
-                          </Actions>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-            ))}
-
-            {/* Loading indicator during streaming */}
-            {isStreaming && turns.length > 0 && (
-              <div className="px-4 py-6">
-                <div className="mx-auto">
-                  <Loader />
-                </div>
-              </div>
-            )}
-
-            {/* Empty state */}
-            {/* {!loading && turns.length === 0 && (
-              <div className="flex flex-1 items-center justify-center px-4">
-                <div className="mx-auto text-center space-y-6">
-                  <p className="text-sm text-muted-foreground">
-                    {activeSession ? 'No messages yet.' : 'Start a new conversation below.'}
-                  </p>
-                  {!activeSession && (
-                    <Suggestions>
-                      {suggestions.map(suggestion => (
-                        <Suggestion key={suggestion} onClick={() => handleSuggestionClick(suggestion)} suggestion={suggestion} />
-                      ))}
-                    </Suggestions>
-                  )}
-                </div>
-              </div>
-            )} */}
+            <ConversationMessages
+              turns={turns}
+              lastAssistantMessageId={lastAssistantMessageId}
+              loading={loading}
+              isStreaming={isStreaming}
+              onCopy={handleCopy}
+              onRegenerate={handleRegenerate}
+            />
           </ConversationContent>
           <ConversationScrollButton />
         </Conversation>

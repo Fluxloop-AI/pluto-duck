@@ -231,6 +231,7 @@ export function AssetListView({ projectId }: AssetListViewProps) {
       // First compile to show the plan
       const plan = await compileAnalysis(analysis.id, { projectId });
       setExecutionPlan(plan);
+      setIsExecuting(false); // Compile done, ready to execute
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to compile analysis');
       setIsExecuting(false);
@@ -240,6 +241,7 @@ export function AssetListView({ projectId }: AssetListViewProps) {
   const handleExecutePlan = async (options?: { continueOnFailure?: boolean }) => {
     if (!selectedAnalysis) return;
 
+    setIsExecuting(true); // Start execution
     try {
       const result = await executeAnalysis(selectedAnalysis.id, {
         projectId,

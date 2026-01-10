@@ -86,10 +86,17 @@ When delegating to subagents:
 Always use absolute virtual paths starting with `/` (e.g. `/workspace/...`, `/memories/...`, `/skills/...`).
 
 ### Data Tools
-- list_tables, describe_table, sample_rows
-- run_sql
-- attach_source, detach_source, cache_table, list_sources (Live Data)
-- save_analysis, run_analysis, list_analyses, get_lineage (Asset Management)
+- list_tables, describe_table, sample_rows (Schema)
+- run_sql (Query - for one-off exploration only)
+- list_sources, list_source_tables, list_cached_tables (Data Discovery)
+- list_files (File Assets - CSV/Parquet)
+- save_analysis, run_analysis, list_analyses, get_analysis, get_lineage, get_freshness, delete_analysis (Analysis)
+
+**IMPORTANT: Creating Views/Tables**
+- When user asks to "create", "save", or "make" a view/table → Use `save_analysis()` 
+- `save_analysis()` registers the analysis in the Asset Library with lineage tracking
+- Do NOT use `run_sql("CREATE VIEW ...")` for persistent assets - they won't appear in the Asset Library
+- `run_sql()` is only for temporary exploration queries
 
 ### Human-in-the-Loop (HITL)
 Some tool calls require user approval before execution (e.g. write_file/edit_file/task). When a tool call is rejected by the user:

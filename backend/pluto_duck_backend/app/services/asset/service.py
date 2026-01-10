@@ -486,10 +486,15 @@ class AssetService:
                 [ref.name],
             ).fetchone()
 
-            if dep_state and dep_state[0] and dep_state[0] > last_run_at:
-                is_stale = True
-                stale_reason = f"dependency '{ref.id}' updated"
-                break
+            if dep_state and dep_state[0]:
+                dep_run_at = dep_state[0]
+                # Ensure timezone-aware comparison
+                if dep_run_at.tzinfo is None:
+                    dep_run_at = dep_run_at.replace(tzinfo=UTC)
+                if dep_run_at > last_run_at:
+                    is_stale = True
+                    stale_reason = f"dependency '{ref.id}' updated"
+                    break
 
         return FreshnessStatus(
             is_stale=is_stale,

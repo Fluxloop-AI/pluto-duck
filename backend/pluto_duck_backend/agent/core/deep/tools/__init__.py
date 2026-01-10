@@ -34,7 +34,7 @@ def build_default_tools(*, workspace_root: Path, project_id: Optional[str] = Non
     tools = [
         *build_schema_tools(warehouse_path=warehouse_path),
         *build_query_tools(warehouse_path=warehouse_path),
-        *build_asset_tools(warehouse_path=warehouse_path),  # Saved Analysis tools
+        *build_asset_tools(warehouse_path=warehouse_path, project_id=project_id),  # Saved Analysis tools
     ]
     
     # Add source tools only if project_id is provided

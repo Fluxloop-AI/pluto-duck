@@ -2,13 +2,6 @@ import { DraggableBlockPlugin_EXPERIMENTAL } from '@lexical/react/LexicalDraggab
 import { useRef } from 'react';
 import { GripVertical } from 'lucide-react';
 
-const DRAGGABLE_BLOCK_MENU_CLASSNAME = 'draggable-block-menu';
-
-function DraggableBlockMenu({ anchorElem, item }: { anchorElem: HTMLElement; item: any }) {
-  // This is a placeholder for the menu that appears when clicking the drag handle
-  return null;
-}
-
 export default function DraggableBlockPlugin({ anchorElem = document.body }: { anchorElem?: HTMLElement }): JSX.Element {
   const menuRef = useRef<HTMLDivElement>(null);
   const targetLineRef = useRef<HTMLDivElement>(null);
@@ -19,15 +12,42 @@ export default function DraggableBlockPlugin({ anchorElem = document.body }: { a
       menuRef={menuRef as any}
       targetLineRef={targetLineRef as any}
       menuComponent={
-        <div ref={menuRef} className="icon draggable-block-menu opacity-0 absolute top-0 left-0 hover:opacity-100 cursor-grab active:cursor-grabbing p-1 hover:bg-muted rounded">
-          <GripVertical size={16} className="text-muted-foreground" />
+        <div 
+          ref={menuRef} 
+          className="draggable-block-menu"
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            cursor: 'grab',
+            padding: '4px',
+            borderRadius: '4px',
+            backgroundColor: 'hsl(var(--muted) / 0.5)',
+            zIndex: 100,
+            opacity: 1,
+            willChange: 'transform',
+          }}
+        >
+          <GripVertical size={14} className="text-muted-foreground" />
         </div>
       }
       targetLineComponent={
-        <div ref={targetLineRef} className="pointer-events-none bg-blue-500 h-1 absolute top-0 left-0 right-0 opacity-0 transition-opacity" />
+        <div 
+          ref={targetLineRef} 
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            height: '4px',
+            backgroundColor: '#3b82f6',
+            opacity: 0,
+            pointerEvents: 'none',
+            zIndex: 100,
+          }}
+        />
       }
-      isOnMenu={(_element) => {
-        return false;
+      isOnMenu={(element) => {
+        return element.closest('.draggable-block-menu') !== null;
       }}
     />
   );

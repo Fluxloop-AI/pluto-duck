@@ -1,10 +1,12 @@
-"""Source and cache tools for the deep agent.
+"""Source discovery tools for the deep agent.
 
 These tools allow the agent to:
-1. Attach external databases (Postgres, SQLite, etc.)
-2. Query live data from attached sources
-3. Cache tables locally for better performance
-4. Get smart recommendations on caching
+1. List connected data sources (attached via UI)
+2. List available tables from sources
+3. List cached tables
+
+NOTE: Connection management (attach/detach) and cache management (cache/refresh/drop)
+are handled via the UI (DataSourcesModal). Agent only has read-only access for discovery.
 """
 
 from __future__ import annotations
@@ -406,24 +408,14 @@ def build_source_tools(*, project_id: str) -> List[StructuredTool]:
             }
 
     # =========================================================================
-    # Build Tool List
+    # Build Tool List (Read-Only tools only)
     # =========================================================================
+    # NOTE: Connection/cache management tools (attach_*, detach_*, cache_*, etc.)
+    # are intentionally excluded. Users manage these via the UI (DataSourcesModal).
+    # Agent only needs read-only access to discover available data.
 
     return [
-        # Connection tools
-        StructuredTool.from_function(
-            name="attach_postgres",
-            func=attach_postgres,
-            description=(
-                "PostgreSQL 데이터베이스를 연결합니다. "
-                "연결 후 {name}.{table} 형식으로 직접 쿼리할 수 있어요."
-            ),
-        ),
-        StructuredTool.from_function(
-            name="attach_sqlite",
-            func=attach_sqlite,
-            description="SQLite 데이터베이스 파일을 연결합니다.",
-        ),
+        # Data Discovery tools (read-only)
         StructuredTool.from_function(
             name="list_sources",
             func=list_sources,
@@ -435,43 +427,9 @@ def build_source_tools(*, project_id: str) -> List[StructuredTool]:
             description="연결된 소스의 테이블 목록을 조회합니다. Live/Cached 상태도 표시됩니다.",
         ),
         StructuredTool.from_function(
-            name="detach_source",
-            func=detach_source,
-            description="연결된 데이터 소스를 해제합니다.",
-        ),
-        # Cache tools
-        StructuredTool.from_function(
-            name="cache_table",
-            func=cache_table,
-            description=(
-                "외부 테이블을 로컬에 캐시합니다. "
-                "큰 테이블이나 자주 쿼리하는 테이블에 사용하면 빨라져요. "
-                "filter_sql로 필요한 데이터만 가져올 수도 있어요."
-            ),
-        ),
-        StructuredTool.from_function(
-            name="refresh_cache",
-            func=refresh_cache,
-            description="캐시된 테이블을 최신 데이터로 갱신합니다.",
-        ),
-        StructuredTool.from_function(
-            name="drop_cache",
-            func=drop_cache,
-            description="캐시된 테이블을 삭제합니다.",
-        ),
-        StructuredTool.from_function(
             name="list_cached_tables",
             func=list_cached_tables,
             description="캐시된 테이블 목록을 조회합니다.",
-        ),
-        # Smart suggestion
-        StructuredTool.from_function(
-            name="suggest_cache",
-            func=suggest_cache,
-            description=(
-                "테이블 크기를 분석하고 캐싱 추천을 제공합니다. "
-                "큰 테이블 쿼리 전에 먼저 확인하면 좋아요."
-            ),
         ),
     ]
 

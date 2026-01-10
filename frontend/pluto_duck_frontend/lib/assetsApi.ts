@@ -415,6 +415,43 @@ export async function getLineageGraph(
   return response.json();
 }
 
+// ========== Data Fetching ==========
+
+export interface AnalysisData {
+  columns: string[];
+  rows: any[][];
+  total_rows: number;
+}
+
+/**
+ * Get the result data from an analysis.
+ * Must execute the analysis first to have data available.
+ */
+export async function getAnalysisData(
+  analysisId: string,
+  options?: { projectId?: string; limit?: number; offset?: number }
+): Promise<AnalysisData> {
+  const url = new URL(`${getBackendUrl()}/api/v1/asset/analyses/${analysisId}/data`);
+  if (options?.projectId) {
+    url.searchParams.set('project_id', options.projectId);
+  }
+  if (options?.limit) {
+    url.searchParams.set('limit', options.limit.toString());
+  }
+  if (options?.offset) {
+    url.searchParams.set('offset', options.offset.toString());
+  }
+
+  const response = await fetch(url.toString());
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || 'Failed to fetch analysis data');
+  }
+
+  return response.json();
+}
+
 // ========== Helper Functions ==========
 
 /**

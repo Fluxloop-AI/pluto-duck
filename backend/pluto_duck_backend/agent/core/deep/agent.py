@@ -9,8 +9,11 @@ This module wires together:
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
+
+logger = logging.getLogger("pluto_duck_backend.agent.deep")
 from typing import Any, Callable, Optional, Sequence
 
 from langchain.agents.middleware.types import AgentMiddleware
@@ -165,10 +168,14 @@ def build_deep_agent(
     # Get project_id from conversation for source isolation
     project_id = None
     try:
-        conversation = repo.get_conversation(conversation_id)
+        conversation = repo.get_conversation_summary(conversation_id)
         if conversation:
             project_id = conversation.project_id
-    except Exception:
+            print(f"[build_deep_agent] Got project_id={project_id} from conversation={conversation_id}", flush=True)
+        else:
+            print(f"[build_deep_agent] Conversation {conversation_id} not found", flush=True)
+    except Exception as e:
+        print(f"[build_deep_agent] Failed to get project_id: {e}", flush=True)
         pass  # Fallback to no project_id - source tools won't be available
 
     return create_deep_agent(

@@ -4,11 +4,11 @@ import {
   MenuOption,
   useBasicTypeaheadTriggerMatch,
 } from '@lexical/react/LexicalTypeaheadMenuPlugin';
-import { TextNode, $createParagraphNode, $getSelection, $isRangeSelection, COMMAND_PRIORITY_LOW } from 'lexical';
+import { TextNode, $createParagraphNode, $getSelection, $isRangeSelection, $insertNodes, $getRoot } from 'lexical';
 import { $createHeadingNode, $createQuoteNode } from '@lexical/rich-text';
 import { $createCodeNode } from '@lexical/code';
 import { INSERT_ORDERED_LIST_COMMAND, INSERT_UNORDERED_LIST_COMMAND } from '@lexical/list';
-import { useCallback, useState, useEffect } from 'react';
+import { useCallback, useState, useContext, createContext } from 'react';
 import * as React from 'react';
 import { createPortal } from 'react-dom';
 import { 
@@ -19,14 +19,19 @@ import {
   ListOrdered, 
   Quote, 
   Code, 
-  BarChartBig, 
   Image as ImageIcon,
   Database,
 } from 'lucide-react';
-import { $createChartNode } from '../nodes/ChartNode';
 import { $createImageNode } from '../nodes/ImageNode';
-import { $createAssetNode } from '../nodes/AssetNode';
+import { $createAssetEmbedNode, type AssetEmbedConfig } from '../nodes/AssetEmbedNode';
 import { $setBlocksType } from '@lexical/selection';
+
+// Context for Asset Embed integration
+export interface AssetEmbedContextType {
+  openAssetEmbed: (callback: (analysisId: string, config: AssetEmbedConfig) => void) => void;
+}
+
+export const AssetEmbedContext = createContext<AssetEmbedContextType | null>(null);
 
 class SlashMenuOption extends MenuOption {
   title: string;
@@ -51,6 +56,7 @@ class SlashMenuOption extends MenuOption {
 export default function SlashCommandPlugin({ projectId }: { projectId: string }): JSX.Element | null {
   const [editor] = useLexicalComposerContext();
   const [queryString, setQueryString] = useState<string | null>(null);
+  const assetEmbedContext = useContext(AssetEmbedContext);
 
   const checkForTriggerMatch = useBasicTypeaheadTriggerMatch('/', {
     minLength: 0,
@@ -103,24 +109,6 @@ export default function SlashCommandPlugin({ projectId }: { projectId: string })
         }
       });
     }),
-    new SlashMenuOption('Chart', <BarChartBig size={18} />, ['chart', 'graph', 'data'], (editor) => {
-      editor.update(() => {
-        // Mock Chart Insertion
-        const chartNode = $createChartNode(
-            "mock-query-id", // In real implementation, this would trigger a picker
-            "bar",
-            projectId
-        );
-        const selection = $getSelection();
-        if ($isRangeSelection(selection)) {
-            selection.insertNodes([chartNode]);
-            // Insert a paragraph after the chart to allow typing
-            const paragraphNode = $createParagraphNode();
-            chartNode.insertAfter(paragraphNode);
-            paragraphNode.select();
-        }
-      });
-    }),
     new SlashMenuOption('Image', <ImageIcon size={18} />, ['image', 'photo', 'picture'], (editor) => {
       editor.update(() => {
         // Mock Image Insertion
@@ -140,23 +128,25 @@ export default function SlashCommandPlugin({ projectId }: { projectId: string })
         }
       });
     }),
-    new SlashMenuOption('Asset', <Database size={18} />, ['asset', 'analysis', 'data', 'query'], (editor) => {
-      editor.update(() => {
-        // Insert Asset reference - will show a picker in real implementation
-        // For now, use a placeholder that prompts for selection
-        const analysisId = window.prompt('Enter Analysis ID:');
-        if (analysisId) {
-          const assetNode = $createAssetNode(analysisId, projectId);
-          const selection = $getSelection();
-          if ($isRangeSelection(selection)) {
-            selection.insertNodes([assetNode]);
-            // Insert a paragraph after the asset to allow typing
+    new SlashMenuOption('Asset', <Database size={18} />, ['asset', 'analysis', 'data', 'query', 'table', 'chart'], (editor) => {
+      // Open Asset Embed flow (picker + config)
+      if (assetEmbedContext) {
+        assetEmbedContext.openAssetEmbed((analysisId: string, config: AssetEmbedConfig) => {
+          editor.update(() => {
+            const assetNode = $createAssetEmbedNode(analysisId, projectId, config);
             const paragraphNode = $createParagraphNode();
-            assetNode.insertAfter(paragraphNode);
+            
+            // Use $insertNodes for proper block-level insertion
+            // This ensures the node is inserted at the correct level in the tree
+            $insertNodes([assetNode, paragraphNode]);
+            
+            // Select the paragraph to allow continued typing
             paragraphNode.select();
-          }
-        }
-      });
+          });
+        });
+      } else {
+        console.warn('AssetEmbedContext not available');
+      }
     }),
   ];
 

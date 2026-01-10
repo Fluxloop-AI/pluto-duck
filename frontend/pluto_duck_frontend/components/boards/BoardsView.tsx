@@ -56,15 +56,33 @@ export function BoardsView({ projectId, activeBoard, onBoardUpdate }: BoardsView
       ? settings.activeTabId
       : tabs[0]?.id || null;
     return { tabs, activeTabId };
-  }, [activeBoard?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeBoard?.id, projectId]); // Include projectId to reset on project change
 
   const [tabs, setTabs] = useState<BoardTab[]>(initialData.tabs);
   const [activeTabId, setActiveTabId] = useState<string | null>(initialData.activeTabId);
 
-  // Update tabs when board changes
+  // Save tabs to backend - use ref to avoid stale closures
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isSavingRef = useRef(false);
+
+  // Update tabs when board/project changes and cleanup pending saves
   useEffect(() => {
+    // Clear any pending save timeout when board/project changes
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+    isSavingRef.current = false;
+    
     setTabs(initialData.tabs);
     setActiveTabId(initialData.activeTabId);
+    
+    // Cleanup on unmount
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
   }, [initialData]);
 
   // Get active tab
@@ -72,10 +90,6 @@ export function BoardsView({ projectId, activeBoard, onBoardUpdate }: BoardsView
     tabs.find(t => t.id === activeTabId) || tabs[0] || null,
     [tabs, activeTabId]
   );
-
-  // Save tabs to backend - use ref to avoid stale closures
-  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const isSavingRef = useRef(false);
   
   const saveTabs = useCallback(async (newTabs: BoardTab[], newActiveTabId?: string) => {
     if (!activeBoard || isSavingRef.current) return;

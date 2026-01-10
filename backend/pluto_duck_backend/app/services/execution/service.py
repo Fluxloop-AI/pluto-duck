@@ -63,6 +63,12 @@ class QueryExecutionService:
             sanitized = "result"
         return f"query_result_{sanitized}"
 
+    def _is_ddl_statement(self, sql: str) -> bool:
+        """Check if the SQL is a DDL statement (CREATE, ALTER, DROP, etc.)."""
+        normalized = sql.strip().upper()
+        ddl_keywords = ('CREATE ', 'ALTER ', 'DROP ', 'TRUNCATE ', 'ATTACH ', 'DETACH ')
+        return any(normalized.startswith(kw) for kw in ddl_keywords)
+
     def submit(self, run_id: str, sql: str) -> QueryJob:
         submitted_at = datetime.now(UTC)
         with duckdb.connect(str(self.warehouse_path)) as con:
@@ -84,8 +90,18 @@ class QueryExecutionService:
             submitted_at = submitted_at.replace(tzinfo=UTC) if submitted_at.tzinfo is None else submitted_at
             result_relation = self._sanitize_relation(run_id)
             try:
-                con.execute(f"CREATE OR REPLACE TABLE {result_relation} AS {sql}")
-                rows_affected = con.execute(f"SELECT COUNT(*) FROM {result_relation}").fetchone()[0]
+                # Check if this is a DDL statement (CREATE, ALTER, DROP, etc.)
+                if self._is_ddl_statement(sql):
+                    # Execute DDL directly without wrapping
+                    con.execute(sql)
+                    rows_affected = None
+                    # For DDL, no result table is created
+                    result_relation = None
+                else:
+                    # For SELECT queries, wrap in CREATE TABLE AS
+                    con.execute(f"CREATE OR REPLACE TABLE {result_relation} AS {sql}")
+                    rows_affected = con.execute(f"SELECT COUNT(*) FROM {result_relation}").fetchone()[0]
+                
                 completed_at = datetime.now(UTC)
                 con.execute(
                     "UPDATE query_history SET status=?, completed_at=?, result_relation=?, error=NULL, rows_affected=? WHERE job_id=?",

@@ -48,7 +48,12 @@ def build_query_tools(*, warehouse_path: Path) -> List[StructuredTool]:
         StructuredTool.from_function(
             name="run_sql",
             func=run_sql,
-            description="Execute SQL against DuckDB warehouse; returns run_id/result_table and a small preview.",
+            description=(
+                "Execute SQL against DuckDB warehouse for one-off exploration. "
+                "Returns run_id/result_table and a small preview. "
+                "⚠️ DO NOT use this for CREATE VIEW/TABLE - use save_analysis() instead! "
+                "Views created with run_sql won't appear in the Asset Library."
+            ),
         )
     ]
 

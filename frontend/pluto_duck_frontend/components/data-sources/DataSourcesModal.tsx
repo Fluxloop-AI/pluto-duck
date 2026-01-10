@@ -55,13 +55,13 @@ export function DataSourcesModal({ projectId, open, onOpenChange, onImportClick,
     }
     
     try {
-      const data = await fetchDataSources();
+      const data = await fetchDataSources(projectId!);
       console.log('[DataSourcesModal] Loaded sources:', data);
       setSources(data);
       const details = await Promise.all(
         data.map(async source => {
           try {
-            const detail = await fetchDataSourceDetail(source.id);
+            const detail = await fetchDataSourceDetail(source.id, projectId!);
             return { id: source.id, tables: detail.tables };
           } catch (detailError) {
             console.error('Failed to load tables for source', source.id, detailError);
@@ -89,8 +89,9 @@ export function DataSourcesModal({ projectId, open, onOpenChange, onImportClick,
   }, [open, refreshTrigger, projectId]);
 
   const handleDelete = async (sourceId: string) => {
+    if (!projectId) return;
     try {
-      await deleteDataSource(sourceId, false); // Don't drop table by default
+      await deleteDataSource(projectId, sourceId, false); // Don't drop table by default
       await loadSources();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete data source');
@@ -98,6 +99,7 @@ export function DataSourcesModal({ projectId, open, onOpenChange, onImportClick,
   };
 
   const handleSyncTable = async (sourceId: string, tableId: string) => {
+    if (!projectId) return;
     try {
       setTablesBySource(prev => ({
         ...prev,
@@ -105,7 +107,7 @@ export function DataSourcesModal({ projectId, open, onOpenChange, onImportClick,
           table.id === tableId ? { ...table, status: 'syncing' } : table
         ),
       }));
-      await syncTable(sourceId, tableId);
+      await syncTable(projectId, sourceId, tableId);
       await loadSources();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to sync table');
@@ -114,8 +116,9 @@ export function DataSourcesModal({ projectId, open, onOpenChange, onImportClick,
   };
 
   const handleDeleteTable = async (sourceId: string, tableId: string) => {
+    if (!projectId) return;
     try {
-      await deleteTable(sourceId, tableId, false);
+      await deleteTable(projectId, sourceId, tableId, false);
       await loadSources();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to remove table');

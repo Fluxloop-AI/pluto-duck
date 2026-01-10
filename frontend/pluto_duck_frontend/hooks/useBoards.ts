@@ -29,19 +29,20 @@ export function useBoards({ projectId, enabled = true }: UseBoardsOptions) {
       const data = await fetchBoards(projectId);
       setBoards(data);
       
-      // Auto-select first board if available and no active board
-      if (data.length > 0 && !activeBoard) {
+      // Auto-select first board if available
+      // Note: We always select first board here because activeBoard is reset 
+      // to null when projectId changes (in the separate useEffect)
+      if (data.length > 0) {
         // Fetch detail for the first board
         try {
-            const detail = await fetchBoardDetail(data[0].id);
-            setActiveBoard(detail);
+          const detail = await fetchBoardDetail(data[0].id);
+          setActiveBoard(detail);
         } catch (e) {
-            console.error("Failed to load initial active board detail", e);
-        setActiveBoard(data[0]);
+          console.error("Failed to load initial active board detail", e);
+          setActiveBoard(data[0]);
         }
-      } else if (data.length === 0) {
-        setActiveBoard(null);
       }
+      // If data.length === 0, activeBoard is already null from the reset effect
     } catch (err) {
       console.error('Failed to load boards:', err);
       setError(err instanceof Error ? err.message : 'Failed to load boards');
@@ -108,16 +109,19 @@ export function useBoards({ projectId, enabled = true }: UseBoardsOptions) {
     }
   }, []);
 
+  // Reset state when projectId changes (before loadBoards runs)
+  useEffect(() => {
+    // Clear previous project's data immediately when project changes
+    setBoards([]);
+    setActiveBoard(null);
+  }, [projectId]);
+
   useEffect(() => {
     if (projectId && enabled) {
       void loadBoards();
       
       // Note: Removed 60-second interval refresh as it was causing unnecessary reloads
       // If you need periodic sync, implement it with a ref to avoid stale closures
-    } else {
-      // No project or disabled - clear boards and active board
-      setBoards([]);
-      setActiveBoard(null);
     }
   }, [projectId, enabled, loadBoards]);
 

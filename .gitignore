@@ -5,8 +5,8 @@ legacy/
 __pycache__
 pluto_duck.egg-info
 .pytest_cache
-.github
 .cursor
+!.github
 .ruff_cache
 .mypy_cache
 .env

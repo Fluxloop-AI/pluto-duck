@@ -181,6 +181,16 @@ class AgentRunManager:
         if not messages or not isinstance(messages[-1], HumanMessage):
             messages.append(HumanMessage(content=run.question))
 
+        # Inject context_assets from metadata into the last user message (for LLM only, not stored)
+        context_assets = run.metadata.get("context_assets")
+        if context_assets and isinstance(messages[-1], HumanMessage):
+            original_content = messages[-1].content
+            context_block = f"\n\n<context_assets>\n{context_assets}\n</context_assets>"
+            messages[-1] = HumanMessage(content=f"{original_content}{context_block}")
+            print(f"[Orchestrator] ✅ Context injected from metadata:\n{context_assets}", flush=True)
+        else:
+            print(f"[Orchestrator] ⚠️ No context_assets in metadata", flush=True)
+
         final_state: Dict[str, Any] = {"finished": False}
         try:
             _log("run_build_agent", run_id=run.run_id, conversation_id=run.conversation_id, model=run.model)

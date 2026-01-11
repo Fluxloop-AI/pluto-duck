@@ -71,7 +71,7 @@ type FreshnessFilter = 'all' | 'fresh' | 'stale' | 'never';
 type MaterializationFilter = 'all' | 'view' | 'table' | 'append' | 'parquet';
 type AssetTab = 'analyses' | 'datasources';
 type AnalysesSubTab = 'queries'; // Future: 'reports' | 'notebooks' etc.
-type DataSourceSubTab = 'sources' | 'tables';
+type DataSourceSubTab = 'sources' | 'datasets';
 
 export function AssetListView({ projectId, initialTab }: AssetListViewProps) {
   // State
@@ -811,7 +811,7 @@ export function AssetListView({ projectId, initialTab }: AssetListViewProps) {
         ) : (
           // Data Sources Tab Content
           <div className="space-y-4">
-            {/* Sub-tabs: Sources | Tables */}
+            {/* Sub-tabs: Sources | Datasets */}
             <div className="flex items-center gap-2 border-b border-border pb-2">
               <button
                 onClick={() => setDataSourceSubTab('sources')}
@@ -830,15 +830,15 @@ export function AssetListView({ projectId, initialTab }: AssetListViewProps) {
                 )}
               </button>
               <button
-                onClick={() => setDataSourceSubTab('tables')}
+                onClick={() => setDataSourceSubTab('datasets')}
                 className={`flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                  dataSourceSubTab === 'tables'
+                  dataSourceSubTab === 'datasets'
                     ? 'bg-primary/10 text-primary'
                     : 'text-muted-foreground hover:text-foreground hover:bg-muted'
                 }`}
               >
                 <HardDrive className="h-4 w-4" />
-                Tables
+                Datasets
                 {(cachedTables.length + fileAssets.length) > 0 && (
                   <span className="rounded-full bg-muted px-1.5 py-0.5 text-xs">
                     {cachedTables.length + fileAssets.length}

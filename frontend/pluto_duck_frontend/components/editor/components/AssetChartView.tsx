@@ -156,20 +156,20 @@ export function AssetChartView(props: AssetChartViewProps) {
 
     // Single Y Column Mode (backward compatible)
     if (yColumn) {
-      const yIndex = columns.indexOf(yColumn);
-      
-      if (xIndex === -1 || yIndex === -1) {
+    const yIndex = columns.indexOf(yColumn);
+
+    if (xIndex === -1 || yIndex === -1) {
         const data = rows.slice(0, 50).map((row, i) => ({
-          name: String(row[0] ?? `Item ${i + 1}`),
-          value: Number(row[1]) || 0,
-        }));
+        name: String(row[0] ?? `Item ${i + 1}`),
+        value: Number(row[1]) || 0,
+      }));
         return { chartData: data, seriesKeys: ['value'] };
-      }
+    }
 
       const data = rows.slice(0, 50).map((row) => ({
-        name: String(row[xIndex] ?? ''),
-        value: Number(row[yIndex]) || 0,
-      }));
+      name: String(row[xIndex] ?? ''),
+      value: Number(row[yIndex]) || 0,
+    }));
 
       return { chartData: data, seriesKeys: ['value'] };
     }
@@ -225,38 +225,38 @@ export function AssetChartView(props: AssetChartViewProps) {
     // Pie chart (single series only)
     if (chartType === 'pie') {
       const dataKey = seriesKeys[0] || 'value';
-      return (
-        <PieChart>
-          <Pie
-            data={chartData}
-            cx="50%"
-            cy="50%"
-            labelLine={false}
-            label={({ name, percent }) =>
-              `${name} (${(percent * 100).toFixed(0)}%)`
-            }
-            outerRadius={100}
-            fill="#8884d8"
+        return (
+          <PieChart>
+            <Pie
+              data={chartData}
+              cx="50%"
+              cy="50%"
+              labelLine={false}
+              label={({ name, percent }) =>
+                `${name} (${(percent * 100).toFixed(0)}%)`
+              }
+              outerRadius={100}
+              fill="#8884d8"
             dataKey={dataKey}
-          >
-            {chartData.map((_, index) => (
-              <Cell
-                key={`cell-${index}`}
-                fill={COLORS[index % COLORS.length]}
-              />
-            ))}
-          </Pie>
+            >
+              {chartData.map((_, index) => (
+                <Cell
+                  key={`cell-${index}`}
+                  fill={COLORS[index % COLORS.length]}
+                />
+              ))}
+            </Pie>
           <Tooltip content={<CustomTooltip />} />
-          <Legend />
-        </PieChart>
-      );
+            <Legend />
+          </PieChart>
+        );
     }
 
     // Line chart (supports groupBy and multiY)
     if (chartType === 'line') {
-      return (
+        return (
         <LineChart data={chartData}>
-          <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+            <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
           <XAxis {...xAxisProps} />
           <YAxis yAxisId="left" {...yAxisProps} />
           {showDualAxis && seriesKeys.length > 1 && (
@@ -334,8 +334,8 @@ export function AssetChartView(props: AssetChartViewProps) {
               connectNulls
             />
           ))}
-        </AreaChart>
-      );
+          </AreaChart>
+        );
     }
 
     // Composed chart (bar + line)
@@ -382,9 +382,9 @@ export function AssetChartView(props: AssetChartViewProps) {
     }
 
     // Default: bar chart
-    return (
-      <BarChart data={chartData}>
-        <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+        return (
+          <BarChart data={chartData}>
+            <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
         <XAxis {...xAxisProps} />
         <YAxis yAxisId="left" {...yAxisProps} />
         <Tooltip content={<CustomTooltip />} />
@@ -399,8 +399,8 @@ export function AssetChartView(props: AssetChartViewProps) {
             yAxisId="left"
           />
         ))}
-      </BarChart>
-    );
+          </BarChart>
+        );
   };
 
   return (

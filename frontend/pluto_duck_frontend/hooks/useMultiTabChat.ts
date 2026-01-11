@@ -39,6 +39,16 @@ export interface ChatEvent {
   timestamp?: string;
 }
 
+export interface GroupedToolEvent {
+  toolName: string;
+  state: 'pending' | 'completed' | 'error';
+  input?: string;
+  output?: any;
+  error?: string;
+  startEvent?: ChatEvent;
+  endEvent?: ChatEvent;
+}
+
 export interface ChatTurn {
   key: string;
   runId: string | null;
@@ -49,6 +59,7 @@ export interface ChatTurn {
   events: ChatEvent[];
   reasoningText: string;
   toolEvents: ChatEvent[];
+  groupedToolEvents: GroupedToolEvent[];
   isActive: boolean;
 }
 
@@ -348,6 +359,7 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
           events: [],
           reasoningText: '',
           toolEvents: [],
+          groupedToolEvents: [],
           isActive: false,
         };
         runs.set(runId, turn);
@@ -383,6 +395,7 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
           events: [],
           reasoningText: '',
           toolEvents: [],
+          groupedToolEvents: [],
           isActive: false,
         });
       }
@@ -400,6 +413,7 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
         events: [],
         reasoningText: '',
         toolEvents: [],
+        groupedToolEvents: [],
         isActive: true,
       });
       result.push(runs.get(activeRunId)!);
@@ -423,6 +437,54 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
         
         // Extract tool events
         turn.toolEvents = turn.events.filter(event => event.type === 'tool');
+        
+        // Group tool events by tool name (match start with end)
+        const toolMap = new Map<string, GroupedToolEvent>();
+        const toolOrder: string[] = [];
+        
+        turn.toolEvents.forEach(event => {
+          const content = event.content as any;
+          const toolName = content?.tool || 'tool';
+          const subtype = event.subtype;
+          
+          if (subtype === 'start') {
+            const key = `${toolName}-${toolOrder.filter(k => k.startsWith(toolName)).length}`;
+            toolOrder.push(key);
+            toolMap.set(key, {
+              toolName,
+              state: 'pending',
+              input: content?.input,
+              startEvent: event,
+            });
+          } else if (subtype === 'end' || subtype === 'error') {
+            // Find the most recent pending tool with this name
+            const pendingKey = [...toolOrder].reverse().find(key => {
+              const tool = toolMap.get(key);
+              return tool && tool.toolName === toolName && tool.state === 'pending';
+            });
+            
+            if (pendingKey) {
+              const tool = toolMap.get(pendingKey)!;
+              tool.state = subtype === 'error' ? 'error' : 'completed';
+              tool.output = content?.output;
+              tool.error = subtype === 'error' ? (content?.error || content?.message) : undefined;
+              tool.endEvent = event;
+            } else {
+              // No matching start, create standalone entry
+              const key = `${toolName}-orphan-${Date.now()}`;
+              toolOrder.push(key);
+              toolMap.set(key, {
+                toolName,
+                state: subtype === 'error' ? 'error' : 'completed',
+                output: content?.output,
+                error: subtype === 'error' ? (content?.error || content?.message) : undefined,
+                endEvent: event,
+              });
+            }
+          }
+        });
+        
+        turn.groupedToolEvents = toolOrder.map(key => toolMap.get(key)!);
       }
     });
 
@@ -581,7 +643,8 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
   }, [addTab]);
 
   const handleSubmit = useCallback(
-    async (prompt: string) => {
+    async (payload: { prompt: string; contextAssets?: string }) => {
+      const { prompt, contextAssets } = payload;
       if (!prompt.trim()) return;
       
       // If no tab exists, create one automatically
@@ -624,6 +687,9 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
           }
           if (projectId) {
             metadata.project_id = projectId;
+          }
+          if (contextAssets) {
+            metadata.context_assets = contextAssets;
           }
           
           // Show user message immediately in UI
@@ -704,10 +770,16 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
           });
         }
         
+        const appendMetadata: Record<string, any> = {};
+        if (contextAssets) {
+          appendMetadata.context_assets = contextAssets;
+        }
+        
         const response: AppendMessageResponse = await appendMessage(currentTab.sessionId, { 
           role: 'user', 
           content: { text: prompt }, 
-          model: selectedModel 
+          model: selectedModel,
+          metadata: Object.keys(appendMetadata).length > 0 ? appendMetadata : undefined,
         });
         console.info('[MultiTabChat] Follow-up queued', response);
         

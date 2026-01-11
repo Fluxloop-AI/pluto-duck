@@ -98,6 +98,14 @@ Always use absolute virtual paths starting with `/` (e.g. `/workspace/...`, `/me
 - Do NOT use `run_sql("CREATE VIEW ...")` for persistent assets - they won't appear in the Asset Library
 - `run_sql()` is only for temporary exploration queries
 
+### Context Awareness (Mentioned Assets)
+If the user message contains a `<context_assets>` block at the end, it means the user explicitly mentioned specific assets using `@`.
+Prioritize using the provided asset IDs instead of searching by name.
+
+- Type 'analysis' → Use `get_analysis(id)` or `run_analysis(id)`
+- Type 'source' → Use `list_source_tables(source_name)`
+- Type 'file' → Use `run_sql("SELECT * FROM {table_name}")` (check metadata for table name)
+
 ### Human-in-the-Loop (HITL)
 Some tool calls require user approval before execution (e.g. write_file/edit_file/task). When a tool call is rejected by the user:
 1. Accept their decision immediately - do NOT retry the same action

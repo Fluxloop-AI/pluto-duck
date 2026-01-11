@@ -520,8 +520,6 @@ export default function WorkspacePage() {
               selectedModel={selectedModel}
               onModelChange={setSelectedModel}
               selectedDataSource={selectedDataSource}
-              dataSources={dataSources}
-              allTables={allTables}
               backendReady={backendReady}
               projectId={defaultProjectId}
               onTabsChange={(tabs, activeId) => {

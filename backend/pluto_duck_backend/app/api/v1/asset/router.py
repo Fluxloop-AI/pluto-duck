@@ -10,6 +10,8 @@ Provides REST endpoints for:
 from __future__ import annotations
 
 from datetime import datetime
+from contextlib import contextmanager
+import threading
 from typing import Any, Dict, List, Literal, Optional
 
 import duckdb
@@ -214,10 +216,25 @@ class RunHistoryResponse(BaseModel):
 # =============================================================================
 
 
-def _get_connection() -> duckdb.DuckDBPyConnection:
-    """Get a DuckDB connection."""
+# DuckDB connection creation/use can throw intermittent "Unique file handle conflict"
+# under concurrent request bursts (e.g. many /freshness calls during board load).
+# We serialize warehouse connections within this router for stability in the local app.
+_duckdb_conn_lock = threading.RLock()
+
+
+@contextmanager
+def _get_connection():
+    """Get a DuckDB connection (serialized for stability)."""
     settings = get_settings()
-    return duckdb.connect(str(settings.duckdb.path))
+    with _duckdb_conn_lock:
+        conn = duckdb.connect(str(settings.duckdb.path))
+        try:
+            yield conn
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def _analysis_to_response(analysis) -> AnalysisResponse:

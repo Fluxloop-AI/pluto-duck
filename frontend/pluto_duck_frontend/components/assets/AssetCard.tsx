@@ -143,9 +143,9 @@ export function AssetCard({
       {/* Status Row */}
       <div className="flex items-center justify-between text-xs text-muted-foreground py-2 border-t border-border/50">
         <FreshnessIndicator />
-        {freshness?.last_run_at && (
+          {freshness?.last_run_at && (
           <span>{formatDate(freshness.last_run_at)}</span>
-        )}
+          )}
       </div>
 
       {/* Action Buttons - Always visible at bottom */}

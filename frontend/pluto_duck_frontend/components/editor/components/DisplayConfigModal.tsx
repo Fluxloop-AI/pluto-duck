@@ -179,93 +179,93 @@ export function DisplayConfigModal({
 
         {/* Content */}
         {!isLoading && (
-          <div className="space-y-6 py-4">
-            {/* Display Type Selection */}
+        <div className="space-y-6 py-4">
+          {/* Display Type Selection */}
+          <div className="space-y-3">
+            <label className="text-sm font-medium">Display Type</label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => setDisplayType('table')}
+                className={`flex flex-col items-center gap-2 p-4 rounded-lg border-2 transition-colors ${
+                  displayType === 'table'
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border hover:border-muted-foreground/30'
+                }`}
+              >
+                <Table2 className="h-8 w-8" />
+                <span className="text-sm font-medium">Table</span>
+              </button>
+              <button
+                onClick={() => setDisplayType('chart')}
+                className={`flex flex-col items-center gap-2 p-4 rounded-lg border-2 transition-colors ${
+                  displayType === 'chart'
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border hover:border-muted-foreground/30'
+                }`}
+              >
+                <BarChart3 className="h-8 w-8" />
+                <span className="text-sm font-medium">Chart</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Table Options */}
+          {displayType === 'table' && (
             <div className="space-y-3">
-              <label className="text-sm font-medium">Display Type</label>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  onClick={() => setDisplayType('table')}
-                  className={`flex flex-col items-center gap-2 p-4 rounded-lg border-2 transition-colors ${
-                    displayType === 'table'
-                      ? 'border-primary bg-primary/5'
-                      : 'border-border hover:border-muted-foreground/30'
-                  }`}
-                >
-                  <Table2 className="h-8 w-8" />
-                  <span className="text-sm font-medium">Table</span>
-                </button>
-                <button
-                  onClick={() => setDisplayType('chart')}
-                  className={`flex flex-col items-center gap-2 p-4 rounded-lg border-2 transition-colors ${
-                    displayType === 'chart'
-                      ? 'border-primary bg-primary/5'
-                      : 'border-border hover:border-muted-foreground/30'
-                  }`}
-                >
-                  <BarChart3 className="h-8 w-8" />
-                  <span className="text-sm font-medium">Chart</span>
-                </button>
+              <label className="text-sm font-medium">Rows per Page</label>
+              <div className="flex items-center gap-2">
+                {ROW_OPTIONS.map((num) => (
+                  <button
+                    key={num}
+                    onClick={() => {
+                      setRowsPerPage(num);
+                      setCustomRows('');
+                    }}
+                    className={`px-4 py-2 rounded-md text-sm ${
+                      rowsPerPage === num && !customRows
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-muted hover:bg-muted/80'
+                    }`}
+                  >
+                    {num}
+                  </button>
+                ))}
+                <input
+                  type="number"
+                  placeholder="Custom"
+                  value={customRows}
+                  onChange={(e) => setCustomRows(e.target.value)}
+                  min={1}
+                  max={100}
+                  className="w-20 px-3 py-2 rounded-md border border-border bg-background text-sm"
+                />
               </div>
             </div>
+          )}
 
-            {/* Table Options */}
-            {displayType === 'table' && (
+          {/* Chart Options */}
+          {displayType === 'chart' && (
+            <div className="space-y-4">
+              {/* Chart Type */}
               <div className="space-y-3">
-                <label className="text-sm font-medium">Rows per Page</label>
-                <div className="flex items-center gap-2">
-                  {ROW_OPTIONS.map((num) => (
+                <label className="text-sm font-medium">Chart Type</label>
+                  <div className="grid grid-cols-5 gap-2">
+                  {CHART_TYPES.map(({ type, icon, label }) => (
                     <button
-                      key={num}
-                      onClick={() => {
-                        setRowsPerPage(num);
-                        setCustomRows('');
-                      }}
-                      className={`px-4 py-2 rounded-md text-sm ${
-                        rowsPerPage === num && !customRows
-                          ? 'bg-primary text-primary-foreground'
-                          : 'bg-muted hover:bg-muted/80'
+                      key={type}
+                      onClick={() => setChartType(type)}
+                        className={`flex flex-col items-center gap-1 p-2 rounded-lg border transition-colors ${
+                        chartType === type
+                          ? 'border-primary bg-primary/5'
+                          : 'border-border hover:border-muted-foreground/30'
                       }`}
                     >
-                      {num}
+                      {icon}
+                      <span className="text-xs">{label}</span>
                     </button>
                   ))}
-                  <input
-                    type="number"
-                    placeholder="Custom"
-                    value={customRows}
-                    onChange={(e) => setCustomRows(e.target.value)}
-                    min={1}
-                    max={100}
-                    className="w-20 px-3 py-2 rounded-md border border-border bg-background text-sm"
-                  />
                 </div>
               </div>
-            )}
-
-            {/* Chart Options */}
-            {displayType === 'chart' && (
-              <div className="space-y-4">
-                {/* Chart Type */}
-                <div className="space-y-3">
-                  <label className="text-sm font-medium">Chart Type</label>
-                  <div className="grid grid-cols-5 gap-2">
-                    {CHART_TYPES.map(({ type, icon, label }) => (
-                      <button
-                        key={type}
-                        onClick={() => setChartType(type)}
-                        className={`flex flex-col items-center gap-1 p-2 rounded-lg border transition-colors ${
-                          chartType === type
-                            ? 'border-primary bg-primary/5'
-                            : 'border-border hover:border-muted-foreground/30'
-                        }`}
-                      >
-                        {icon}
-                        <span className="text-xs">{label}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
 
                 {/* Chart Mode Selection */}
                 <div className="space-y-3">
@@ -330,11 +330,11 @@ export function DisplayConfigModal({
 
                 {/* Single / GroupBy Mode: Y Column */}
                 {(chartMode === 'single' || chartMode === 'groupBy') && (
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Y-Axis (Value)</label>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Y-Axis (Value)</label>
                     <select
-                      value={yColumn}
-                      onChange={(e) => setYColumn(e.target.value)}
+                    value={yColumn}
+                    onChange={(e) => setYColumn(e.target.value)}
                       className="w-full px-3 py-2 rounded-md border border-border bg-background text-sm"
                     >
                       <option value="">Select column...</option>
@@ -355,17 +355,17 @@ export function DisplayConfigModal({
                     <select
                       value={groupByColumn}
                       onChange={(e) => setGroupByColumn(e.target.value)}
-                      className="w-full px-3 py-2 rounded-md border border-border bg-background text-sm"
+                    className="w-full px-3 py-2 rounded-md border border-border bg-background text-sm"
                     >
                       <option value="">Select column...</option>
                       {columns.filter(c => c !== xColumn && c !== yColumn).map((col) => (
                         <option key={col} value={col}>{col}</option>
                       ))}
                     </select>
-                    <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-muted-foreground">
                       Each unique value becomes a separate line/bar (e.g., source: Google, Facebook, Naver)
-                    </p>
-                  </div>
+                  </p>
+                </div>
                 )}
 
                 {/* MultiY Mode: Multiple Y Columns */}
@@ -441,8 +441,8 @@ export function DisplayConfigModal({
                 )}
               </div>
             )}
-          </div>
-        )}
+            </div>
+          )}
 
         {/* Footer */}
         <div className="flex items-center justify-end gap-2 border-t border-border pt-4 -mx-6 px-6">

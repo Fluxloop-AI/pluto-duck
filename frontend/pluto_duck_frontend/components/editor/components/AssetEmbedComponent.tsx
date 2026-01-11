@@ -273,21 +273,21 @@ export function AssetEmbedComponent({
     let cancelled = false;
     
     const loadMetadata = async () => {
-      setIsLoadingMeta(true);
+    setIsLoadingMeta(true);
       setMetaError(null);
       
       try {
         const [analysisData, freshnessData] = await retryAsync(
           async () => Promise.all([
-            getAnalysis(analysisId, projectId),
-            getFreshness(analysisId, projectId),
+      getAnalysis(analysisId, projectId),
+      getFreshness(analysisId, projectId),
           ]),
           { maxRetries: 2, initialDelay: 500 }
         );
         
         if (!cancelled) {
-          setAnalysis(analysisData);
-          setFreshness(freshnessData);
+        setAnalysis(analysisData);
+        setFreshness(freshnessData);
         }
       } catch (err) {
         if (!cancelled) {
@@ -312,7 +312,7 @@ export function AssetEmbedComponent({
   const loadData = useCallback(async (isManualRetry = false) => {
     setIsLoading(true);
     setError(null);
-    
+
     if (isManualRetry) {
       setRetryCount(0);
     }
@@ -327,30 +327,30 @@ export function AssetEmbedComponent({
           setRetryCount(currentRetry);
         }
 
-        // Execute the analysis to ensure fresh data
-        const result = await executeAnalysis(analysisId, { projectId });
+      // Execute the analysis to ensure fresh data
+      const result = await executeAnalysis(analysisId, { projectId });
 
-        if (!result.success) {
-          const failedStep = result.step_results.find((s) => s.status === 'failed');
-          throw new Error(failedStep?.error || 'Execution failed');
-        }
+      if (!result.success) {
+        const failedStep = result.step_results.find((s) => s.status === 'failed');
+        throw new Error(failedStep?.error || 'Execution failed');
+      }
 
         // Fetch the result data
-        const dataResult = await getAnalysisData(analysisId, {
-          projectId,
-          limit: 1000,
-        });
+      const dataResult = await getAnalysisData(analysisId, {
+        projectId,
+        limit: 1000,
+      });
 
-        setData({
-          columns: dataResult.columns || [],
-          rows: dataResult.rows || [],
-          totalRows: dataResult.total_rows || dataResult.rows?.length || 0,
-        });
+      setData({
+        columns: dataResult.columns || [],
+        rows: dataResult.rows || [],
+        totalRows: dataResult.total_rows || dataResult.rows?.length || 0,
+      });
 
-        // Refresh freshness
+      // Refresh freshness
         try {
-          const newFreshness = await getFreshness(analysisId, projectId);
-          setFreshness(newFreshness);
+      const newFreshness = await getFreshness(analysisId, projectId);
+      setFreshness(newFreshness);
         } catch {
           // Ignore freshness error
         }
@@ -360,7 +360,7 @@ export function AssetEmbedComponent({
         setIsLoading(false);
         return; // Success!
         
-      } catch (err) {
+    } catch (err) {
         currentRetry++;
         
         if (currentRetry <= MAX_RETRIES) {
@@ -368,9 +368,9 @@ export function AssetEmbedComponent({
           await new Promise(resolve => setTimeout(resolve, delays[currentRetry - 1]));
         } else {
           // All retries exhausted
-          setError(err instanceof Error ? err.message : 'Failed to load data');
+      setError(err instanceof Error ? err.message : 'Failed to load data');
           setIsRetrying(false);
-          setIsLoading(false);
+      setIsLoading(false);
         }
       }
     }

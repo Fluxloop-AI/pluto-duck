@@ -5,14 +5,11 @@ import { PlusIcon } from 'lucide-react';
 import { TabBar } from './TabBar';
 import { ChatPanel } from './ChatPanel';
 import { useMultiTabChat, type ChatTab } from '../../hooks/useMultiTabChat';
-import type { DataSource, DataSourceTable } from '../../lib/dataSourcesApi';
 
 interface MultiTabChatPanelProps {
   selectedModel: string;
   onModelChange: (model: string) => void;
   selectedDataSource: string;
-  dataSources: DataSource[];
-  allTables: DataSourceTable[];
   backendReady: boolean;
   projectId?: string | null;
   onSessionSelect?: (sessionId: string) => void;
@@ -25,8 +22,6 @@ export function MultiTabChatPanel({
   selectedModel,
   onModelChange,
   selectedDataSource,
-  dataSources,
-  allTables,
   backendReady,
   projectId,
   onSessionSelect,
@@ -142,9 +137,8 @@ export function MultiTabChatPanel({
               status="ready"
               selectedModel={selectedModel}
               onModelChange={onModelChange}
-              dataSources={dataSources}
-              allTables={allTables}
               onSubmit={handleSubmit}
+              projectId={projectId || undefined}
             />
           </div>
         ) : (
@@ -174,9 +168,8 @@ export function MultiTabChatPanel({
                 status={status}
                 selectedModel={selectedModel}
                 onModelChange={onModelChange}
-                dataSources={dataSources}
-                allTables={allTables}
                 onSubmit={handleSubmit}
+                projectId={projectId || undefined}
               />
             </div>
           ))

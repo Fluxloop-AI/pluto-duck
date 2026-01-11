@@ -1,7 +1,7 @@
 'use client';
 
 import { Fragment, memo, useCallback, useRef, useState } from 'react';
-import { AtSignIcon, CopyIcon, RefreshCcwIcon, ChevronRightIcon, CheckIcon, XIcon } from 'lucide-react';
+import { CopyIcon, RefreshCcwIcon, CheckIcon, XIcon } from 'lucide-react';
 import type { ToolUIPart } from 'ai';
 import { Conversation, ConversationContent, ConversationScrollButton } from '../ai-elements/conversation';
 import { Response } from '../ai-elements/response';
@@ -22,7 +22,6 @@ import {
 } from '../ai-elements/prompt-input';
 import { Actions, Action } from '../ai-elements/actions';
 import { Loader } from '../ai-elements/loader';
-import { Suggestions, Suggestion } from '../ai-elements/suggestion';
 import {
   Tool,
   ToolHeader,
@@ -31,19 +30,13 @@ import {
   ToolOutput,
 } from '../ai-elements/tool';
 import {
-  Plan,
-  PlanHeader,
-  PlanTitle,
-  PlanAction,
-  PlanTrigger,
-  PlanContent,
-} from '../ai-elements/plan';
-import {
-  Task,
-  TaskTrigger,
-  TaskContent,
-  TaskItem,
-} from '../ai-elements/task';
+  Queue,
+  QueueList,
+  QueueItem,
+  QueueItemIndicator,
+  QueueItemContent,
+  type QueueTodo,
+} from '../ai-elements/queue';
 import {
   Confirmation,
   ConfirmationTitle,
@@ -53,17 +46,10 @@ import {
   ConfirmationActions,
   ConfirmationAction,
 } from '../ai-elements/confirmation';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '../ui/dropdown-menu';
-import { Button } from '../ui/button';
+import { MentionMenu } from './MentionMenu';
+import { type MentionItem } from '../../hooks/useAssetMentions';
 import type { ChatSessionSummary } from '../../lib/chatApi';
-import type { DataSource, DataSourceTable } from '../../lib/dataSourcesApi';
-import type { ChatTurn } from '../../hooks/useMultiTabChat';
+import type { ChatTurn, GroupedToolEvent } from '../../hooks/useMultiTabChat';
 import { ALL_MODEL_OPTIONS } from '../../constants/models';
 
 const suggestions = [
@@ -124,22 +110,30 @@ function getToolError(event: any): string | undefined {
   return undefined;
 }
 
-function getPlanData(event: any): { title: string; description?: string; tasks: string[] } {
-  const content = event.content;
-  if (!content || typeof content !== 'object') {
-    return { title: 'Plan', tasks: [] };
+// Parse todos from write_todos tool output
+function parseTodosFromOutput(output: any): QueueTodo[] {
+  if (!output) return [];
+  
+  // Try to parse if string
+  let parsed = output;
+  if (typeof output === 'string') {
+    try {
+      parsed = JSON.parse(output);
+    } catch {
+      return [];
+    }
   }
   
-  const tasks = content.tasks || content.steps || [];
-  const taskArray = Array.isArray(tasks) ? tasks : [];
+  // Handle various formats
+  const todos = parsed.todos || parsed.items || parsed;
+  if (!Array.isArray(todos)) return [];
   
-  return {
-    title: content.title || content.name || 'Plan',
-    description: content.description || content.summary,
-    tasks: taskArray.map((task: any) => 
-      task.title || task.name || task.description || String(task)
-    ),
-  };
+  return todos.map((todo: any, index: number) => ({
+    id: todo.id || String(index),
+    title: todo.content || todo.title || todo.name || String(todo),
+    description: todo.description,
+    status: todo.status === 'completed' ? 'completed' : 'pending',
+  }));
 }
 
 function getToolApproval(event: any): { id: string; approved?: boolean; reason?: string } | undefined {
@@ -209,131 +203,107 @@ const ConversationMessages = memo(function ConversationMessages({
             </Reasoning>
           )}
 
-          {turn.toolEvents.length > 0 && (
+          {/* Grouped Tool Events */}
+          {turn.groupedToolEvents.length > 0 && (
             <div className="space-y-2">
-              {turn.toolEvents.map((event, index) => {
-                // Handle tool events
-                if (event.type === 'tool') {
-                  const toolState = getToolState(event);
-                  const toolType = getToolType(event);
-                  const toolInput = getToolInput(event);
-                  const toolOutput = getToolOutput(event);
-                  const errorText = getToolError(event);
-                  const approval = getToolApproval(event);
-
+              {turn.groupedToolEvents.map((grouped, index) => {
+                // Special handling for write_todos tool
+                if (grouped.toolName === 'write_todos') {
+                  const todos = parseTodosFromOutput(grouped.output);
+                  const completedCount = todos.filter(t => t.status === 'completed').length;
+                  const isLoading = grouped.state === 'pending';
+                  
                   return (
-                    <Tool key={`${turn.key}-tool-${index}`} defaultOpen>
-                      <ToolHeader
-                        state={toolState}
-                        type={toolType}
-                        title={event.subtype}
-                      />
-                      <ToolContent>
-                        {toolInput && <ToolInput input={toolInput} />}
-                        
-                        {/* Approval workflow */}
-                        <Confirmation approval={approval} state={toolState}>
-                          <ConfirmationTitle>
-                            <ConfirmationRequest>
-                              This tool requires your approval to execute.
-                            </ConfirmationRequest>
-                            <ConfirmationAccepted>
-                              <CheckIcon className="size-4 text-green-600 dark:text-green-400" />
-                              <span>Approved</span>
-                            </ConfirmationAccepted>
-                            <ConfirmationRejected>
-                              <XIcon className="size-4 text-destructive" />
-                              <span>
-                                Rejected
-                                {approval?.reason && `: ${approval.reason}`}
-                              </span>
-                            </ConfirmationRejected>
-                          </ConfirmationTitle>
-                          <ConfirmationActions>
-                            <ConfirmationAction
-                              onClick={() => {
-                                // TODO: Implement approval rejection
-                                console.log('Tool rejected');
-                              }}
-                              variant="outline"
-                            >
-                              Reject
-                            </ConfirmationAction>
-                            <ConfirmationAction
-                              onClick={() => {
-                                // TODO: Implement approval acceptance
-                                console.log('Tool approved');
-                              }}
-                              variant="default"
-                            >
-                              Approve
-                            </ConfirmationAction>
-                          </ConfirmationActions>
-                        </Confirmation>
-
-                        {(toolOutput || errorText) && (
-                          <ToolOutput output={toolOutput} errorText={errorText} />
-                        )}
-                      </ToolContent>
-                    </Tool>
+                    <Queue key={`${turn.key}-todo-${index}`}>
+                      <div className="flex items-center justify-between text-sm text-muted-foreground px-1">
+                        <span className="font-medium">
+                          {isLoading ? 'Updating todos...' : `Tasks (${completedCount}/${todos.length})`}
+                        </span>
+                      </div>
+                      {todos.length > 0 && (
+                        <QueueList>
+                          {todos.map((todo) => (
+                            <QueueItem key={todo.id} className="flex-row items-start gap-2">
+                              <QueueItemIndicator completed={todo.status === 'completed'} />
+                              <QueueItemContent completed={todo.status === 'completed'}>
+                                {todo.title}
+                              </QueueItemContent>
+                            </QueueItem>
+                          ))}
+                        </QueueList>
+                      )}
+                      {grouped.error && (
+                        <div className="text-xs text-destructive px-1">{grouped.error}</div>
+                      )}
+                    </Queue>
                   );
                 }
                 
-                // Handle plan events
-                if (event.type === 'plan') {
-                  const planData = getPlanData(event);
-                  const isPlanStreaming = event.subtype === 'start' || event.subtype === 'chunk';
-                  
-                  return (
-                    <Plan key={`${turn.key}-plan-${index}`} defaultOpen isStreaming={isPlanStreaming}>
-                      <PlanHeader>
-                        <div className="flex-1">
-                          <PlanTitle>{planData.title}</PlanTitle>
-                          {planData.description && (
-                            <p className="text-sm text-muted-foreground mt-1">{planData.description}</p>
-                          )}
-                        </div>
-                        <PlanAction>
-                          <PlanTrigger />
-                        </PlanAction>
-                      </PlanHeader>
-                      <PlanContent>
-                        <div className="space-y-2">
-                          {planData.tasks.map((taskText, taskIndex) => (
-                            <TaskItem key={taskIndex}>
-                              {taskIndex + 1}. {taskText}
-                            </TaskItem>
-                          ))}
-                        </div>
-                      </PlanContent>
-                    </Plan>
-                  );
-                }
-
-                // Fallback for other event types
+                // Default tool rendering
+                const toolState = grouped.state === 'pending' ? 'input-streaming' 
+                  : grouped.state === 'error' ? 'output-error' 
+                  : 'output-available';
+                const isDefaultOpen = grouped.state === 'pending';
+                
                 return (
-                  <div
-                    key={`${turn.key}-event-${index}`}
-                    className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-900 dark:text-amber-100"
-                  >
-                    <header className="mb-1 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-200">
-                      <span>
-                        {event.type}.{event.subtype ?? 'event'}
-                      </span>
-                      {event.timestamp && (
-                        <time className="font-normal text-slate-500">
-                          {new Date(event.timestamp).toLocaleTimeString()}
-                        </time>
+                  <Tool key={`${turn.key}-tool-${index}-${grouped.state}`} defaultOpen={isDefaultOpen}>
+                    <ToolHeader
+                      state={toolState}
+                      type={`tool-${grouped.toolName}`}
+                      title={grouped.toolName}
+                    />
+                    <ToolContent>
+                      {grouped.input && <ToolInput input={grouped.input} />}
+                      {(grouped.output || grouped.error) && (
+                        <ToolOutput 
+                          output={grouped.output ? JSON.stringify(grouped.output, null, 2) : undefined} 
+                          errorText={grouped.error} 
+                        />
                       )}
-                    </header>
-                    <pre className="overflow-x-auto whitespace-pre-wrap break-words text-[11px]">
-                      {typeof event.content === 'string'
-                        ? event.content
-                        : JSON.stringify(event.content, null, 2)}
-                    </pre>
-                  </div>
+                    </ToolContent>
+                  </Tool>
                 );
               })}
+            </div>
+          )}
+
+          {/* Other Events (fallback) - hide system events like message, run */}
+          {turn.events.filter(e => 
+            e.type !== 'tool' && 
+            e.type !== 'reasoning' && 
+            e.type !== 'text' &&
+            e.type !== 'message' &&
+            e.type !== 'run'
+          ).length > 0 && (
+            <div className="space-y-2">
+              {turn.events.filter(e => 
+                e.type !== 'tool' && 
+                e.type !== 'reasoning' && 
+                e.type !== 'text' &&
+                e.type !== 'message' &&
+                e.type !== 'run'
+              ).map((event, index) => (
+                <div
+                  key={`${turn.key}-event-${index}`}
+                  className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-900 dark:text-amber-100"
+                >
+                  <header className="mb-1 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-200">
+                    <span>
+                      {event.type}.{event.subtype ?? 'event'}
+                    </span>
+                    {event.timestamp && (
+                      <time className="font-normal text-slate-500">
+                        {new Date(event.timestamp).toLocaleTimeString()}
+                      </time>
+                    )}
+                  </header>
+                  <pre className="overflow-x-auto whitespace-pre-wrap break-words text-[11px]">
+                    {typeof event.content === 'string'
+                      ? event.content
+                      : JSON.stringify(event.content, null, 2)}
+                  </pre>
+                </div>
+              ))}
             </div>
           )}
 
@@ -387,6 +357,11 @@ const ConversationMessages = memo(function ConversationMessages({
   );
 });
 
+interface SubmitPayload {
+  prompt: string;
+  contextAssets?: string;
+}
+
 interface ChatPanelProps {
   activeSession: ChatSessionSummary | null;
   turns: ChatTurn[];
@@ -396,9 +371,8 @@ interface ChatPanelProps {
   status: 'ready' | 'streaming' | 'error';
   selectedModel: string;
   onModelChange: (model: string) => void;
-  dataSources: DataSource[];
-  allTables: DataSourceTable[];
-  onSubmit: (prompt: string) => Promise<void>;
+  onSubmit: (payload: SubmitPayload) => Promise<void>;
+  projectId?: string;
 }
 
 export function ChatPanel({
@@ -410,49 +384,27 @@ export function ChatPanel({
   status,
   selectedModel,
   onModelChange,
-  dataSources,
-  allTables,
   onSubmit,
+  projectId,
 }: ChatPanelProps) {
   const [input, setInput] = useState('');
-  const [showTableSelector, setShowTableSelector] = useState(false);
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const activeMentionsRef = useRef<Map<string, MentionItem>>(new Map());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const handleSuggestionClick = useCallback((suggestion: string) => {
-    setInput(suggestion);
-    textareaRef.current?.focus();
-  }, []);
-
-  const handleTableMentionAll = useCallback(() => {
-    const allTableNames = allTables.map(t => t.target_table);
-    const mentions = allTableNames.map(t => `@${t}`).join(' ');
+  const handleMentionSelect = useCallback((item: MentionItem) => {
     const currentInput = input;
-    const newInput = currentInput ? `${currentInput} ${mentions} ` : `${mentions} `;
-    setInput(newInput);
-    setShowTableSelector(false);
+    const mentionText = `@${item.name}`;
     
-    setTimeout(() => textareaRef.current?.focus(), 0);
-  }, [input, allTables]);
-
-  const handleTableMentionSource = useCallback((sourceId: string) => {
-    const sourceTables = allTables
-      .filter(t => t.data_source_id === sourceId)
-      .map(t => t.target_table);
-    const mentions = sourceTables.map(t => `@${t}`).join(' ');
-    const currentInput = input;
-    const newInput = currentInput ? `${currentInput} ${mentions} ` : `${mentions} `;
-    setInput(newInput);
-    setShowTableSelector(false);
+    // Store in ref for context injection later
+    activeMentionsRef.current.set(item.name, item);
     
-    setTimeout(() => textareaRef.current?.focus(), 0);
-  }, [input, allTables]);
-
-  const handleTableMentionSingle = useCallback((tableName: string) => {
-    const currentInput = input;
-    const newInput = currentInput ? `${currentInput} @${tableName} ` : `@${tableName} `;
+    const newInput = currentInput 
+      ? `${currentInput}${currentInput.endsWith(' ') ? '' : ' '}${mentionText} `
+      : `${mentionText} `;
+      
     setInput(newInput);
-    setShowTableSelector(false);
-    
+    setMentionOpen(false);
     setTimeout(() => textareaRef.current?.focus(), 0);
   }, [input]);
 
@@ -468,8 +420,21 @@ export function ChatPanel({
     const prompt = message.text?.trim();
     if (!prompt) return;
     
+    // Build context string for active mentions present in the prompt (not appended to message)
+    const mentions = Array.from(activeMentionsRef.current.values());
+    const usedMentions = mentions.filter(m => prompt.includes(`@${m.name}`));
+    
+    let contextAssets: string | undefined;
+    if (usedMentions.length > 0) {
+      contextAssets = usedMentions
+        .map(m => `- Asset: ${m.name} (Type: ${m.type}, ID: ${m.id})`)
+        .join('\n');
+    }
+    
+    // Clear mentions after submit
+    activeMentionsRef.current.clear();
     setInput('');
-    await onSubmit(prompt);
+    await onSubmit({ prompt, contextAssets });
   }, [onSubmit]);
 
   return (
@@ -519,57 +484,15 @@ export function ChatPanel({
                   </PromptInputModelSelectContent>
                 </PromptInputModelSelect>
                 
-                {/* @ Table mention button */}
-                <DropdownMenu open={showTableSelector} onOpenChange={setShowTableSelector}>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 gap-1 border-none bg-transparent text-xs font-medium text-muted-foreground shadow-none transition-colors hover:bg-accent hover:text-foreground"
-                      title="Insert table mention"
-                    >
-                      <AtSignIcon className="h-3 w-3" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="w-56 max-h-80 overflow-y-auto">
-                    <DropdownMenuItem onSelect={handleTableMentionAll} className="text-xs">
-                      <span className="font-medium">All sources</span>
-                      <span className="ml-auto text-muted-foreground">
-                        {allTables.length} tables
-                      </span>
-                    </DropdownMenuItem>
-                    
-                    {dataSources.length > 0 && <DropdownMenuSeparator />}
-                    
-                    {dataSources.map(source => {
-                      const sourceTables = allTables.filter(t => t.data_source_id === source.id);
-                      
-                      return (
-                        <Fragment key={source.id}>
-                          <DropdownMenuItem 
-                            onSelect={() => handleTableMentionSource(source.id)}
-                            className="text-xs font-medium"
-                          >
-                            {source.name}
-                            <span className="ml-auto text-muted-foreground">
-                              {source.table_count}
-                            </span>
-                          </DropdownMenuItem>
-                          {sourceTables.map(table => (
-                            <DropdownMenuItem
-                              key={table.id}
-                              onSelect={() => handleTableMentionSingle(table.target_table)}
-                              className="text-xs pl-6"
-                            >
-                              <ChevronRightIcon className="h-3 w-3 mr-1" />
-                              {table.target_table}
-                            </DropdownMenuItem>
-                          ))}
-                        </Fragment>
-                      );
-                    })}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                {/* Asset Mention Menu */}
+                {projectId ? (
+                  <MentionMenu
+                    projectId={projectId}
+                    open={mentionOpen}
+                    onOpenChange={setMentionOpen}
+                    onSelect={handleMentionSelect}
+                  />
+                ) : null}
               </PromptInputTools>
               <PromptInputSubmit 
                 disabled={!input.trim() || isStreaming} 

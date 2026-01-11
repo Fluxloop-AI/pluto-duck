@@ -99,7 +99,7 @@ export function BoardToolbar({
                   className="truncate max-w-[120px]"
                 >
                   {tab.name}
-                </button>
+          </button>
 
                 {/* Tab Actions (visible on hover or when active) */}
                 <DropdownMenu>

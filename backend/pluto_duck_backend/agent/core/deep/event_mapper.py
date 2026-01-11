@@ -35,6 +35,7 @@ class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
         super().__init__()
         self._sink = sink
         self._run_id = run_id
+        self._tool_stack: list[str] = []  # Track active tool names for matching start/end
 
     async def _emit(self, event: AgentEvent) -> None:
         await self._sink.emit(event)
@@ -102,6 +103,7 @@ class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
 
     async def on_tool_start(self, serialized: dict[str, Any], input_str: str, **kwargs: Any) -> None:  # noqa: ANN401
         tool_name = serialized.get("name") or serialized.get("id") or "tool"
+        self._tool_stack.append(tool_name)
         await self._emit(
             AgentEvent(
                 type=EventType.TOOL,
@@ -113,13 +115,13 @@ class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
         )
 
     async def on_tool_end(self, output: Any, **kwargs: Any) -> None:  # noqa: ANN401
-        # We don't know the tool name reliably here without deeper wiring;
-        # leave it generic. Phase 3 will enrich this using tool_call_id.
+        # Pop the tool name from the stack to match with start event
+        tool_name = self._tool_stack.pop() if self._tool_stack else "tool"
         await self._emit(
             AgentEvent(
                 type=EventType.TOOL,
                 subtype=EventSubType.END,
-                content={"output": self._json_safe(output)},
+                content={"tool": tool_name, "output": self._json_safe(output)},
                 metadata={"run_id": self._run_id},
                 timestamp=self._ts(),
             )

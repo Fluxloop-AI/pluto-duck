@@ -110,7 +110,7 @@ jobs:
           # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: tauri-shell
-          args: --target ${{ matrix.target }} --config "bundle.macOS.minimumSystemVersion=\"11.0\""
+          args: --target ${{ matrix.target }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

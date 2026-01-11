@@ -112,6 +112,24 @@ jobs:
           projectPath: tauri-shell
           args: --target ${{ matrix.target }}
 
+      - name: Sign updater artifacts (.sig)
+        if: runner.os == 'macOS'
+        env:
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          npm i -g @tauri-apps/cli@v2
+          ART_DIR="tauri-shell/src-tauri/target/${{ matrix.target }}/release/bundle/macos"
+          echo "Signing .app.tar.gz files in: ${ART_DIR}"
+          ls -la "${ART_DIR}" || true
+          for f in "${ART_DIR}"/*.app.tar.gz; do
+            echo "Signing: $f"
+            npx --yes @tauri-apps/cli@v2 signer sign "$f"
+          done
+          echo "After signing:"
+          ls -la "${ART_DIR}" || true
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -143,13 +161,34 @@ jobs:
           echo "=== Directory structure ==="
           ls -laR artifacts/
 
+      - name: Prepare release assets (rename to avoid collisions)
+        run: |
+          set -euo pipefail
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+          mkdir -p release-assets
+          # macos tar.gz + sig (per arch)
+          cp "artifacts/tauri-aarch64/macos/"*.app.tar.gz "release-assets/Pluto Duck_${VERSION}_aarch64.app.tar.gz"
+          cp "artifacts/tauri-x86_64/macos/"*.app.tar.gz "release-assets/Pluto Duck_${VERSION}_x64.app.tar.gz"
+          if ls artifacts/tauri-aarch64/macos/*.app.tar.gz.sig >/dev/null 2>&1; then
+            cp "artifacts/tauri-aarch64/macos/"*.app.tar.gz.sig "release-assets/Pluto Duck_${VERSION}_aarch64.app.tar.gz.sig"
+          fi
+          if ls artifacts/tauri-x86_64/macos/*.app.tar.gz.sig >/dev/null 2>&1; then
+            cp "artifacts/tauri-x86_64/macos/"*.app.tar.gz.sig "release-assets/Pluto Duck_${VERSION}_x64.app.tar.gz.sig"
+          fi
+          # DMGs (already unique)
+          cp artifacts/tauri-aarch64/dmg/*.dmg release-assets/
+          cp artifacts/tauri-x86_64/dmg/*.dmg release-assets/
+          echo "=== release-assets ==="
+          ls -la release-assets
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            artifacts/**/*.tar.gz
-            artifacts/**/*.tar.gz.sig
-            artifacts/**/*.dmg
+            release-assets/*.tar.gz
+            release-assets/*.tar.gz.sig
+            release-assets/*.dmg
           generate_release_notes: true
           draft: false
           prerelease: false
@@ -163,6 +202,7 @@ jobs:
         run: node scripts/generate-latest-json.js ${{ github.ref_name }}
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
+          ARTIFACTS_DIR: release-assets
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3

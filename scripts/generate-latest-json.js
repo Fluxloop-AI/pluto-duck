@@ -23,7 +23,7 @@ const repo = process.env.GITHUB_REPOSITORY || 'Fluxloop-AI/pluto-duck-oss';
 const baseUrl = `https://github.com/${repo}/releases/download/${version}`;
 const releasePageUrl = `https://github.com/${repo}/releases/tag/${version}`;
 
-const artifactsDir = 'artifacts';
+const artifactsDir = process.env.ARTIFACTS_DIR || 'artifacts';
 
 // Recursively find all files in directory
 function getAllFiles(dir, files = []) {

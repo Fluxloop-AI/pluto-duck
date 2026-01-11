@@ -60,6 +60,31 @@ const suggestions = [
 
 const MODELS = ALL_MODEL_OPTIONS;
 
+// Render text with @mentions highlighted
+function renderTextWithMentions(text: string): React.ReactNode {
+  const mentionRegex = /@([\w-]+)/g;
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match;
+  let key = 0;
+
+  while ((match = mentionRegex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    parts.push(
+      <span key={key++} className="text-primary-foreground/60 font-medium">
+        {match[0]}
+      </span>
+    );
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+  return parts.length > 0 ? parts : text;
+}
+
 // Helper functions to extract tool data from events
 function getToolState(event: any): ToolUIPart['state'] {
   const subtype = event.subtype;
@@ -176,19 +201,23 @@ const ConversationMessages = memo(function ConversationMessages({
 
       {turns.map(turn => (
         <div key={turn.key} className="group px-4 py-6 space-y-4">
-          {turn.userMessages.map(message => (
-            <div key={message.id} className="flex justify-end">
-              <div className="rounded-2xl bg-primary px-4 py-3 text-primary-foreground">
-                <p className="text-sm">
-                  {typeof message.content === 'object' && message.content?.text
-                    ? message.content.text
-                    : typeof message.content === 'string'
-                      ? message.content
-                      : JSON.stringify(message.content)}
-                </p>
+          {turn.userMessages.map(message => {
+            const text = typeof message.content === 'object' && message.content?.text
+              ? message.content.text
+              : typeof message.content === 'string'
+                ? message.content
+                : JSON.stringify(message.content);
+            
+            return (
+              <div key={message.id} className="flex justify-end">
+                <div className="rounded-2xl bg-primary px-4 py-3 text-primary-foreground">
+                  <p className="text-sm">
+                    {renderTextWithMentions(text)}
+                  </p>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
 
           {turn.otherMessages.map(message => (
             <div key={message.id} className="rounded-2xl border border-border px-4 py-3 text-sm text-muted-foreground">

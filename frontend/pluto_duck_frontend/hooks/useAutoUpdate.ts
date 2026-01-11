@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { createContext, createElement, useContext, useEffect, useCallback, useState, type ReactNode } from 'react';
 
 // Lazy imports for Tauri plugins (only available in Tauri environment)
 let check: typeof import('@tauri-apps/plugin-updater').check | null = null;
@@ -7,10 +7,22 @@ let listen: typeof import('@tauri-apps/api/event').listen | null = null;
 let getVersion: typeof import('@tauri-apps/api/app').getVersion | null = null;
 
 const AUTO_DOWNLOAD_KEY = 'pluto-duck-auto-download';
+const LAST_CHECK_KEY = 'pluto-duck-update-last-check';
+const DEFAULT_MIN_CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+
+function isTauriRuntime(): boolean {
+  if (typeof window === 'undefined') return false;
+  const w = window as any;
+  // Tauri v2 exposes __TAURI_INTERNALS__ with transformCallback / invoke.
+  // In plain web builds, importing @tauri-apps/api may still succeed but these internals are absent.
+  return !!(w.__TAURI_INTERNALS__ && typeof w.__TAURI_INTERNALS__.transformCallback === 'function');
+}
 
 // Initialize Tauri imports
 async function initTauriImports() {
-  if (typeof window !== 'undefined' && '__TAURI__' in window) {
+  if (typeof window === 'undefined') return false;
+  if (!isTauriRuntime()) return false;
+  try {
     const [updaterModule, processModule, eventModule, appModule] = await Promise.all([
       import('@tauri-apps/plugin-updater'),
       import('@tauri-apps/plugin-process'),
@@ -22,13 +34,16 @@ async function initTauriImports() {
     listen = eventModule.listen;
     getVersion = appModule.getVersion;
     return true;
+  } catch {
+    return false;
   }
-  return false;
 }
 
 export interface UseAutoUpdateOptions {
   /** Enable update checking (default: true) */
   enabled?: boolean;
+  /** Minimum interval between automatic checks (default: 1 hour) */
+  minCheckIntervalMs?: number;
 }
 
 export interface UseAutoUpdateReturn {
@@ -58,8 +73,9 @@ export interface UseAutoUpdateReturn {
   dismiss: () => void;
 }
 
-export function useAutoUpdate({
+function useAutoUpdateInternal({
   enabled = true,
+  minCheckIntervalMs = DEFAULT_MIN_CHECK_INTERVAL_MS,
 }: UseAutoUpdateOptions = {}): UseAutoUpdateReturn {
   const [initialized, setInitialized] = useState(false);
   const [currentVersion, setCurrentVersion] = useState<string | null>(null);
@@ -201,6 +217,39 @@ export function useAutoUpdate({
     };
   }, [initialized, enabled, autoDownload, downloading, readyToRestart, downloadUpdate]);
 
+  // Automatic check on startup + focus/visibility changes (debounced)
+  const maybeAutoCheck = useCallback(async () => {
+    if (!enabled) return;
+    const now = Date.now();
+    const last = typeof window !== 'undefined' ? Number(localStorage.getItem(LAST_CHECK_KEY) || '0') : 0;
+    if (now - last < minCheckIntervalMs) return;
+    if (typeof window !== 'undefined') localStorage.setItem(LAST_CHECK_KEY, String(now));
+    await checkForUpdates();
+  }, [enabled, minCheckIntervalMs, checkForUpdates]);
+
+  useEffect(() => {
+    if (!initialized || !enabled) return;
+    void maybeAutoCheck();
+    const onFocus = () => void maybeAutoCheck();
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void maybeAutoCheck();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [initialized, enabled, maybeAutoCheck]);
+
+  // Auto-download when an update is detected
+  useEffect(() => {
+    if (!autoDownload) return;
+    if (!updateAvailable) return;
+    if (downloading || readyToRestart) return;
+    void downloadUpdate();
+  }, [autoDownload, updateAvailable, downloading, readyToRestart, downloadUpdate]);
+
   return {
     currentVersion,
     updateAvailable,
@@ -215,4 +264,19 @@ export function useAutoUpdate({
     restart,
     dismiss,
   };
+}
+
+const AutoUpdateContext = createContext<UseAutoUpdateReturn | null>(null);
+
+export function AutoUpdateProvider({ children }: { children: ReactNode }) {
+  const value = useAutoUpdateInternal();
+  return createElement(AutoUpdateContext.Provider, { value }, children);
+}
+
+export function useAutoUpdate(options?: UseAutoUpdateOptions): UseAutoUpdateReturn {
+  // If a provider is present, use shared singleton state.
+  const ctx = useContext(AutoUpdateContext);
+  if (ctx) return ctx;
+  // Fallback (shouldn't happen in app) - creates isolated state.
+  return useAutoUpdateInternal(options);
 }

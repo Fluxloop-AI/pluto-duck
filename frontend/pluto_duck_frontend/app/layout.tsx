@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 
 import './globals.css';
+import { Providers } from './providers';
 
 export const metadata = {
   title: 'Pluto-Duck Agent Studio',
@@ -11,7 +12,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <body className="h-screen overflow-hidden">
-        {children}
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

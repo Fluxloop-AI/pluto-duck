@@ -25,16 +25,32 @@ const releasePageUrl = `https://github.com/${repo}/releases/tag/${version}`;
 
 const artifactsDir = 'artifacts';
 
-// Find files matching patterns
+// Recursively find all files in directory
+function getAllFiles(dir, files = []) {
+  if (!fs.existsSync(dir)) return files;
+  
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      getAllFiles(fullPath, files);
+    } else {
+      files.push(fullPath);
+    }
+  }
+  return files;
+}
+
+// Find files matching patterns (recursively)
 function findFile(pattern) {
   if (!fs.existsSync(artifactsDir)) {
     console.error(`Artifacts directory not found: ${artifactsDir}`);
     return null;
   }
   
-  const files = fs.readdirSync(artifactsDir);
-  const match = files.find(f => f.includes(pattern));
-  return match ? path.join(artifactsDir, match) : null;
+  const allFiles = getAllFiles(artifactsDir);
+  const match = allFiles.find(f => f.includes(pattern));
+  return match || null;
 }
 
 // Read signature from .sig file
@@ -53,13 +69,17 @@ function getFileSizeMB(filePath) {
   return Math.round(stats.size / (1024 * 1024));
 }
 
-// Find artifact files
-const aarch64TarGz = findFile('aarch64.app.tar.gz');
-const aarch64Sig = findFile('aarch64.app.tar.gz.sig');
-const x64TarGz = findFile('x64.app.tar.gz');
-const x64Sig = findFile('x64.app.tar.gz.sig');
-const aarch64Dmg = findFile('aarch64.dmg');
-const x64Dmg = findFile('x64.dmg');
+// Find artifact files - try specific names first, then generic
+const aarch64TarGz = findFile('aarch64.app.tar.gz') || findFile('_aarch64.app.tar.gz');
+const aarch64Sig = findFile('aarch64.app.tar.gz.sig') || findFile('_aarch64.app.tar.gz.sig');
+const x64TarGz = findFile('x64.app.tar.gz') || findFile('_x64.app.tar.gz');
+const x64Sig = findFile('x64.app.tar.gz.sig') || findFile('_x64.app.tar.gz.sig');
+const aarch64Dmg = findFile('aarch64.dmg') || findFile('_aarch64.dmg');
+const x64Dmg = findFile('x64.dmg') || findFile('_x64.dmg');
+
+// Fallback: find any .app.tar.gz if specific ones not found
+const genericTarGz = findFile('.app.tar.gz');
+const genericSig = findFile('.app.tar.gz.sig');
 
 console.log('Found artifacts:');
 console.log('  aarch64 tar.gz:', aarch64TarGz);
@@ -68,24 +88,46 @@ console.log('  aarch64 dmg:', aarch64Dmg);
 console.log('  x64 tar.gz:', x64TarGz);
 console.log('  x64 sig:', x64Sig);
 console.log('  x64 dmg:', x64Dmg);
+console.log('  generic tar.gz:', genericTarGz);
+console.log('  generic sig:', genericSig);
 
 // Build platforms object for Tauri updater
 const platforms = {};
 
-if (aarch64TarGz && aarch64Sig) {
+if (aarch64TarGz) {
   const filename = path.basename(aarch64TarGz);
+  const sig = aarch64Sig ? readSignature(aarch64Sig) : '';
   platforms['darwin-aarch64'] = {
-    signature: readSignature(aarch64Sig),
-    url: `${baseUrl}/${filename}`,
+    signature: sig,
+    url: `${baseUrl}/${encodeURIComponent(filename)}`,
   };
+  if (!sig) console.warn('Warning: No signature for aarch64');
 }
 
-if (x64TarGz && x64Sig) {
+if (x64TarGz) {
   const filename = path.basename(x64TarGz);
+  const sig = x64Sig ? readSignature(x64Sig) : '';
   platforms['darwin-x86_64'] = {
-    signature: readSignature(x64Sig),
-    url: `${baseUrl}/${filename}`,
+    signature: sig,
+    url: `${baseUrl}/${encodeURIComponent(filename)}`,
   };
+  if (!sig) console.warn('Warning: No signature for x64');
+}
+
+// Fallback to generic if no architecture-specific found
+if (Object.keys(platforms).length === 0 && genericTarGz) {
+  const filename = path.basename(genericTarGz);
+  const sig = genericSig ? readSignature(genericSig) : '';
+  // Use generic for both platforms
+  platforms['darwin-aarch64'] = {
+    signature: sig,
+    url: `${baseUrl}/${encodeURIComponent(filename)}`,
+  };
+  platforms['darwin-x86_64'] = {
+    signature: sig,
+    url: `${baseUrl}/${encodeURIComponent(filename)}`,
+  };
+  console.log('Using generic tar.gz for both platforms');
 }
 
 if (Object.keys(platforms).length === 0) {
@@ -102,33 +144,39 @@ const manifest = {
 };
 
 // Landing page downloads manifest (downloads.json)
+// Use found DMGs or fallback to generic
+const appleSiliconDmg = aarch64Dmg;
+const intelDmg = x64Dmg;
+const appleSiliconTarGz = aarch64TarGz || genericTarGz;
+const intelTarGz = x64TarGz || genericTarGz;
+
 const downloads = {
   version: cleanVersion,
   releaseDate: new Date().toISOString().split('T')[0],
   releaseUrl: releasePageUrl,
   macOS: {
     appleSilicon: {
-      dmg: aarch64Dmg ? {
-        url: `${baseUrl}/${path.basename(aarch64Dmg)}`,
-        size: getFileSizeMB(aarch64Dmg),
-        filename: path.basename(aarch64Dmg),
+      dmg: appleSiliconDmg ? {
+        url: `${baseUrl}/${encodeURIComponent(path.basename(appleSiliconDmg))}`,
+        size: getFileSizeMB(appleSiliconDmg),
+        filename: path.basename(appleSiliconDmg),
       } : null,
-      tarGz: aarch64TarGz ? {
-        url: `${baseUrl}/${path.basename(aarch64TarGz)}`,
-        size: getFileSizeMB(aarch64TarGz),
-        filename: path.basename(aarch64TarGz),
+      tarGz: appleSiliconTarGz ? {
+        url: `${baseUrl}/${encodeURIComponent(path.basename(appleSiliconTarGz))}`,
+        size: getFileSizeMB(appleSiliconTarGz),
+        filename: path.basename(appleSiliconTarGz),
       } : null,
     },
     intel: {
-      dmg: x64Dmg ? {
-        url: `${baseUrl}/${path.basename(x64Dmg)}`,
-        size: getFileSizeMB(x64Dmg),
-        filename: path.basename(x64Dmg),
+      dmg: intelDmg ? {
+        url: `${baseUrl}/${encodeURIComponent(path.basename(intelDmg))}`,
+        size: getFileSizeMB(intelDmg),
+        filename: path.basename(intelDmg),
       } : null,
-      tarGz: x64TarGz ? {
-        url: `${baseUrl}/${path.basename(x64TarGz)}`,
-        size: getFileSizeMB(x64TarGz),
-        filename: path.basename(x64TarGz),
+      tarGz: intelTarGz ? {
+        url: `${baseUrl}/${encodeURIComponent(path.basename(intelTarGz))}`,
+        size: getFileSizeMB(intelTarGz),
+        filename: path.basename(intelTarGz),
       } : null,
     },
   },

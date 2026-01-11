@@ -42,14 +42,18 @@ function getAllFiles(dir, files = []) {
 }
 
 // Find files matching patterns (recursively)
-function findFile(pattern) {
+function findFile(pattern, requiredSubstr = null) {
   if (!fs.existsSync(artifactsDir)) {
     console.error(`Artifacts directory not found: ${artifactsDir}`);
     return null;
   }
   
   const allFiles = getAllFiles(artifactsDir);
-  const match = allFiles.find(f => f.includes(pattern));
+  const match = allFiles.find((f) => {
+    if (!f.includes(pattern)) return false;
+    if (requiredSubstr && !f.includes(requiredSubstr)) return false;
+    return true;
+  });
   return match || null;
 }
 
@@ -69,13 +73,27 @@ function getFileSizeMB(filePath) {
   return Math.round(stats.size / (1024 * 1024));
 }
 
-// Find artifact files - try specific names first, then generic
-const aarch64TarGz = findFile('aarch64.app.tar.gz') || findFile('_aarch64.app.tar.gz');
-const aarch64Sig = findFile('aarch64.app.tar.gz.sig') || findFile('_aarch64.app.tar.gz.sig');
-const x64TarGz = findFile('x64.app.tar.gz') || findFile('_x64.app.tar.gz');
-const x64Sig = findFile('x64.app.tar.gz.sig') || findFile('_x64.app.tar.gz.sig');
-const aarch64Dmg = findFile('aarch64.dmg') || findFile('_aarch64.dmg');
-const x64Dmg = findFile('x64.dmg') || findFile('_x64.dmg');
+// Find artifact files - prefer per-arch artifact folders (avoids collisions when filenames are identical)
+const aarch64TarGz =
+  findFile('.app.tar.gz', 'tauri-aarch64') ||
+  findFile('aarch64.app.tar.gz') ||
+  findFile('_aarch64.app.tar.gz');
+const aarch64Sig =
+  findFile('.app.tar.gz.sig', 'tauri-aarch64') ||
+  findFile('aarch64.app.tar.gz.sig') ||
+  findFile('_aarch64.app.tar.gz.sig');
+
+const x64TarGz =
+  findFile('.app.tar.gz', 'tauri-x86_64') ||
+  findFile('x64.app.tar.gz') ||
+  findFile('_x64.app.tar.gz');
+const x64Sig =
+  findFile('.app.tar.gz.sig', 'tauri-x86_64') ||
+  findFile('x64.app.tar.gz.sig') ||
+  findFile('_x64.app.tar.gz.sig');
+
+const aarch64Dmg = findFile('.dmg', 'tauri-aarch64') || findFile('aarch64.dmg') || findFile('_aarch64.dmg');
+const x64Dmg = findFile('.dmg', 'tauri-x86_64') || findFile('x64.dmg') || findFile('_x64.dmg');
 
 // Fallback: find any .app.tar.gz if specific ones not found
 const genericTarGz = findFile('.app.tar.gz');

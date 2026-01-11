@@ -135,7 +135,6 @@ jobs:
         with:
           path: artifacts
           pattern: tauri-*
-          merge-multiple: true
 
       - name: List artifacts
         run: |

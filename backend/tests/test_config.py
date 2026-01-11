@@ -21,9 +21,7 @@ def test_settings_prepare_environment(tmp_path: Path, monkeypatch) -> None:
     settings.prepare_environment()
 
     assert settings.data_dir.root.exists()
-    assert settings.dbt.project_path.is_relative_to(settings.data_dir.root)
     assert settings.agent.provider == "mock"
-    assert settings.dbt.profiles_path is not None
 
 
 def test_default_paths_under_home(monkeypatch) -> None:

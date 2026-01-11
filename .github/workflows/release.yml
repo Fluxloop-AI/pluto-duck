@@ -134,10 +134,15 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+          pattern: tauri-*
           merge-multiple: true
 
       - name: List artifacts
-        run: find artifacts -type f | head -20
+        run: |
+          echo "=== All files in artifacts ==="
+          find artifacts -type f
+          echo "=== Directory structure ==="
+          ls -laR artifacts/
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1

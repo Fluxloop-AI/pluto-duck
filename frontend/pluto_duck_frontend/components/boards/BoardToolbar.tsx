@@ -70,15 +70,15 @@ export function BoardToolbar({
   return (
     <div className="flex items-center bg-background px-2 pt-2">
       {/* Tab List */}
-      <div className="flex items-center gap-0.5 overflow-x-auto scrollbar-hide">
+      <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide">
         {tabs.map((tab) => (
           <div
             key={tab.id}
             className={cn(
-              'group relative flex items-center gap-1 rounded-t-md border border-b-0 px-3 py-1.5 text-sm transition-colors',
+              'group relative flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm transition-colors',
               activeTabId === tab.id
-                ? 'border-border bg-background text-foreground'
-                : 'border-transparent bg-muted/50 text-muted-foreground hover:bg-muted hover:text-foreground'
+                ? 'bg-muted text-foreground'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
             )}
           >
             {editingTabId === tab.id ? (
@@ -139,7 +139,7 @@ export function BoardToolbar({
         {/* Add Tab Button */}
         <button
           onClick={onAddTab}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors"
           title="Add new tab"
         >
           <PlusIcon className="h-4 w-4" />

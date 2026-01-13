@@ -55,7 +55,7 @@ pub fn run() {
           #[allow(unused_must_use)]
           {
             apply_titlebar_accessory(&window, 40.0);
-            apply_unified_toolbar(&window);
+            // apply_unified_toolbar(&window);  // 방법 2: Toolbar 제거로 separator 해결 시도
           }
         }
       }

@@ -23,7 +23,7 @@ export const ReasoningRenderer = memo(function ReasoningRenderer({
   }
 
   return (
-    <Reasoning isStreaming={isStreaming} defaultOpen={true}>
+    <Reasoning isStreaming={isStreaming} defaultOpen={false}>
       <ReasoningTrigger />
       <ReasoningContent>{item.content || ''}</ReasoningContent>
     </Reasoning>

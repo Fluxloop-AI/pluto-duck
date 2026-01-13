@@ -1,15 +1,15 @@
 {
-  "version": "0.2.3",
-  "notes": "See https://github.com/Fluxloop-AI/pluto-duck-oss/releases/tag/v0.2.3",
-  "pub_date": "2026-01-11T17:10:37.358Z",
+  "version": "0.2.5",
+  "notes": "See https://github.com/Fluxloop-AI/pluto-duck-oss/releases/tag/v0.2.5",
+  "pub_date": "2026-01-13T11:42:36.525Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVURGlMNmVuaExmWFNrNWVNbGRFdGREY01sb1RoTzQrRjdKemRSaHZKbjJqKys3bWlEb2RKTElMMDZJLzdDck9DUndPeFpBWFlkZlBzZGlTUzkrREZ1ZnNSck1zb29vclFBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY4MTUxNDA1CWZpbGU6UGx1dG8gRHVjay5hcHAudGFyLmd6CmNKVzdQeEhqemJ4N3dqdSt4NC9nRkZ5RGJJd0ttVnhMZVMvVElBNUZ6ZGloay94WFkwdlRHVmhPeWRSY0pTMkd3SkhVd3lOd29JczVwMWl2ajJLVER3PT0K",
-      "url": "https://github.com/Fluxloop-AI/pluto-duck-oss/releases/download/v0.2.3/Pluto%20Duck_0.2.3_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVURGlMNmVuaExmWGRhR3lEVzI1SEdXcnozcFVEOFEvNTRrWkk0clFtMkNNdGYxSjFQUnhrcFE2YlhQZWxUVmgrQ0pFbW43VlphSGJWdStUMi9zVTZGT0hPNlFFRytHUmd3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY4MzA0NDU3CWZpbGU6UGx1dG8gRHVjay5hcHAudGFyLmd6CklwbjlRR2lLdUdmdld3LzJTNzI1VXVSWmhSbXRuTU1Ya2lKdkJ3YzNOTUdoSGxFRHAzQnRzS3VtUTdKd2F1SFMwWTRNRk9CSzFMbmVHRE53N2Q4RUFnPT0K",
+      "url": "https://github.com/Fluxloop-AI/pluto-duck-oss/releases/download/v0.2.5/Pluto%20Duck_0.2.5_aarch64.app.tar.gz"
     },
     "darwin-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVURGlMNmVuaExmWGJwbmRhOHRZOVVjbTFBTDhzTksvaTdodVNjT1NwZGhET2NVMER6SDQwRXhjU1VOQ3hObUxXT3Y5L3BhM3lnZ25wMG81K1dPZ2t3ZWlnUTRxN2JIMmdjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY4MTUxMzMyCWZpbGU6UGx1dG8gRHVjay5hcHAudGFyLmd6CmZrV3J6cTNzV3BYSFBLOUlVNzByRHJxUjY4ejFMUVdUaUNjUllVdUI5UHUzTEtFVVYwSjNTODAwYnZvMThSNFdKTlpwMXl0NWh1WWRBZzB2Z29MQ0R3PT0K",
-      "url": "https://github.com/Fluxloop-AI/pluto-duck-oss/releases/download/v0.2.3/Pluto%20Duck_0.2.3_x64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVURGlMNmVuaExmWGNKTVg1Q3p5Q25KR3pDb2hWTTRqeGowaXFtdFYzUDBBVnFIb2lZUWNGeEo3cHVXUEFJcVVFVm53SXAvKzVMUmNjTmhYWnZBdzhvQ0pMdEJZTWRNUXdNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzY4MzAzOTM3CWZpbGU6UGx1dG8gRHVjay5hcHAudGFyLmd6CkVwSCtQWEVwMEdCRjk5L2xUR0ZNc1dCd0hHMG85aXJOVDQ3ckRURWF2eHI5SzgvUzFjS1p6QmdNSStEazE1bUxkZm1RejhaUUltbnh0dWhhVlZVNkJnPT0K",
+      "url": "https://github.com/Fluxloop-AI/pluto-duck-oss/releases/download/v0.2.5/Pluto%20Duck_0.2.5_x64.app.tar.gz"
     }
   }
 }

@@ -18,7 +18,7 @@ import {
   PromptInputModelSelectItem,
   type PromptInputMessage,
 } from '../ai-elements/prompt-input';
-import { Loader } from '../ai-elements/loader';
+import { ActivityLoader } from '../ai-elements/activity-loader';
 import { MentionMenu } from './MentionMenu';
 import { RenderItem, type FeedbackType } from './renderers';
 import { type MentionItem } from '../../hooks/useAssetMentions';
@@ -79,7 +79,7 @@ const ConversationMessages = memo(function ConversationMessages({
       {loading && (
         <div className="px-4 py-6">
           <div className="mx-auto">
-            <Loader />
+            <ActivityLoader />
           </div>
         </div>
       )}
@@ -97,6 +97,7 @@ const ConversationMessages = memo(function ConversationMessages({
         const getPadding = () => {
           if (item.type === 'user-message') return 'pl-[14px] pr-1 pt-0 pb-6';     // 좌 14px, 하 24px
           if (item.type === 'tool') return 'pl-1 pr-1 pt-0 pb-0';                  // 좌 4px, 하 0px
+          if (item.type === 'reasoning') return 'px-1 py-0';                       // 좌우 4px, 상하 0px
           if (item.type === 'assistant-message') return 'pl-2 pr-2 pt-3 pb-6';    // 상 12px, 좌우 8px, 하 24px
           return `pl-[14px] pr-1 pt-0 ${isLastOfRun ? 'pb-6' : 'pb-2'}`;           // 기존 로직
         };
@@ -125,10 +126,8 @@ const ConversationMessages = memo(function ConversationMessages({
 
       {/* Loading indicator during streaming */}
       {isStreaming && renderItems.length > 0 && (
-        <div className="px-4 py-6">
-          <div className="mx-auto">
-            <Loader />
-          </div>
+        <div className="px-2.5 py-2.5">
+          <ActivityLoader />
         </div>
       )}
     </>

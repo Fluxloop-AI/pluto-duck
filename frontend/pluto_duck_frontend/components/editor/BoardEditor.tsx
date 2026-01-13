@@ -77,6 +77,7 @@ export function BoardEditor({
   };
 
   const [isSaving, setIsSaving] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedContentRef = useRef<string | null>(initialContent);
 
@@ -172,12 +173,15 @@ export function BoardEditor({
       
       setIsSaving(true);
       lastSavedContentRef.current = jsonState;
-      
+
       console.log('[BoardEditor] Saving tab content:', tabId);
       onContentChange(jsonState);
-      
-      // Reset saving state after a short delay
-      setTimeout(() => setIsSaving(false), 500);
+
+      // Reset saving state and update last saved time
+      setTimeout(() => {
+        setIsSaving(false);
+        setLastSavedAt(new Date());
+      }, 500);
     }, 1000); // 1 second debounce
   }, [tabId, onContentChange]);
 
@@ -190,24 +194,36 @@ export function BoardEditor({
 
   return (
     <div className="h-full flex flex-col bg-background relative">
-      <div className="absolute top-2 right-4 z-10">
+      <div className="absolute top-2 right-4 z-10 flex items-center gap-3">
+        {lastSavedAt && (
+          <span className="text-xs text-muted-foreground">
+            {lastSavedAt.toLocaleString('en-US', {
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric',
+              hour: 'numeric',
+              minute: '2-digit',
+              hour12: true,
+            })}
+          </span>
+        )}
         {isSaving ? (
           <span className="text-xs text-muted-foreground animate-pulse">Saving...</span>
         ) : (
-          <span className="text-xs text-muted-foreground opacity-50">Saved</span>
+          <span className="text-xs text-muted-foreground opacity-50">Auto-saved</span>
         )}
       </div>
       <AssetEmbedContext.Provider value={{ openAssetEmbed }}>
         <ConfigModalContext.Provider value={{ openConfigModal }}>
           <LexicalComposer initialConfig={initialConfig}>
             <div className="flex-1 relative overflow-auto">
-              <div className="relative min-h-full max-w-4xl mx-auto" ref={onRef}>
+              <div className="relative min-h-full max-w-4xl" ref={onRef}>
                 <RichTextPlugin
                   contentEditable={
-                    <ContentEditable className="min-h-full outline-none prose dark:prose-invert max-w-none p-8 pl-12" />
+                    <ContentEditable className="min-h-full outline-none prose dark:prose-invert max-w-none p-8 pl-8" />
                   }
                   placeholder={
-                    <div className="absolute top-8 left-12 text-muted-foreground pointer-events-none">
+                    <div className="absolute top-8 left-8 text-muted-foreground pointer-events-none">
                       Type '/' to insert blocks...
                     </div>
                   }

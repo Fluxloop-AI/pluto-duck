@@ -149,9 +149,18 @@ jobs:
             --team-id "${APPLE_TEAM_ID}" \
             --password "${APPLE_PASSWORD}" \
             --output-format json)"
+          export SUBMIT_JSON
 
           echo "${SUBMIT_JSON}"
-          SUBMISSION_ID="$(echo "${SUBMIT_JSON}" | tr -d '\n' | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')"
+          SUBMISSION_ID="$(python - <<'PY'
+import json, os, sys
+s = os.environ.get("SUBMIT_JSON", "")
+try:
+  print(json.loads(s).get("id", ""))
+except Exception:
+  print("")
+PY
+          )"
           if [ -z "${SUBMISSION_ID}" ]; then
             echo "ERROR: Could not parse submission id from notarytool output"
             exit 1
@@ -178,8 +187,17 @@ jobs:
               --team-id "${APPLE_TEAM_ID}" \
               --password "${APPLE_PASSWORD}" \
               --output-format json || true)"
+            export INFO_JSON
 
-            STATUS="$(echo "${INFO_JSON}" | tr -d '\n' | sed -n 's/.*"status"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')"
+            STATUS="$(python - <<'PY'
+import json, os
+s = os.environ.get("INFO_JSON", "")
+try:
+  print(json.loads(s).get("status", ""))
+except Exception:
+  print("")
+PY
+            )"
             if [ -z "${STATUS}" ]; then
               STATUS="In Progress"
             fi

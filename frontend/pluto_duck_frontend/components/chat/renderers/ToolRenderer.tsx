@@ -19,6 +19,93 @@ import {
 import type { ToolItem } from '../../../types/chatRenderItem';
 
 /**
+ * Convert snake_case or camelCase to Title Case
+ * e.g., read_file → Read File, executeCommand → Execute Command
+ */
+function formatToolName(name: string): string {
+  if (!name) return 'Tool';
+
+  // Handle snake_case and camelCase
+  return name
+    .replace(/_/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
+
+/**
+ * Extract key parameter from tool input for display
+ * Returns shortened version for UI display
+ */
+function extractKeyParam(input: unknown): string | null {
+  if (!input || typeof input !== 'object') return null;
+
+  const obj = input as Record<string, unknown>;
+
+  // Priority order for key parameters
+  const keyFields = [
+    'file_path', 'filePath', 'path',      // File operations
+    'command', 'cmd',                      // Command execution
+    'query', 'search', 'pattern',          // Search operations
+    'url', 'uri',                          // Network operations
+    'name', 'title',                       // General identifiers
+  ];
+
+  for (const field of keyFields) {
+    const value = obj[field];
+    if (typeof value === 'string' && value.trim()) {
+      return shortenParam(value, field);
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Shorten parameter value for display
+ */
+function shortenParam(value: string, fieldType: string): string {
+  const maxLength = 30;
+
+  // For file paths, show just the filename or last part
+  if (['file_path', 'filePath', 'path'].includes(fieldType)) {
+    const parts = value.split('/').filter(Boolean);
+    const filename = parts[parts.length - 1] || value;
+    return filename.length > maxLength
+      ? '...' + filename.slice(-maxLength)
+      : filename;
+  }
+
+  // For commands, show first part
+  if (['command', 'cmd'].includes(fieldType)) {
+    const shortened = value.length > maxLength
+      ? value.slice(0, maxLength) + '...'
+      : value;
+    return shortened;
+  }
+
+  // Default: truncate if too long
+  return value.length > maxLength
+    ? value.slice(0, maxLength) + '...'
+    : value;
+}
+
+/**
+ * Build display title for tool
+ */
+function buildToolTitle(toolName: string, input: unknown): string {
+  const formattedName = formatToolName(toolName);
+  const keyParam = extractKeyParam(input);
+
+  if (keyParam) {
+    return `${formattedName} · ${keyParam}`;
+  }
+
+  return formattedName;
+}
+
+/**
  * Parse todos from write_todos tool output
  */
 function parseTodosFromOutput(output: any): QueueTodo[] {
@@ -94,13 +181,14 @@ export const ToolRenderer = memo(function ToolRenderer({
 
   // Default tool rendering
   const toolState = getToolUIState(item.state);
+  const displayTitle = buildToolTitle(item.toolName, item.input);
 
   return (
     <Tool defaultOpen={false}>
       <ToolHeader
         state={toolState}
         type={`tool-${item.toolName}`}
-        title={item.toolName}
+        title={displayTitle}
       />
       <ToolContent>
         {item.input && <ToolInput input={item.input} />}

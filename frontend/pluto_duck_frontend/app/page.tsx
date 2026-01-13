@@ -375,7 +375,7 @@ export default function WorkspacePage() {
 
   return (
     <div className="relative flex h-screen w-full flex-col bg-white">
-      <header className="z-10 flex h-10 shrink-0 items-center border-b border-muted bg-muted px-3 pl-[76px] pr-3">
+      <header className="z-10 flex h-10 shrink-0 items-center bg-muted px-3 pl-[76px] pr-3">
         <button
           onClick={() => setSidebarCollapsed(prev => !prev)}
           className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent"
@@ -400,24 +400,7 @@ export default function WorkspacePage() {
         <div
           data-tauri-drag-region
           className="flex h-full flex-1 select-none items-center justify-center gap-2"
-        >
-          {mainView === 'boards' && activeBoard && (
-            <>
-              <LayoutDashboard className="h-3.5 w-3.5 text-foreground" />
-              <span className="text-xs font-medium text-foreground">
-                {activeBoard.name}
-              </span>
-            </>
-          )}
-          {mainView === 'assets' && (
-            <>
-              <Package className="h-3.5 w-3.5 text-foreground" />
-              <span className="text-xs font-medium text-foreground">
-                Asset Library
-              </span>
-            </>
-          )}
-        </div>
+        />
 
         <button
           onClick={() => setChatPanelCollapsed(prev => !prev)}

@@ -68,7 +68,7 @@ export function BoardToolbar({
   if (!board) return null;
 
   return (
-    <div className="flex items-center border-b border-border bg-background px-2 pt-2">
+    <div className="flex items-center bg-background px-2 pt-2">
       {/* Tab List */}
       <div className="flex items-center gap-0.5 overflow-x-auto scrollbar-hide">
         {tabs.map((tab) => (

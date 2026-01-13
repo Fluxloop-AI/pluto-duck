@@ -92,13 +92,20 @@ const ConversationMessages = memo(function ConversationMessages({
           ? feedbackMap?.get((item as AssistantMessageItem).messageId)
           : undefined;
 
+        // 아이템 타입별 여백
+        const getPadding = () => {
+          if (item.type === 'user-message') return 'pl-[14px] pr-1 pt-0 pb-6';     // 좌 14px, 하 24px
+          if (item.type === 'tool') return 'pl-1 pr-1 pt-0 pb-0';                  // 좌 4px, 하 0px
+          if (item.type === 'assistant-message') return 'pl-2 pr-2 pt-3 pb-6';    // 상 12px, 좌우 8px, 하 24px
+          return `pl-[14px] pr-1 pt-0 ${isLastOfRun ? 'pb-6' : 'pb-2'}`;           // 기존 로직
+        };
+
         return (
           <div
             key={item.id}
             className={cn(
-              'group pl-[14px] pr-1',
-              isLastOfRun ? 'pb-6' : 'pb-2',
-              'pt-0'
+              'group',
+              getPadding()
             )}
           >
             <RenderItem

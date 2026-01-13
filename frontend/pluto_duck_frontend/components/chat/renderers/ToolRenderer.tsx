@@ -94,10 +94,9 @@ export const ToolRenderer = memo(function ToolRenderer({
 
   // Default tool rendering
   const toolState = getToolUIState(item.state);
-  const isDefaultOpen = item.state === 'pending';
 
   return (
-    <Tool defaultOpen={isDefaultOpen}>
+    <Tool defaultOpen={false}>
       <ToolHeader
         state={toolState}
         type={`tool-${item.toolName}`}

@@ -7,7 +7,7 @@ import {
   RefreshCcwIcon,
   ThumbsUpIcon,
   ThumbsDownIcon,
-  PanelRightIcon,
+  ClipboardPlusIcon,
 } from 'lucide-react';
 import { Response } from '../../ai-elements/response';
 import { Actions, Action } from '../../ai-elements/actions';
@@ -64,12 +64,12 @@ export const AssistantMessageRenderer = memo(function AssistantMessageRenderer({
 
   return (
     <div className="group flex gap-4">
-      <div className="flex-1 space-y-4">
+      <div className="flex-1">
         <div className="prose prose-sm dark:prose-invert max-w-none">
           <Response>{item.content}</Response>
         </div>
 
-        <Actions className="opacity-0 transition-opacity group-hover:opacity-100">
+        <Actions className="mt-2">
           {/* Regenerate - only show on last message */}
           {isLast && onRegenerate && (
             <Action onClick={handleRegenerate} tooltip="Regenerate response">
@@ -78,7 +78,7 @@ export const AssistantMessageRenderer = memo(function AssistantMessageRenderer({
           )}
 
           {/* Copy */}
-          <Action onClick={handleCopy} tooltip={copied ? 'Copied!' : 'Copy response'}>
+          <Action onClick={handleCopy} tooltip={copied ? 'Copied!' : 'Copy'}>
             {copied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
           </Action>
 
@@ -105,11 +105,9 @@ export const AssistantMessageRenderer = memo(function AssistantMessageRenderer({
           )}
 
           {/* Send to Board */}
-          {onSendToBoard && (
-            <Action onClick={handleSendToBoard} tooltip="Send to board">
-              <PanelRightIcon className="size-3" />
-            </Action>
-          )}
+          <Action onClick={handleSendToBoard} tooltip="Send to board">
+            <ClipboardPlusIcon className="size-3" />
+          </Action>
         </Actions>
       </div>
     </div>

@@ -1,8 +1,6 @@
 'use client';
 
-import { memo, useState } from 'react';
-import { CopyIcon, CheckIcon } from 'lucide-react';
-import { Actions, Action } from '../../ai-elements/actions';
+import { memo } from 'react';
 import type { UserMessageItem } from '../../../types/chatRenderItem';
 
 /**
@@ -40,32 +38,14 @@ export interface UserMessageRendererProps {
 
 export const UserMessageRenderer = memo(function UserMessageRenderer({
   item,
-  onCopy,
 }: UserMessageRendererProps) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = () => {
-    if (onCopy) {
-      onCopy(item.content);
-    } else {
-      void navigator.clipboard.writeText(item.content);
-    }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   return (
-    <div className="group flex flex-col items-end gap-1">
+    <div className="flex justify-end">
       <div className="rounded-xl bg-muted px-4 py-2.5 text-foreground max-w-[80%]">
         <p className="text-sm whitespace-pre-wrap">
           {renderTextWithMentions(item.content)}
         </p>
       </div>
-      <Actions className="opacity-0 transition-opacity group-hover:opacity-100 mr-2">
-        <Action onClick={handleCopy} tooltip={copied ? 'Copied' : 'Copy'} className="size-6 p-1 text-muted-foreground/50 hover:text-muted-foreground">
-          {copied ? <CheckIcon className="size-2.5" strokeWidth={1.5} /> : <CopyIcon className="size-2.5" strokeWidth={1.5} />}
-        </Action>
-      </Actions>
     </div>
   );
 });

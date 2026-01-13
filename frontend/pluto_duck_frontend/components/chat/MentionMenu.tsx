@@ -1,7 +1,7 @@
 'use client';
 
 import { Fragment, useState } from 'react';
-import { AtSignIcon, SearchIcon, Table2Icon, DatabaseIcon, FileIcon, TableIcon } from 'lucide-react';
+import { AtSignIcon, SearchIcon, ChevronDownIcon } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -49,10 +49,12 @@ export function MentionMenu({ projectId, onSelect, open, onOpenChange }: Mention
         <Button
           variant="ghost"
           size="sm"
-          className="h-7 gap-1 border-none bg-transparent text-xs font-medium text-muted-foreground shadow-none transition-colors hover:bg-accent hover:text-foreground"
+          className="h-6 gap-1 border-none bg-transparent px-1 text-xs font-medium text-muted-foreground shadow-none transition-colors hover:bg-accent hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground"
           title="Mention asset"
         >
-          <AtSignIcon className="h-3 w-3" />
+          <AtSignIcon className="h-2 w-2" />
+          <span>Context</span>
+          <ChevronDownIcon className="h-3 w-3 opacity-50" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-64 max-h-80 overflow-y-auto p-0">

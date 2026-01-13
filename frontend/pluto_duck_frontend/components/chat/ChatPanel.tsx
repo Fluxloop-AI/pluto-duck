@@ -1,6 +1,7 @@
 'use client';
 
 import { memo, useCallback, useRef, useState } from 'react';
+import { ArrowUpIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Conversation, ConversationContent, ConversationScrollButton } from '../ai-elements/conversation';
 import {
@@ -250,14 +251,25 @@ export function ChatPanel({
                 value={input}
                 onChange={event => setInput(event.target.value)}
                 ref={textareaRef}
-                placeholder={activeSession ? 'Continue this conversation...' : 'Ask a question...'}
+                placeholder={activeSession ? 'Continue this conversation...' : 'ask a question...'}
+                className="pt-3 pb-0 pl-4 pr-3"
               />
             </PromptInputBody>
-            <PromptInputFooter>
+
+            <PromptInputFooter className="pt-0.5">
               <PromptInputTools>
+                {/* Context mention */}
+                {projectId && (
+                  <MentionMenu
+                    projectId={projectId}
+                    open={mentionOpen}
+                    onOpenChange={setMentionOpen}
+                    onSelect={handleMentionSelect}
+                  />
+                )}
                 {/* Model selection */}
                 <PromptInputModelSelect value={selectedModel} onValueChange={onModelChange}>
-                  <PromptInputModelSelectTrigger className="h-7 text-xs">
+                  <PromptInputModelSelectTrigger className="h-6 px-1 text-xs gap-1">
                     <PromptInputModelSelectValue />
                   </PromptInputModelSelectTrigger>
                   <PromptInputModelSelectContent>
@@ -268,22 +280,17 @@ export function ChatPanel({
                     ))}
                   </PromptInputModelSelectContent>
                 </PromptInputModelSelect>
-
-                {/* Asset Mention Menu */}
-                {projectId ? (
-                  <MentionMenu
-                    projectId={projectId}
-                    open={mentionOpen}
-                    onOpenChange={setMentionOpen}
-                    onSelect={handleMentionSelect}
-                  />
-                ) : null}
               </PromptInputTools>
+
+              {/* Submit button - 원 안에 화살표 */}
               <PromptInputSubmit
                 disabled={!input.trim() || isStreaming}
                 status={status}
-                className="h-7 w-7"
-              />
+                variant="default"
+                className="h-6 w-6 rounded-full bg-foreground text-background hover:bg-foreground/90 disabled:bg-muted-foreground/40 disabled:text-background/70 [&>svg]:size-3"
+              >
+                <ArrowUpIcon />
+              </PromptInputSubmit>
             </PromptInputFooter>
           </PromptInput>
         </div>

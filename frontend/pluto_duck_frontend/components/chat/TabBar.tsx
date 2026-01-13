@@ -53,7 +53,7 @@ export function TabBar({
   };
 
   return (
-    <div className="flex items-center gap-1 px-2 pt-3 pb-1 bg-background shrink-0 relative">
+    <div className="flex items-center gap-1 px-3 pt-3 pb-1 bg-background shrink-0 relative">
       {/* Scrollable tab area */}
       <div className="flex items-center gap-1 overflow-x-auto flex-1 min-w-0 scrollbar-thin">
         {tabs.map(tab => (

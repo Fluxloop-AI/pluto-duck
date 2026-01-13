@@ -200,7 +200,7 @@ const ConversationMessages = memo(function ConversationMessages({
       )}
 
       {turns.map(turn => (
-        <div key={turn.key} className="group px-4 py-6 space-y-4">
+        <div key={turn.key} className="group pl-[14px] pr-3 py-6 space-y-4">
           {turn.userMessages.map(message => {
             const text = typeof message.content === 'object' && message.content?.text
               ? message.content.text
@@ -487,7 +487,7 @@ export function ChatPanel({
 
       {/* Input area */}
       <div className="shrink-0 pt-4">
-        <div className="w-full px-4 pb-4">
+        <div className="w-full px-3 pb-4">
           <PromptInput onSubmit={handleSubmit}>
             <PromptInputBody>
               <PromptInputTextarea

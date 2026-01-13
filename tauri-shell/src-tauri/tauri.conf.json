@@ -1,13 +1,13 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Pluto Duck",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "identifier": "com.plutoduck.desktop",
   "build": {
     "devUrl": "http://127.0.0.1:3100",
     "frontendDist": "../../frontend/pluto_duck_frontend/out",
     "beforeDevCommand": "pnpm --dir ../frontend/pluto_duck_frontend dev --hostname 127.0.0.1 --port 3100",
-    "beforeBuildCommand": "../scripts/build-backend.sh && pnpm --dir ../frontend/pluto_duck_frontend build"
+    "beforeBuildCommand": "bash ../scripts/tauri-before-build.sh"
   },
   "app": {
     "security": {

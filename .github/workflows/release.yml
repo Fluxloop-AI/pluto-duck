@@ -68,6 +68,11 @@ jobs:
           cd frontend/pluto_duck_frontend
           pnpm install --no-frozen-lockfile
 
+      - name: Build frontend
+        run: |
+          cd frontend/pluto_duck_frontend
+          pnpm build
+
       - name: Build backend
         run: |
           pyinstaller pluto-duck-backend.spec --distpath dist --workpath build/.pyinstaller
@@ -99,8 +104,10 @@ jobs:
           codesign --force --options runtime --sign "$IDENTITY" --timestamp dist/pluto-duck-backend/pluto-duck-backend
           
           # Sign all dylibs
-          find dist/pluto-duck-backend/_internal -name "*.dylib" -o -name "*.so" | while read -r file; do
-            codesign --force --options runtime --sign "$IDENTITY" --timestamp "$file" 2>/dev/null || true
+          xattr -cr dist/pluto-duck-backend/_internal 2>/dev/null || true
+          find dist/pluto-duck-backend/_internal \( -name "*.dylib" -o -name "*.so" \) -print0 | while IFS= read -r -d '' file; do
+            echo "codesign $file"
+            codesign --force --options runtime --sign "$IDENTITY" --timestamp "$file"
           done
 
       - name: Build Tauri app
@@ -108,18 +115,92 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # CI already builds (and signs) backend + builds frontend; skip Tauri's beforeBuildCommand.
+          TAURI_SKIP_BEFORE_BUILD: "1"
           # IMPORTANT: do NOT set an empty password env var on macOS runners.
           # If your key is password-protected, store it in GitHub Secrets and pass it in the signing step below.
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          # Skip notarization (add credentials later for full notarization)
-          # APPLE_ID: ${{ secrets.APPLE_ID }}
-          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: tauri-shell
           args: --target ${{ matrix.target }}
+
+      - name: Notarize DMG (macOS)
+        if: runner.os == 'macOS'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${APPLE_ID}" ] || [ -z "${APPLE_PASSWORD}" ] || [ -z "${APPLE_TEAM_ID}" ]; then
+            echo "ERROR: Missing notarization secrets. Required: APPLE_ID, APPLE_PASSWORD (app-specific password), APPLE_TEAM_ID"
+            exit 1
+          fi
+
+          DMG_DIR="tauri-shell/src-tauri/target/${{ matrix.target }}/release/bundle/dmg"
+          DMG_PATH="$(ls -1 "${DMG_DIR}"/*.dmg | head -n 1)"
+          echo "Notarizing DMG: ${DMG_PATH}"
+
+          # Submit without --wait (some environments can hang). Poll until completion.
+          SUBMIT_JSON="$(xcrun notarytool submit "${DMG_PATH}" \
+            --apple-id "${APPLE_ID}" \
+            --team-id "${APPLE_TEAM_ID}" \
+            --password "${APPLE_PASSWORD}" \
+            --output-format json)"
+
+          echo "${SUBMIT_JSON}"
+          SUBMISSION_ID="$(echo "${SUBMIT_JSON}" | tr -d '\n' | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')"
+          if [ -z "${SUBMISSION_ID}" ]; then
+            echo "ERROR: Could not parse submission id from notarytool output"
+            exit 1
+          fi
+
+          echo "Submission ID: ${SUBMISSION_ID}"
+          echo "Polling status..."
+          START_TIME="$(date +%s)"
+          MAX_WAIT_SECONDS=1800
+          POLL_INTERVAL_SECONDS=20
+
+          while true; do
+            NOW="$(date +%s)"
+            ELAPSED=$((NOW - START_TIME))
+            if [ "${ELAPSED}" -ge "${MAX_WAIT_SECONDS}" ]; then
+              echo "ERROR: Timed out after $((MAX_WAIT_SECONDS/60)) minutes"
+              xcrun notarytool info "${SUBMISSION_ID}" --apple-id "${APPLE_ID}" --team-id "${APPLE_TEAM_ID}" --password "${APPLE_PASSWORD}" || true
+              xcrun notarytool log  "${SUBMISSION_ID}" --apple-id "${APPLE_ID}" --team-id "${APPLE_TEAM_ID}" --password "${APPLE_PASSWORD}" || true
+              exit 1
+            fi
+
+            INFO_JSON="$(xcrun notarytool info "${SUBMISSION_ID}" \
+              --apple-id "${APPLE_ID}" \
+              --team-id "${APPLE_TEAM_ID}" \
+              --password "${APPLE_PASSWORD}" \
+              --output-format json || true)"
+
+            STATUS="$(echo "${INFO_JSON}" | tr -d '\n' | sed -n 's/.*"status"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')"
+            if [ -z "${STATUS}" ]; then
+              STATUS="In Progress"
+            fi
+            echo "  status: ${STATUS} (elapsed ${ELAPSED}s)"
+
+            if [ "${STATUS}" = "Accepted" ]; then
+              break
+            fi
+            if [ "${STATUS}" = "Invalid" ] || [ "${STATUS}" = "Rejected" ]; then
+              echo "ERROR: Notarization failed (status: ${STATUS})"
+              xcrun notarytool log "${SUBMISSION_ID}" --apple-id "${APPLE_ID}" --team-id "${APPLE_TEAM_ID}" --password "${APPLE_PASSWORD}" || true
+              exit 1
+            fi
+
+            sleep "${POLL_INTERVAL_SECONDS}"
+          done
+
+          echo "✓ Notarization accepted!"
+          echo "Stapling DMG..."
+          xcrun stapler staple "${DMG_PATH}"
+          xcrun stapler validate "${DMG_PATH}"
 
       - name: Sign updater artifacts (.sig)
         if: runner.os == 'macOS'

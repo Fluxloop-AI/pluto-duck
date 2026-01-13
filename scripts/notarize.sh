@@ -32,28 +32,15 @@ if ! xcrun notarytool --help >/dev/null 2>&1; then
   exit 1
 fi
 
-# Ensure keychain profile exists (or create it from env vars)
-if ! xcrun notarytool list-profiles 2>/dev/null | grep -q "$KEYCHAIN_PROFILE"; then
-  if [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ] && [ -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]; then
-    echo "Keychain profile '$KEYCHAIN_PROFILE' not found. Creating from env vars..."
-    xcrun notarytool store-credentials "$KEYCHAIN_PROFILE" \
-      --apple-id "$APPLE_ID" \
-      --team-id "$APPLE_TEAM_ID" \
-      --password "$APPLE_APP_SPECIFIC_PASSWORD"
-    echo "✓ Stored credentials in keychain profile: $KEYCHAIN_PROFILE"
-  else
-    echo "Error: Keychain profile '$KEYCHAIN_PROFILE' not found." >&2
-    echo "" >&2
-    echo "Create it once with:" >&2
-    echo "  xcrun notarytool store-credentials \"$KEYCHAIN_PROFILE\" --apple-id \"<APPLE_ID>\" --team-id \"<TEAM_ID>\" --password \"<APP_SPECIFIC_PASSWORD>\"" >&2
-    echo "" >&2
-    echo "Or export env vars and rerun:" >&2
-    echo "  export APPLE_ID='you@example.com'" >&2
-    echo "  export APPLE_TEAM_ID='XXXXXXXXXX'" >&2
-    echo "  export APPLE_APP_SPECIFIC_PASSWORD='xxxx-xxxx-xxxx-xxxx'" >&2
-    exit 1
-  fi
-fi
+# NOTE: notarytool does not provide a `list-profiles` subcommand.
+# We simply attempt to submit with the keychain profile. If it doesn't exist,
+# notarytool will error and we print a helpful message.
+#
+# If you want the script to auto-create the profile, export these env vars:
+#   APPLE_ID, APPLE_TEAM_ID, APPLE_APP_SPECIFIC_PASSWORD
+#
+# Then run:
+#   xcrun notarytool store-credentials "$KEYCHAIN_PROFILE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD"
 
 # Create zip for submission
 ZIP_PATH="${APP_PATH}.zip"
@@ -68,7 +55,16 @@ echo ""
 # Submit without waiting, then poll. This avoids hanging forever in some cases.
 SUBMIT_JSON=$(xcrun notarytool submit "$ZIP_PATH" \
   --keychain-profile "$KEYCHAIN_PROFILE" \
-  --output-format json 2>&1)
+  --output-format json 2>&1) || {
+    echo "$SUBMIT_JSON"
+    echo ""
+    echo "❌ Submit failed. If you see a keychain profile error, create it once with:" >&2
+    echo "  xcrun notarytool store-credentials \"$KEYCHAIN_PROFILE\" --apple-id \"<APPLE_ID>\" --team-id \"<TEAM_ID>\" --password \"<APP_SPECIFIC_PASSWORD>\"" >&2
+    echo "" >&2
+    echo "Tip: The password must be an app-specific password from appleid.apple.com" >&2
+    rm -f "$ZIP_PATH"
+    exit 1
+  }
 
 echo "$SUBMIT_JSON"
 

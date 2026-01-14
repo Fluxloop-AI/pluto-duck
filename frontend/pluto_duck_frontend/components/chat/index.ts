@@ -1,4 +1,5 @@
 export * from './ChatPanel';
+export * from './ChatOnboarding';
 export * from './ConversationList';
 export * from './Composer';
 export * from './Transcript';

@@ -1,6 +1,7 @@
 'use client';
 
 import { memo, useCallback, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { ArrowUpIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Conversation, ConversationContent, ConversationScrollButton } from '../ai-elements/conversation';
@@ -20,6 +21,7 @@ import {
 } from '../ai-elements/prompt-input';
 import { ActivityLoader } from '../ai-elements/activity-loader';
 import { MentionMenu } from './MentionMenu';
+import { ChatOnboarding } from './ChatOnboarding';
 import { RenderItem, type FeedbackType } from './renderers';
 import { type MentionItem } from '../../hooks/useAssetMentions';
 import type { ChatSessionSummary } from '../../lib/chatApi';
@@ -175,6 +177,7 @@ export function ChatPanel({
 }: ChatPanelProps) {
   const [input, setInput] = useState('');
   const [mentionOpen, setMentionOpen] = useState(false);
+  const [isOnboardingExiting, setIsOnboardingExiting] = useState(false);
   const activeMentionsRef = useRef<Map<string, MentionItem>>(new Map());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -219,26 +222,50 @@ export function ChatPanel({
     await onSubmit({ prompt, contextAssets });
   }, [onSubmit]);
 
+  const handleOnboardingSelect = useCallback((prompt: string) => {
+    setIsOnboardingExiting(true);
+    // Delay submission to allow fade-out animation to complete
+    setTimeout(() => {
+      void onSubmit({ prompt });
+    }, 200);
+  }, [onSubmit]);
+
+  const showOnboarding = renderItems.length === 0 && !loading && !isStreaming && !isOnboardingExiting;
+
   return (
     <div className="flex h-full w-full flex-col bg-background">
-      {/* Messages area - using memoized component to prevent re-renders on input change */}
+      {/* Messages area */}
       <div className="flex-1 min-h-0">
-        <Conversation className="h-full">
-          <ConversationContent>
-            <ConversationMessages
-              renderItems={renderItems}
-              loading={loading}
-              isStreaming={isStreaming}
-              feedbackMap={feedbackMap}
-              onCopy={handleCopy}
-              onRegenerate={onRegenerate}
-              onEditUserMessage={onEditUserMessage}
-              onFeedback={onFeedback}
-              onSendToBoard={onSendToBoard}
-            />
-          </ConversationContent>
-          <ConversationScrollButton />
-        </Conversation>
+        <AnimatePresence mode="wait">
+          {showOnboarding ? (
+            <motion.div
+              key="onboarding"
+              className="flex h-full items-center justify-center"
+              initial={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+            >
+              <ChatOnboarding onSelect={handleOnboardingSelect} />
+            </motion.div>
+          ) : (
+            <Conversation className="h-full">
+              <ConversationContent>
+                <ConversationMessages
+                  renderItems={renderItems}
+                  loading={loading}
+                  isStreaming={isStreaming}
+                  feedbackMap={feedbackMap}
+                  onCopy={handleCopy}
+                  onRegenerate={onRegenerate}
+                  onEditUserMessage={onEditUserMessage}
+                  onFeedback={onFeedback}
+                  onSendToBoard={onSendToBoard}
+                />
+              </ConversationContent>
+              <ConversationScrollButton />
+            </Conversation>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Input area */}

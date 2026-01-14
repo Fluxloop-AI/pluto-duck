@@ -69,6 +69,7 @@ import {
 interface AssetListViewProps {
   projectId: string;
   initialTab?: AssetTab;
+  refreshTrigger?: number;
 }
 
 type ViewMode = 'grid' | 'list' | 'graph';
@@ -80,7 +81,7 @@ type AssetTab = 'analyses' | 'datasources';
 type AnalysesSubTab = 'queries'; // Future: 'reports' | 'notebooks' etc.
 type DataSourceSubTab = 'sources' | 'datasets';
 
-export function AssetListView({ projectId, initialTab }: AssetListViewProps) {
+export function AssetListView({ projectId, initialTab, refreshTrigger }: AssetListViewProps) {
   // State
   const [analyses, setAnalyses] = useState<Analysis[]>([]);
   const [fileAssets, setFileAssets] = useState<FileAsset[]>([]);
@@ -198,7 +199,7 @@ export function AssetListView({ projectId, initialTab }: AssetListViewProps) {
 
   useEffect(() => {
     fetchAnalyses();
-  }, [fetchAnalyses]);
+  }, [fetchAnalyses, refreshTrigger]);
 
   // P3-1: Scan folders when entering Assets → Data Sources → Sources subtab
   useEffect(() => {

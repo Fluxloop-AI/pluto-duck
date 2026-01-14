@@ -228,7 +228,7 @@ export default function WorkspacePage() {
             const ext = filePath.split('.').pop()?.toLowerCase();
             setImportFilePath(filePath);
             if (ext === 'csv') {
-              setImportCSVOpen(true);
+        setImportCSVOpen(true);
               return;
             }
             if (ext === 'parquet') {
@@ -533,7 +533,7 @@ export default function WorkspacePage() {
             mainView === 'boards' ? (
             <BoardsView projectId={defaultProjectId} activeBoard={activeBoard} />
             ) : (
-              <AssetListView projectId={defaultProjectId} initialTab={assetInitialTab} />
+              <AssetListView projectId={defaultProjectId} initialTab={assetInitialTab} refreshTrigger={dataSourcesRefresh} />
             )
           ) : (
             <div className="flex h-full items-center justify-center">
@@ -628,6 +628,7 @@ export default function WorkspacePage() {
         open={connectFolderOpen}
         onOpenChange={setConnectFolderOpen}
         onSuccess={() => {
+          setDataSourcesRefresh(prev => prev + 1);
           setAssetInitialTab('datasources');
           setMainView('assets');
         }}

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
@@ -37,6 +38,9 @@ from .errors import AttachError, CacheError, SourceNotFoundError, TableNotFoundE
 # Keyed by project_id -> source_name -> config
 # In production, this should use a secure store (e.g., keyring, encrypted file)
 _FULL_CONFIGS: Dict[str, Dict[str, Dict[str, Any]]] = {}
+
+# Prevent concurrent schema migrations (ALTER TABLE) from racing on the same warehouse.
+_metadata_migration_lock = threading.RLock()
 
 
 class SourceType(str, Enum):
@@ -341,15 +345,18 @@ class SourceService:
 
     def _ensure_metadata_tables(self) -> None:
         """Ensure metadata tables exist and run migrations."""
-        with self._connect() as con:
-            for ddl in _DDL_STATEMENTS:
-                con.execute(ddl)
-            # Run migrations for existing databases
-            for migration in _MIGRATION_STATEMENTS:
-                try:
-                    con.execute(migration)
-                except duckdb.CatalogException:
-                    pass  # Column already exists or table doesn't exist yet
+        # DuckDB can throw TransactionContext Error: Catalog write-write conflict
+        # when multiple requests race to run ALTER TABLE at the same time.
+        with _metadata_migration_lock:
+            with self._connect() as con:
+                for ddl in _DDL_STATEMENTS:
+                    con.execute(ddl)
+                # Run migrations for existing databases
+                for migration in _MIGRATION_STATEMENTS:
+                    try:
+                        con.execute(migration)
+                    except duckdb.CatalogException:
+                        pass  # Column already exists or table doesn't exist yet
 
     # =========================================================================
     # ATTACH Operations

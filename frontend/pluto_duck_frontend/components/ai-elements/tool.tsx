@@ -1,92 +1,72 @@
 "use client";
 
-import { Badge } from "@/components/ui/badge";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
-import {
-  CheckCircleIcon,
-  ChevronDownIcon,
-  CircleIcon,
-  ClockIcon,
-  WrenchIcon,
-  XCircleIcon,
-} from "lucide-react";
+import { ChevronDownIcon, CircleIcon } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
 import { isValidElement } from "react";
 import { CodeBlock } from "./code-block";
-import type { ToolUIInput, ToolUIOutput, ToolUIState, ToolUIType } from "./tool-types";
+import type { ToolUIInput, ToolUIOutput, ToolUIState } from "./tool-types";
 
 export type ToolProps = ComponentProps<typeof Collapsible>;
 
 export const Tool = ({ className, ...props }: ToolProps) => (
   <Collapsible
-    className={cn("not-prose mb-2 w-full rounded-md border text-xs", className)}
+    className={cn("not-prose text-xs group", className)}
     {...props}
   />
 );
 
 export type ToolHeaderProps = {
-  title?: string;
-  type: ToolUIType;
+  toolName: string;
+  keyParam?: string | null;
+  preview?: string | null;
   state: ToolUIState;
   className?: string;
 };
 
-const getStatusBadge = (status: ToolUIState) => {
-  const labels: Record<ToolUIState, string> = {
-    "input-streaming": "Pending",
-    "input-available": "Running",
-    "approval-requested": "Awaiting",
-    "approval-responded": "Responded",
-    "output-available": "Done",
-    "output-error": "Error",
-    "output-denied": "Denied",
+const getStatusDot = (status: ToolUIState) => {
+  const dotStyles: Record<ToolUIState, string> = {
+    "input-streaming": "fill-muted-foreground text-muted-foreground",
+    "input-available": "fill-muted-foreground text-muted-foreground animate-pulse",
+    "approval-requested": "fill-yellow-500 text-yellow-500",
+    "approval-responded": "fill-blue-500 text-blue-500",
+    "output-available": "fill-green-500 text-green-500",
+    "output-error": "fill-red-500 text-red-500",
+    "output-denied": "fill-orange-500 text-orange-500",
   };
 
-  const icons: Record<ToolUIState, ReactNode> = {
-    "input-streaming": <CircleIcon className="size-3" />,
-    "input-available": <ClockIcon className="size-3 animate-pulse" />,
-    "approval-requested": <ClockIcon className="size-3 text-yellow-600" />,
-    "approval-responded": <CheckCircleIcon className="size-3 text-blue-600" />,
-    "output-available": <CheckCircleIcon className="size-3 text-green-600" />,
-    "output-error": <XCircleIcon className="size-3 text-red-600" />,
-    "output-denied": <XCircleIcon className="size-3 text-orange-600" />,
-  };
-
-  return (
-    <Badge className="gap-1 rounded-full text-[10px] px-1.5 py-0" variant="secondary">
-      {icons[status]}
-      {labels[status]}
-    </Badge>
-  );
+  return <CircleIcon className={cn("size-2 shrink-0", dotStyles[status])} />;
 };
 
 export const ToolHeader = ({
   className,
-  title,
-  type,
+  toolName,
+  keyParam,
+  preview,
   state,
   ...props
 }: ToolHeaderProps) => (
   <CollapsibleTrigger
     className={cn(
-      "flex w-full items-center justify-between gap-2 px-2 py-1.5",
+      "flex w-full items-center gap-2 py-2.5 px-1",
       className
     )}
     {...props}
   >
-    <div className="flex items-center gap-1.5 min-w-0">
-      <WrenchIcon className="size-3 text-muted-foreground shrink-0" />
-      <span className="font-medium text-xs truncate">
-        {title ?? type.split("-").slice(1).join("-")}
-      </span>
-      {getStatusBadge(state)}
-    </div>
-    <ChevronDownIcon className="size-3 text-muted-foreground transition-transform shrink-0 group-data-[state=open]:rotate-180" />
+    {getStatusDot(state)}
+    <span className="font-medium text-xs shrink-0">{toolName}</span>
+    {keyParam && (
+      <span className="text-muted-foreground text-xs truncate">{keyParam}</span>
+    )}
+    {preview && (
+      <span className="text-muted-foreground text-xs truncate">{preview}</span>
+    )}
+    <ChevronDownIcon className="size-3 text-muted-foreground transition-transform shrink-0 ml-auto group-data-[state=open]:rotate-180" />
   </CollapsibleTrigger>
 );
 

@@ -92,17 +92,47 @@ function shortenParam(value: string, fieldType: string): string {
 }
 
 /**
- * Build display title for tool
+ * Extract actual content from ToolMessage wrapper
  */
-function buildToolTitle(toolName: string, input: unknown): string {
-  const formattedName = formatToolName(toolName);
-  const keyParam = extractKeyParam(input);
+function extractContent(output: any): any {
+  if (!output) return null;
+  // Handle ToolMessage wrapper: { type: "tool", content: "...", tool_call_id: "..." }
+  if (typeof output === 'object' && output.content !== undefined) {
+    return output.content;
+  }
+  return output;
+}
 
-  if (keyParam) {
-    return `${formattedName} · ${keyParam}`;
+/**
+ * Get first meaningful item from tool output for preview
+ */
+function getFirstMeaningfulItem(output: any): string | null {
+  const content = extractContent(output);
+  if (!content) return null;
+
+  const str = typeof content === 'string' ? content : JSON.stringify(content);
+
+  // Array format: try to parse and get first element
+  if (str.startsWith('[')) {
+    try {
+      const arr = JSON.parse(str);
+      if (Array.isArray(arr) && arr.length > 0) {
+        return String(arr[0]);
+      }
+    } catch {
+      // Not valid JSON array, continue
+    }
   }
 
-  return formattedName;
+  // Multi-line: get first non-empty line
+  const lines = str.split('\n').filter(line => line.trim());
+  if (lines.length > 0) {
+    const firstLine = lines[0].trim();
+    // Truncate if too long
+    return firstLine.length > 60 ? firstLine.slice(0, 60) + '...' : firstLine;
+  }
+
+  return str.length > 60 ? str.slice(0, 60) + '...' : str;
 }
 
 /**
@@ -181,20 +211,24 @@ export const ToolRenderer = memo(function ToolRenderer({
 
   // Default tool rendering
   const toolState = getToolUIState(item.state);
-  const displayTitle = buildToolTitle(item.toolName, item.input);
+  const toolName = formatToolName(item.toolName);
+  const keyParam = extractKeyParam(item.input);
+  const preview = item.state !== 'pending' ? getFirstMeaningfulItem(item.output) : null;
+  const actualOutput = extractContent(item.output);
 
   return (
     <Tool defaultOpen={false}>
       <ToolHeader
         state={toolState}
-        type={`tool-${item.toolName}`}
-        title={displayTitle}
+        toolName={toolName}
+        keyParam={keyParam}
+        preview={preview}
       />
       <ToolContent>
         {item.input && <ToolInput input={item.input} />}
-        {(item.output || item.error) && (
+        {(actualOutput || item.error) && (
           <ToolOutput
-            output={item.output ? JSON.stringify(item.output, null, 2) : undefined}
+            output={actualOutput ? JSON.stringify(actualOutput, null, 2) : undefined}
             errorText={item.error}
           />
         )}

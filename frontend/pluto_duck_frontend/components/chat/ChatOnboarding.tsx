@@ -72,9 +72,13 @@ interface ChatOnboardingProps {
 
 export function ChatOnboarding({ onSelect }: ChatOnboardingProps) {
   return (
-    <div className="flex h-full flex-col items-center justify-center p-6">
+    <div className="flex h-full flex-col items-center justify-center px-6 pt-6 pb-10 -mt-4">
       <h2 className="text-xl font-semibold mb-2">Hello!</h2>
-      <p className="text-muted-foreground mb-6">What would you like to do with your data today?</p>
+      <p className="text-muted-foreground mb-6 text-center">
+        What would you like to do
+        <br />
+        with your data today?
+      </p>
       <div className="grid grid-cols-2 gap-3 max-w-md">
         {ONBOARDING_OPTIONS.map(option => (
           <OnboardingCard

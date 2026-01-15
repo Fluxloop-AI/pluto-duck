@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { TrashIcon } from 'lucide-react';
 import type { Board } from '../../lib/boardsApi';
 
@@ -9,13 +9,16 @@ interface BoardListProps {
   activeId?: string;
   onSelect: (board: Board) => void;
   onDelete?: (board: Board) => void;
-  onUpdate?: (boardId: string, data: any) => void;
+  onUpdate?: (boardId: string, data: { name?: string }) => void;
   onCreate?: () => void;
 }
 
-export function BoardList({ boards, activeId, onSelect, onDelete }: BoardListProps) {
+export function BoardList({ boards, activeId, onSelect, onDelete, onUpdate }: BoardListProps) {
   const [tick, setTick] = useState(0);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+  const [editingBoardId, setEditingBoardId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Update relative times every minute
   useEffect(() => {
@@ -25,6 +28,36 @@ export function BoardList({ boards, activeId, onSelect, onDelete }: BoardListPro
 
     return () => clearInterval(interval);
   }, []);
+
+  // Focus input when editing starts
+  useEffect(() => {
+    if (editingBoardId && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editingBoardId]);
+
+  const handleStartRename = (board: Board) => {
+    setEditingBoardId(board.id);
+    setEditingName(board.name);
+  };
+
+  const handleFinishRename = () => {
+    if (editingBoardId && editingName.trim() && onUpdate) {
+      onUpdate(editingBoardId, { name: editingName.trim() });
+    }
+    setEditingBoardId(null);
+    setEditingName('');
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleFinishRename();
+    } else if (e.key === 'Escape') {
+      setEditingBoardId(null);
+      setEditingName('');
+    }
+  };
 
   if (boards.length === 0) {
     return (
@@ -92,9 +125,9 @@ export function BoardList({ boards, activeId, onSelect, onDelete }: BoardListPro
           // Inline delete confirmation UI
           <div
             key={board.id}
-            className="flex items-center justify-between gap-2 rounded-lg bg-destructive/10 px-2.5 py-2 text-sm"
+            className="flex h-[56px] items-center justify-between gap-2 rounded-lg bg-destructive/10 px-2.5 text-sm"
           >
-            <span className="text-destructive text-xs font-medium truncate">Delete?</span>
+            <span className="text-destructive text-xs font-medium">Delete this board?</span>
             <div className="flex items-center gap-1 shrink-0">
               <button
                 onClick={() => setConfirmingDeleteId(null)}
@@ -118,7 +151,7 @@ export function BoardList({ boards, activeId, onSelect, onDelete }: BoardListPro
           <div
             key={board.id}
             className={`
-              group relative flex items-start gap-2 rounded-lg px-2.5 py-2.5 text-sm cursor-pointer transition-colors
+              group relative flex items-center gap-2 rounded-lg px-2.5 py-2.5 text-sm cursor-pointer transition-colors
               ${
                 activeId === board.id
                   ? 'bg-primary/10 text-primary'
@@ -128,9 +161,28 @@ export function BoardList({ boards, activeId, onSelect, onDelete }: BoardListPro
             onClick={() => onSelect(board)}
           >
             <div className="flex-1 min-w-0">
-              <p className={`truncate ${activeId === board.id ? 'font-medium' : 'font-normal'}`}>
-                {board.name}
-              </p>
+              {editingBoardId === board.id ? (
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={editingName}
+                  onChange={(e) => setEditingName(e.target.value)}
+                  onBlur={handleFinishRename}
+                  onKeyDown={handleKeyDown}
+                  onClick={(e) => e.stopPropagation()}
+                  className={`w-full bg-transparent outline-none truncate ${activeId === board.id ? 'font-medium' : 'font-normal'}`}
+                />
+              ) : (
+                <p
+                  className={`truncate ${activeId === board.id ? 'font-medium' : 'font-normal'}`}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    handleStartRename(board);
+                  }}
+                >
+                  {board.name}
+                </p>
+              )}
               <p className="truncate text-xs text-muted-foreground">
                 {formatRelativeTime(board.updated_at)}
                 {board.description && (

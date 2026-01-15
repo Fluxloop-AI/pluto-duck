@@ -119,6 +119,7 @@ export default function WorkspacePage() {
     boards,
     activeBoard,
     createBoard,
+    updateBoard,
     deleteBoard,
     selectBoard,
   } = useBoards({
@@ -545,6 +546,7 @@ export default function WorkspacePage() {
                 activeId={activeBoard?.id}
                 onSelect={(board: Board) => selectBoard(board)}
                 onDelete={(board: Board) => deleteBoard(board.id)}
+                onUpdate={(boardId: string, data: { name?: string }) => updateBoard(boardId, data)}
               />
               )}
 

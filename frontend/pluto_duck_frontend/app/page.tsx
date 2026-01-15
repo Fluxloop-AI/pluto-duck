@@ -32,6 +32,8 @@ import { useBackendStatus } from '../hooks/useBackendStatus';
 
 type MainView = 'boards' | 'assets';
 
+const SIDEBAR_COLLAPSED_KEY = 'pluto-duck-sidebar-collapsed';
+
 export default function WorkspacePage() {
   const { isReady: backendReady, isChecking: backendChecking } = useBackendStatus();
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -54,6 +56,49 @@ export default function WorkspacePage() {
   const [showCreateProjectModal, setShowCreateProjectModal] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [chatPanelCollapsed, setChatPanelCollapsed] = useState(false);
+
+  // Load sidebar collapsed state from localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem(SIDEBAR_COLLAPSED_KEY);
+      if (stored !== null) {
+        setSidebarCollapsed(stored === 'true');
+      }
+    }
+  }, []);
+
+  const handleSidebarToggle = useCallback(() => {
+    setSidebarCollapsed(prev => {
+      const newValue = !prev;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(newValue));
+      }
+      return newValue;
+    });
+  }, []);
+
+  // Keyboard shortcut: Cmd+B (Mac) / Ctrl+B (Windows) to toggle sidebar
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Check for Cmd+B or Ctrl+B
+      if ((e.metaKey || e.ctrlKey) && e.key === 'b') {
+        // Skip if focus is in an editable element
+        const activeElement = document.activeElement;
+        if (
+          activeElement instanceof HTMLInputElement ||
+          activeElement instanceof HTMLTextAreaElement ||
+          (activeElement instanceof HTMLElement && activeElement.isContentEditable)
+        ) {
+          return;
+        }
+        e.preventDefault();
+        handleSidebarToggle();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [handleSidebarToggle]);
   const [mainView, setMainView] = useState<MainView>('boards');
   const [assetInitialTab, setAssetInitialTab] = useState<'analyses' | 'datasources'>('analyses');
   const [chatPanelWidth, setChatPanelWidth] = useState(380);
@@ -377,7 +422,7 @@ export default function WorkspacePage() {
     <div className="relative flex h-screen w-full flex-col bg-white">
       <header className="z-10 flex h-10 shrink-0 items-center bg-muted px-3 pl-[76px] pr-3">
         <button
-          onClick={() => setSidebarCollapsed(prev => !prev)}
+          onClick={handleSidebarToggle}
           className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent"
           title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
@@ -432,8 +477,10 @@ export default function WorkspacePage() {
       )}
 
       <div className="flex flex-1 overflow-hidden bg-muted">
-        {!sidebarCollapsed && (
-          <aside className="hidden w-64 border-r border-muted bg-muted transition-all duration-300 lg:flex lg:flex-col">
+        <aside className={`hidden overflow-hidden border-muted bg-muted transition-all duration-300 lg:flex lg:flex-col ${
+          sidebarCollapsed ? 'w-0 border-r-0' : 'w-64 border-r'
+        }`}>
+          <div className="flex h-full w-64 min-w-64 flex-col">
             <div className="px-3 pt-3 pb-3">
               <div className="flex items-center justify-between">
                 <ProjectSelector
@@ -518,8 +565,8 @@ export default function WorkspacePage() {
                 <span>Settings</span>
               </button>
             </div>
-          </aside>
-        )}
+          </div>
+        </aside>
 
         {/* Main Content Wrapper - Board + Chat with rounded corners */}
         <div className={`flex flex-1 overflow-hidden rounded-[10px] bg-background m-2 border border-black/10 ${sidebarCollapsed ? '' : 'ml-0'}`}>

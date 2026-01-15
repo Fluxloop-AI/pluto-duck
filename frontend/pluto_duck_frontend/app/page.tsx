@@ -444,7 +444,11 @@ export default function WorkspacePage() {
                 />
                 <button
                   type="button"
-                  onClick={() => setShowCreateBoardModal(true)}
+                  onClick={() => {
+                    const existingCount = boards.filter(b => b.name.startsWith('Untitled Board')).length;
+                    const newName = existingCount === 0 ? 'Untitled Board' : `Untitled Board ${existingCount + 1}`;
+                    void createBoard(newName);
+                  }}
                   className="flex h-7 w-7 items-center justify-center rounded-md text-primary hover:bg-primary/10 transition"
                   title="New board"
                 >

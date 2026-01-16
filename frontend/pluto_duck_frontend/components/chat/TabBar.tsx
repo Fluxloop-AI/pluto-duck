@@ -61,7 +61,7 @@ export function TabBar({
             key={tab.id}
             className={cn(
               'flex items-center justify-center gap-0.5 pl-1.5 pr-1 py-1 rounded-md text-xs transition-colors cursor-pointer shrink-0',
-              'max-w-[200px] group relative',
+              'max-w-[120px] group relative',
               activeTabId === tab.id
                 ? 'bg-accent text-accent-foreground'
                 : 'hover:bg-accent/50 text-muted-foreground'

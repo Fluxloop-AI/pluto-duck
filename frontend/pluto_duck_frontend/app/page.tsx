@@ -560,7 +560,7 @@ export default function WorkspacePage() {
             <div className="space-y-2 px-3 pb-4">
               <button
                 type="button"
-                className="flex w-full items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm hover:bg-accent transition"
+                className="flex w-full items-center gap-2 rounded-lg px-[10px] py-2 text-sm hover:bg-black/10 transition-colors"
                 onClick={() => setSettingsOpen(true)}
               >
                 <SettingsIcon className="h-4 w-4" />

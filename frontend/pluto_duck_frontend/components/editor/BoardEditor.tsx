@@ -24,6 +24,7 @@ import SlashCommandPlugin, { AssetEmbedContext } from './plugins/SlashCommandPlu
 import DraggableBlockPlugin from './plugins/DraggableBlockPlugin';
 import { InitialContentPlugin } from './plugins/InitialContentPlugin';
 import { InsertMarkdownPlugin, type InsertMarkdownHandle } from './plugins/InsertMarkdownPlugin';
+import { InsertAssetEmbedPlugin, type InsertAssetEmbedHandle } from './plugins/InsertAssetEmbedPlugin';
 import { AssetPicker } from './components/AssetPicker';
 import { DisplayConfigModal } from './components/DisplayConfigModal';
 import { ConfigModalContext } from './components/AssetEmbedComponent';
@@ -38,6 +39,7 @@ interface BoardEditorProps {
 
 export interface BoardEditorHandle {
   insertMarkdown: (content: string) => void;
+  insertAssetEmbed: (analysisId: string, projectId: string, config: AssetEmbedConfig) => void;
 }
 
 // State for the two-step embed flow
@@ -63,11 +65,15 @@ export const BoardEditor = forwardRef<BoardEditorHandle, BoardEditorProps>(
     onContentChange,
   }, ref) {
   const insertMarkdownRef = useRef<InsertMarkdownHandle>(null);
+  const insertAssetEmbedRef = useRef<InsertAssetEmbedHandle>(null);
 
-  // Expose insertMarkdown method to parent
+  // Expose insertMarkdown and insertAssetEmbed methods to parent
   useImperativeHandle(ref, () => ({
     insertMarkdown: (content: string) => {
       insertMarkdownRef.current?.insertMarkdown(content);
+    },
+    insertAssetEmbed: (analysisId: string, projectId: string, config: AssetEmbedConfig) => {
+      insertAssetEmbedRef.current?.insertAssetEmbed(analysisId, projectId, config);
     },
   }));
 
@@ -255,6 +261,7 @@ export const BoardEditor = forwardRef<BoardEditorHandle, BoardEditorProps>(
               <SlashCommandPlugin projectId={projectId} />
               <InitialContentPlugin content={initialContent} />
               <InsertMarkdownPlugin ref={insertMarkdownRef} />
+              <InsertAssetEmbedPlugin ref={insertAssetEmbedRef} />
             </div>
           </LexicalComposer>
         </ConfigModalContext.Provider>

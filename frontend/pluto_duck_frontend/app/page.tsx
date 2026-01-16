@@ -22,6 +22,7 @@ import { useBoards } from '../hooks/useBoards';
 import { useProjects } from '../hooks/useProjects';
 import { useProjectState } from '../hooks/useProjectState';
 import type { Board } from '../lib/boardsApi';
+import type { AssetEmbedConfig } from '../components/editor/nodes/AssetEmbedNode';
 import type { ChatTab } from '../hooks/useMultiTabChat';
 import { Loader } from '../components/ai-elements/loader';
 import { fetchSettings } from '../lib/settingsApi';
@@ -404,6 +405,21 @@ export default function WorkspacePage() {
     }
   }, [activeBoard]);
 
+  // Handle embedding asset from chat to board
+  const handleEmbedAssetToBoard = useCallback((analysisId: string, config: AssetEmbedConfig) => {
+    if (!activeBoard) {
+      // No board selected - show toast warning
+      console.warn('No active board selected. Please select a board first.');
+      // TODO: Add toast notification when toast system is available
+      return;
+    }
+    if (!defaultProjectId) {
+      console.warn('No project selected.');
+      return;
+    }
+    boardsViewRef.current?.insertAssetEmbed(analysisId, defaultProjectId, config);
+  }, [activeBoard, defaultProjectId]);
+
   // Handle board selection from modal
   const handleBoardSelect = useCallback((boardId: string) => {
     const board = boards.find(b => b.id === boardId);
@@ -647,6 +663,7 @@ export default function WorkspacePage() {
                 savedTabs={currentProject?.settings?.ui_state?.chat?.open_tabs}
                 savedActiveTabId={currentProject?.settings?.ui_state?.chat?.active_tab_id}
                 onSendToBoard={handleSendToBoard}
+                onEmbedAssetToBoard={handleEmbedAssetToBoard}
               />
             </div>
           )}

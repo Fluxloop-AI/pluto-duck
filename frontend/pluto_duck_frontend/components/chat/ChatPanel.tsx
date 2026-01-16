@@ -23,10 +23,12 @@ import { ActivityLoader } from '../ai-elements/activity-loader';
 import { MentionMenu } from './MentionMenu';
 import { ChatOnboarding } from './ChatOnboarding';
 import { RenderItem, type FeedbackType } from './renderers';
+import { AssetEmbedTestButtons } from './AssetEmbedTestButtons';
 import { type MentionItem } from '../../hooks/useAssetMentions';
 import type { ChatSessionSummary } from '../../lib/chatApi';
 import type { ChatRenderItem, AssistantMessageItem } from '../../types/chatRenderItem';
 import { ALL_MODEL_OPTIONS } from '../../constants/models';
+import type { AssetEmbedConfig } from '../editor/nodes/AssetEmbedNode';
 
 const MODELS = ALL_MODEL_OPTIONS;
 
@@ -156,6 +158,7 @@ interface ChatPanelProps {
   onEditUserMessage?: (messageId: string, content: string) => void;
   onFeedback?: (messageId: string, type: 'like' | 'dislike') => void;
   onSendToBoard?: (messageId: string, content: string) => void;
+  onEmbedAssetToBoard?: (analysisId: string, config: AssetEmbedConfig) => void;
   feedbackMap?: Map<string, FeedbackType>;
 }
 
@@ -173,6 +176,7 @@ export function ChatPanel({
   onEditUserMessage,
   onFeedback,
   onSendToBoard,
+  onEmbedAssetToBoard,
   feedbackMap,
 }: ChatPanelProps) {
   const [input, setInput] = useState('');
@@ -271,6 +275,12 @@ export function ChatPanel({
       {/* Input area */}
       <div className="shrink-0">
         <div className="w-full px-4 pb-4">
+          {/* Test buttons for Asset Embed (development only) */}
+          {process.env.NODE_ENV === 'development' && onEmbedAssetToBoard && (
+            <div className="mb-2">
+              <AssetEmbedTestButtons onEmbed={onEmbedAssetToBoard} />
+            </div>
+          )}
           <PromptInput onSubmit={handleSubmit}>
             <PromptInputBody>
               <PromptInputTextarea

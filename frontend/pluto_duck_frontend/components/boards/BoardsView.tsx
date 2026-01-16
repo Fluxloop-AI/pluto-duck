@@ -5,6 +5,7 @@ import { LayoutDashboard } from 'lucide-react';
 import { BoardToolbar } from './BoardToolbar';
 import { BoardEditor, type BoardEditorHandle } from '../editor/BoardEditor';
 import { Board, BoardTab, updateBoard } from '../../lib/boardsApi';
+import type { AssetEmbedConfig } from '../editor/nodes/AssetEmbedNode';
 import { nanoid } from 'nanoid';
 
 interface BoardsViewProps {
@@ -15,6 +16,7 @@ interface BoardsViewProps {
 
 export interface BoardsViewHandle {
   insertMarkdown: (content: string) => void;
+  insertAssetEmbed: (analysisId: string, projectId: string, config: AssetEmbedConfig) => void;
 }
 
 // Default tab when a board has no tabs yet
@@ -52,10 +54,13 @@ export const BoardsView = forwardRef<BoardsViewHandle, BoardsViewProps>(
   function BoardsView({ projectId, activeBoard, onBoardUpdate }, ref) {
   const boardEditorRef = useRef<BoardEditorHandle>(null);
 
-  // Expose insertMarkdown method to parent
+  // Expose insertMarkdown and insertAssetEmbed methods to parent
   useImperativeHandle(ref, () => ({
     insertMarkdown: (content: string) => {
       boardEditorRef.current?.insertMarkdown(content);
+    },
+    insertAssetEmbed: (analysisId: string, projectId: string, config: AssetEmbedConfig) => {
+      boardEditorRef.current?.insertAssetEmbed(analysisId, projectId, config);
     },
   }));
 

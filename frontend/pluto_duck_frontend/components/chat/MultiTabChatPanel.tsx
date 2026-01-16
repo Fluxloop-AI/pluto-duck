@@ -5,6 +5,7 @@ import { PlusIcon } from 'lucide-react';
 import { TabBar } from './TabBar';
 import { ChatPanel } from './ChatPanel';
 import { useMultiTabChat, type ChatTab } from '../../hooks/useMultiTabChat';
+import type { AssetEmbedConfig } from '../editor/nodes/AssetEmbedNode';
 
 interface MultiTabChatPanelProps {
   selectedModel: string;
@@ -17,6 +18,7 @@ interface MultiTabChatPanelProps {
   savedTabs?: Array<{ id: string; order: number }>;
   savedActiveTabId?: string;
   onSendToBoard?: (messageId: string, content: string) => void;
+  onEmbedAssetToBoard?: (analysisId: string, config: AssetEmbedConfig) => void;
 }
 
 export function MultiTabChatPanel({
@@ -30,6 +32,7 @@ export function MultiTabChatPanel({
   savedTabs,
   savedActiveTabId,
   onSendToBoard,
+  onEmbedAssetToBoard,
 }: MultiTabChatPanelProps) {
   const {
     tabs,
@@ -142,6 +145,7 @@ export function MultiTabChatPanel({
               onSubmit={handleSubmit}
               projectId={projectId || undefined}
               onSendToBoard={onSendToBoard}
+              onEmbedAssetToBoard={onEmbedAssetToBoard}
             />
           </div>
         ) : (
@@ -175,6 +179,7 @@ export function MultiTabChatPanel({
                 feedbackMap={feedbackMap}
                 projectId={projectId || undefined}
                 onSendToBoard={onSendToBoard}
+                onEmbedAssetToBoard={onEmbedAssetToBoard}
               />
             </div>
           ))

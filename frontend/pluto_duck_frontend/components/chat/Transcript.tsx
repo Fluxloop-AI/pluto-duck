@@ -3,7 +3,7 @@
 import { CheckIcon, XIcon } from 'lucide-react';
 import { Response } from '../ai-elements/response';
 import { Reasoning, ReasoningTrigger, ReasoningContent } from '../ai-elements/reasoning';
-import type { ToolUIApproval, ToolUIState, ToolUIType } from '../ai-elements/tool-types';
+import type { ToolUIApproval, ToolUIState } from '../ai-elements/tool-types';
 import {
   Tool,
   ToolHeader,
@@ -88,7 +88,6 @@ export function Transcript({ messages, events }: TranscriptProps) {
           // Handle tool events
           if (event.type === 'tool') {
             const toolState = getToolState(event);
-            const toolType = getToolType(event);
             const toolInput = getToolInput(event);
             const toolOutput = getToolOutput(event);
             const errorText = getToolError(event);
@@ -98,8 +97,7 @@ export function Transcript({ messages, events }: TranscriptProps) {
               <Tool key={`tool-${event.timestamp}-${index}`} defaultOpen>
                 <ToolHeader
                   state={toolState}
-                  type={toolType}
-                  title={event.subtype}
+                  toolName={getToolName(event)}
                 />
                 <ToolContent>
                   {toolInput && <ToolInput input={toolInput} />}
@@ -231,13 +229,13 @@ function getToolState(event: any): ToolUIState {
   return 'input-available';
 }
 
-function getToolType(event: any): ToolUIType {
+function getToolName(event: any): string {
   const content = event.content;
   if (content && typeof content === 'object') {
-    if (content.tool_name) return `tool-${content.tool_name}`;
-    if (content.name) return `tool-${content.name}`;
+    if (content.tool_name) return content.tool_name;
+    if (content.name) return content.name;
   }
-  return 'tool-unknown' as ToolUIType;
+  return 'unknown';
 }
 
 function getToolInput(event: any): Record<string, any> | undefined {

@@ -85,7 +85,7 @@ def get_llm_provider(
     model: Optional[str] = None,
 ) -> BaseLLMProvider:
     """Return an LLM provider configured via `PlutoDuckSettings`.
-    
+
     Args:
         scripted_responses: Optional test responses for MockLLMProvider
         model: Optional model override for this specific request
@@ -95,7 +95,7 @@ def get_llm_provider(
         return MockLLMProvider(scripted_responses)
 
     settings = get_settings()
-    
+
     # Get model: parameter > env var > database settings > default
     resolved_model = model or settings.agent.model
     if not resolved_model:
@@ -124,7 +124,7 @@ def get_llm_provider(
             api_key = db_settings.get("llm_api_key")
         except Exception:
             pass  # If DB is not available, continue with None
-    
+
     if settings.agent.mock_mode or not api_key:
         return MockLLMProvider()
 
@@ -144,5 +144,3 @@ def get_llm_provider(
         return LlamaCppLLMProvider(local_id)
 
     raise RuntimeError(f"Unsupported agent provider: {settings.agent.provider}")
-
-

@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useImperativeHandle, forwardRef } from 'react';
+import { useImperativeHandle, forwardRef } from 'react';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { $convertFromMarkdownString, TRANSFORMERS } from '@lexical/markdown';
-import { $getRoot, $createParagraphNode, $insertNodes } from 'lexical';
+import { $getRoot, $createParagraphNode } from 'lexical';
 
 export interface InsertMarkdownHandle {
   insertMarkdown: (content: string) => void;
@@ -16,30 +16,34 @@ export const InsertMarkdownPlugin = forwardRef<InsertMarkdownHandle>(
     useImperativeHandle(ref, () => ({
       insertMarkdown: (content: string) => {
         editor.update(() => {
-          // Create a temporary root to convert markdown
-          const nodes = $convertFromMarkdownString(content, TRANSFORMERS);
-
-          // Get the root and append nodes at the end
           const root = $getRoot();
 
-          // If the editor is empty (only has one empty paragraph), clear it first
-          const children = root.getChildren();
-          if (
-            children.length === 1 &&
-            children[0].getType() === 'paragraph' &&
-            children[0].getTextContent() === ''
-          ) {
-            children[0].remove();
+          // 1. Save existing children and detach from root
+          const existingChildren = root.getChildren();
+          for (const child of existingChildren) {
+            child.remove(); // Detach from parent but node remains in memory
           }
 
-          // Append each node from the converted markdown
-          if (Array.isArray(nodes)) {
-            for (const node of nodes) {
-              root.append(node);
-            }
+          // 2. Convert markdown (root is empty, so clear() has no effect)
+          $convertFromMarkdownString(content, TRANSFORMERS);
+
+          // 3. Save new children and detach from root
+          const newChildren = root.getChildren();
+          for (const child of newChildren) {
+            child.remove();
           }
 
-          // Add a trailing paragraph for continued editing
+          // 4. Append existing children first
+          for (const child of existingChildren) {
+            root.append(child);
+          }
+
+          // 5. Append new children
+          for (const child of newChildren) {
+            root.append(child);
+          }
+
+          // 6. Add trailing paragraph for continued editing
           const trailingParagraph = $createParagraphNode();
           root.append(trailingParagraph);
           trailingParagraph.select();

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState, useRef } from 'react';
-import { PlusIcon, SettingsIcon, DatabaseIcon, PanelLeftClose, PanelLeftOpen, SquarePen, Layers, PanelRightClose, PanelRightOpen, Package } from 'lucide-react';
+import { PlusIcon, SettingsIcon, DatabaseIcon, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Package } from 'lucide-react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { isTauriRuntime } from '../lib/tauriRuntime';
 
@@ -16,6 +16,8 @@ import {
   ConnectFolderModal,
 } from '../components/data-sources';
 import { BoardsView, BoardList, CreateBoardModal, BoardSelectorModal, type BoardsViewHandle } from '../components/boards';
+import { SidebarSection } from '../components/sidebar/SidebarSection';
+import { DatasetList } from '../components/sidebar/DatasetList';
 import { AssetListView } from '../components/assets';
 import { ProjectSelector, CreateProjectModal } from '../components/projects';
 import { useBoards } from '../hooks/useBoards';
@@ -28,6 +30,8 @@ import { Loader } from '../components/ai-elements/loader';
 import { fetchSettings } from '../lib/settingsApi';
 import { loadLocalModel, unloadLocalModel } from '../lib/modelsApi';
 import { fetchDataSources, fetchDataSourceDetail, type DataSource, type DataSourceTable } from '../lib/dataSourcesApi';
+import { listFileAssets, type FileAsset } from '../lib/fileAssetApi';
+import { fetchCachedTables, type CachedTable } from '../lib/sourceApi';
 import { fetchProject, type Project, type ProjectListItem } from '../lib/projectsApi';
 import { useBackendStatus } from '../hooks/useBackendStatus';
 
@@ -59,6 +63,7 @@ export default function WorkspacePage() {
   const [chatPanelCollapsed, setChatPanelCollapsed] = useState(false);
   const [boardSelectorOpen, setBoardSelectorOpen] = useState(false);
   const [pendingSendContent, setPendingSendContent] = useState<string | null>(null);
+  const [sidebarDatasets, setSidebarDatasets] = useState<(FileAsset | CachedTable)[]>([]);
 
   // Ref for BoardsView to access insertMarkdown
   const boardsViewRef = useRef<BoardsViewHandle>(null);
@@ -237,6 +242,23 @@ export default function WorkspacePage() {
     }
   }, [backendReady, defaultProjectId]);
 
+  // Load datasets for sidebar when project is selected
+  useEffect(() => {
+    if (backendReady && defaultProjectId) {
+      void (async () => {
+        try {
+          const [fileAssets, cachedTables] = await Promise.all([
+            listFileAssets(defaultProjectId),
+            fetchCachedTables(defaultProjectId),
+          ]);
+          setSidebarDatasets([...fileAssets, ...cachedTables]);
+        } catch (error) {
+          console.error('Failed to load datasets for sidebar', error);
+        }
+      })();
+    }
+  }, [backendReady, defaultProjectId, dataSourcesRefresh]);
+
   useEffect(() => {
     if (!backendReady) return;
     if (!selectedModel) return;
@@ -354,6 +376,12 @@ export default function WorkspacePage() {
     setDefaultProjectId(newProject.id);
     // Project will be set by the useEffect
   }, [apiCreateProject, reloadProjects]);
+
+  const handleCreateBoard = useCallback(() => {
+    const existingCount = boards.filter(b => b.name.startsWith('Untitled Board')).length;
+    const newName = existingCount === 0 ? 'Untitled Board' : `Untitled Board ${existingCount + 1}`;
+    void createBoard(newName);
+  }, [boards, createBoard]);
 
   const handleImportSuccess = useCallback(() => {
     // Trigger refresh of data sources list
@@ -531,81 +559,59 @@ export default function WorkspacePage() {
         }`}>
           <div className="flex h-full w-64 min-w-64 flex-col">
             <div className="pl-[18px] pr-[14px] pt-3 pb-3">
-              <div className="flex items-center justify-between">
-                <ProjectSelector
-                  currentProject={currentProject}
-                  projects={projects}
-                  onSelectProject={handleSelectProject}
-                  onNewProject={() => setShowCreateProjectModal(true)}
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    const existingCount = boards.filter(b => b.name.startsWith('Untitled Board')).length;
-                    const newName = existingCount === 0 ? 'Untitled Board' : `Untitled Board ${existingCount + 1}`;
-                    void createBoard(newName);
-                  }}
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-primary hover:bg-primary/10 transition"
-                  title="New board"
-                >
-                  <SquarePen className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto px-3 py-3">
-              {/* View Tabs */}
-              <div className="relative mb-3 flex rounded-lg bg-card p-1">
-                {/* Sliding indicator */}
-                <div
-                  className={`absolute top-1 bottom-1 w-[calc(50%-4px)] rounded-md bg-primary transition-all duration-200 ease-out ${
-                    mainView === 'boards' ? 'left-1' : 'left-[50%]'
-                  }`}
-                />
-                <button
-                  type="button"
-                  onClick={() => setMainView('boards')}
-                  className={`relative z-10 flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-colors duration-200 ${
-                    mainView === 'boards'
-                      ? 'text-primary-foreground'
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  <Layers className="h-3.5 w-3.5" />
-                  Boards
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMainView('assets')}
-                  className={`relative z-10 flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-colors duration-200 ${
-                    mainView === 'assets'
-                      ? 'text-primary-foreground'
-                      : 'text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  <Package className="h-3.5 w-3.5" />
-                  Assets
-                </button>
-              </div>
-
-              {mainView === 'boards' && (
-              <BoardList
-                boards={boards}
-                activeId={activeBoard?.id}
-                onSelect={(board: Board) => selectBoard(board)}
-                onDelete={(board: Board) => deleteBoard(board.id)}
-                onUpdate={(boardId: string, data: { name?: string }) => updateBoard(boardId, data)}
+              <ProjectSelector
+                currentProject={currentProject}
+                projects={projects}
+                onSelectProject={handleSelectProject}
+                onNewProject={() => setShowCreateProjectModal(true)}
               />
-              )}
-
-              {mainView === 'assets' && (
-                <div className="text-xs text-muted-foreground">
-                  View saved analyses in the main panel
-                </div>
-              )}
             </div>
 
-            <div className="space-y-2 px-3 pb-4">
+            <div className="flex-1 overflow-y-auto py-2">
+              {/* Datasets Section */}
+              <SidebarSection
+                label="Dataset"
+                defaultOpen={true}
+                onAddClick={() => { /* TODO: Open add dataset modal */ }}
+              >
+                <DatasetList
+                  datasets={sidebarDatasets}
+                  maxItems={5}
+                  activeId={undefined}
+                  onSelect={() => { /* TODO: Handle dataset selection */ }}
+                  onBrowseAll={() => setMainView('assets')}
+                />
+              </SidebarSection>
+
+              {/* Boards Section */}
+              <SidebarSection
+                label="Board"
+                defaultOpen={true}
+                onAddClick={handleCreateBoard}
+              >
+                <BoardList
+                  boards={boards}
+                  activeId={activeBoard?.id}
+                  onSelect={(board: Board) => selectBoard(board)}
+                  onDelete={(board: Board) => deleteBoard(board.id)}
+                  onUpdate={(boardId: string, data: { name?: string }) => updateBoard(boardId, data)}
+                />
+              </SidebarSection>
+            </div>
+
+            <div className="space-y-1 px-3 pb-4">
+              <button
+                type="button"
+                className={`flex w-full items-center gap-2 rounded-lg px-[10px] py-2 text-sm transition-colors ${
+                  mainView === 'assets'
+                    ? 'bg-black/10'
+                    : 'hover:bg-black/10'
+                }`}
+                onClick={() => setMainView(mainView === 'assets' ? 'boards' : 'assets')}
+              >
+                <Package className="h-4 w-4" />
+                <span>Assets</span>
+              </button>
               <button
                 type="button"
                 className="flex w-full items-center gap-2 rounded-lg px-[10px] py-2 text-sm hover:bg-black/10 transition-colors"

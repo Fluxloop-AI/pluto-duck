@@ -15,7 +15,7 @@ interface DatasetListProps {
 
 export function DatasetList({
   datasets,
-  maxItems = 5,
+  maxItems = 3,
   activeId,
   onSelect,
 }: DatasetListProps) {

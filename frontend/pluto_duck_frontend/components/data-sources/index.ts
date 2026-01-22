@@ -1,3 +1,4 @@
+export * from './AddDatasetModal';
 export * from './DataSourcesModal';
 export * from './SourceCard';
 export * from './ConnectorGrid';

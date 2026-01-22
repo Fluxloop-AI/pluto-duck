@@ -8,6 +8,7 @@ import { isTauriRuntime } from '../lib/tauriRuntime';
 import { SettingsModal, MultiTabChatPanel } from '../components/chat';
 import { UpdateBanner } from '../components/UpdateBanner';
 import {
+  AddDatasetModal,
   DataSourcesModal,
   ImportCSVModal,
   ImportParquetModal,
@@ -59,6 +60,7 @@ export default function WorkspacePage() {
   const [currentProject, setCurrentProject] = useState<ProjectListItem | null>(null);
   const [showCreateBoardModal, setShowCreateBoardModal] = useState(false);
   const [showCreateProjectModal, setShowCreateProjectModal] = useState(false);
+  const [showAddDatasetModal, setShowAddDatasetModal] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [chatPanelCollapsed, setChatPanelCollapsed] = useState(false);
   const [boardSelectorOpen, setBoardSelectorOpen] = useState(false);
@@ -572,11 +574,11 @@ export default function WorkspacePage() {
               <SidebarSection
                 label="Dataset"
                 defaultOpen={true}
-                onAddClick={() => { /* TODO: Open add dataset modal */ }}
+                onAddClick={() => setShowAddDatasetModal(true)}
               >
                 <DatasetList
                   datasets={sidebarDatasets}
-                  maxItems={5}
+                  maxItems={3}
                   activeId={undefined}
                   onSelect={() => { /* TODO: Handle dataset selection */ }}
                 />
@@ -754,6 +756,13 @@ export default function WorkspacePage() {
         }}
         onImportSuccess={handleImportSuccess}
         existingSource={selectedSourceForImport}
+      />
+      <AddDatasetModal
+        projectId={defaultProjectId || ''}
+        open={showAddDatasetModal}
+        onOpenChange={setShowAddDatasetModal}
+        onImportSuccess={handleImportSuccess}
+        onOpenPostgresModal={() => setImportPostgresOpen(true)}
       />
       <BoardSelectorModal
         open={boardSelectorOpen}

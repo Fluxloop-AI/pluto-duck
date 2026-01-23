@@ -18,7 +18,8 @@ import {
 } from '../components/data-sources';
 import { BoardsView, BoardList, CreateBoardModal, BoardSelectorModal, type BoardsViewHandle } from '../components/boards';
 import { DatasetList } from '../components/sidebar';
-import { DatasetView } from '../components/datasets';
+import { DatasetView, DatasetDetailView } from '../components/datasets';
+import type { Dataset } from '../components/datasets/DatasetView';
 import { AssetListView } from '../components/assets';
 import { ProjectSelector, CreateProjectModal } from '../components/projects';
 import { useBoards } from '../hooks/useBoards';
@@ -67,6 +68,7 @@ export default function WorkspacePage() {
   const [pendingSendContent, setPendingSendContent] = useState<string | null>(null);
   const [sidebarTab, setSidebarTab] = useState<'boards' | 'datasets'>('boards');
   const [sidebarDatasets, setSidebarDatasets] = useState<(FileAsset | CachedTable)[]>([]);
+  const [selectedDataset, setSelectedDataset] = useState<Dataset | null>(null);
 
   // Ref for BoardsView to access insertMarkdown
   const boardsViewRef = useRef<BoardsViewHandle>(null);
@@ -655,8 +657,12 @@ export default function WorkspacePage() {
                 <DatasetList
                   datasets={sidebarDatasets}
                   maxItems={3}
-                  onSelect={() => {}}
+                  onSelect={(dataset) => {
+                    setSelectedDataset(dataset);
+                    setMainView('datasets');
+                  }}
                   onBrowseAll={() => {
+                    setSelectedDataset(null);
                     setMainView('datasets');
                   }}
                   onDelete={async (dataset) => {
@@ -710,11 +716,19 @@ export default function WorkspacePage() {
               mainView === 'boards' ? (
                 <BoardsView ref={boardsViewRef} projectId={defaultProjectId} activeBoard={activeBoard} />
               ) : mainView === 'datasets' ? (
-                <DatasetView
-                  projectId={defaultProjectId}
-                  onOpenAddModal={() => setShowAddDatasetModal(true)}
-                  refreshTrigger={dataSourcesRefresh}
-                />
+                selectedDataset ? (
+                  <DatasetDetailView
+                    projectId={defaultProjectId}
+                    dataset={selectedDataset}
+                    onBack={() => setSelectedDataset(null)}
+                  />
+                ) : (
+                  <DatasetView
+                    projectId={defaultProjectId}
+                    onOpenAddModal={() => setShowAddDatasetModal(true)}
+                    refreshTrigger={dataSourcesRefresh}
+                  />
+                )
               ) : (
                 <AssetListView projectId={defaultProjectId} initialTab={assetInitialTab} refreshTrigger={dataSourcesRefresh} />
               )

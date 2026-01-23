@@ -44,7 +44,7 @@ BoardsView + BoardToolbar 패턴을 참조하여 DatasetDetailView + 탭 UI를 �
 
 ---
 
-## - [ ] Phase 1: 라우팅 및 상태 관리
+## - [x] Phase 1: 라우팅 및 상태 관리
 
 ### Overview
 page.tsx에 selectedDataset 상태를 추가하고, 사이드바에서 dataset 선택 시 detail view로 전환되는 로직을 구현한다.
@@ -63,8 +63,8 @@ page.tsx에 selectedDataset 상태를 추가하고, 사이드바에서 dataset �
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] TypeScript 컴파일 에러 없음
-- [ ] ESLint 에러 없음
+- [x] TypeScript 컴파일 에러 없음
+- [x] ESLint 에러 없음
 
 #### Manual Verification:
 - [ ] 사이드바 Dataset 클릭 시 console.log 등으로 선택 확인 (아직 컴포넌트 미구현)
@@ -72,7 +72,7 @@ page.tsx에 selectedDataset 상태를 추가하고, 사이드바에서 dataset �
 
 ---
 
-## - [ ] Phase 2: DatasetDetailView 컴포넌트
+## - [x] Phase 2: DatasetDetailView 컴포넌트
 
 ### Overview
 메인 컨테이너 컴포넌트와 탭 UI를 구현한다. BoardsView/BoardToolbar 패턴을 참조하되, 탭 추가/삭제/이름변경 기능은 제외한다.
@@ -110,8 +110,8 @@ const [activeTab, setActiveTab] = useState<DatasetTab>('table');  // 기본값: 
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] TypeScript 컴파일 에러 없음
-- [ ] ESLint 에러 없음
+- [x] TypeScript 컴파일 에러 없음
+- [x] ESLint 에러 없음
 
 #### Manual Verification:
 - [ ] DatasetDetailView 렌더링 확인
@@ -120,7 +120,7 @@ const [activeTab, setActiveTab] = useState<DatasetTab>('table');  // 기본값: 
 
 ---
 
-## - [ ] Phase 3: Table 탭 구현
+## - [x] Phase 3: Table 탭 구현
 
 ### Overview
 AssetTableView를 활용하여 Table 탭 내용을 구현한다. Dataset 타입에 따라 적절한 API를 호출하여 데이터를 로드한다.
@@ -153,8 +153,8 @@ AssetTableView를 활용하여 Table 탭 내용을 구현한다. Dataset 타입�
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] TypeScript 컴파일 에러 없음
-- [ ] ESLint 에러 없음
+- [x] TypeScript 컴파일 에러 없음
+- [x] ESLint 에러 없음
 
 #### Manual Verification:
 - [ ] FileAsset 선택 시 테이블 데이터 로딩 및 표시
@@ -164,7 +164,7 @@ AssetTableView를 활용하여 Table 탭 내용을 구현한다. Dataset 타입�
 
 ---
 
-## - [ ] Phase 4: Placeholder 탭 구현
+## - [x] Phase 4: Placeholder 탭 구현
 
 ### Overview
 Summary와 History 탭에 placeholder 내용을 추가한다.
@@ -200,8 +200,8 @@ Summary와 History 탭에 placeholder 내용을 추가한다.
 ### Success Criteria:
 
 #### Automated Verification:
-- [ ] TypeScript 컴파일 에러 없음
-- [ ] ESLint 에러 없음
+- [x] TypeScript 컴파일 에러 없음
+- [x] ESLint 에러 없음
 
 #### Manual Verification:
 - [ ] Summary 탭 선택 시 placeholder 표시

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState, useRef } from 'react';
-import { PlusIcon, SettingsIcon, DatabaseIcon, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Package } from 'lucide-react';
+import { PlusIcon, SettingsIcon, DatabaseIcon, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Package, Database, Layers } from 'lucide-react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { isTauriRuntime } from '../lib/tauriRuntime';
 
@@ -17,8 +17,8 @@ import {
   ConnectFolderModal,
 } from '../components/data-sources';
 import { BoardsView, BoardList, CreateBoardModal, BoardSelectorModal, type BoardsViewHandle } from '../components/boards';
-import { SidebarSection } from '../components/sidebar/SidebarSection';
-import { DatasetList } from '../components/sidebar/DatasetList';
+import { SidebarSection, SidebarMenuItem } from '../components/sidebar';
+import { DatasetView } from '../components/datasets';
 import { AssetListView } from '../components/assets';
 import { ProjectSelector, CreateProjectModal } from '../components/projects';
 import { useBoards } from '../hooks/useBoards';
@@ -31,12 +31,10 @@ import { Loader } from '../components/ai-elements/loader';
 import { fetchSettings } from '../lib/settingsApi';
 import { loadLocalModel, unloadLocalModel } from '../lib/modelsApi';
 import { fetchDataSources, fetchDataSourceDetail, type DataSource, type DataSourceTable } from '../lib/dataSourcesApi';
-import { listFileAssets, type FileAsset } from '../lib/fileAssetApi';
-import { fetchCachedTables, type CachedTable } from '../lib/sourceApi';
 import { fetchProject, type Project, type ProjectListItem } from '../lib/projectsApi';
 import { useBackendStatus } from '../hooks/useBackendStatus';
 
-type MainView = 'boards' | 'assets';
+type MainView = 'boards' | 'assets' | 'datasets';
 
 const SIDEBAR_COLLAPSED_KEY = 'pluto-duck-sidebar-collapsed';
 
@@ -65,7 +63,6 @@ export default function WorkspacePage() {
   const [chatPanelCollapsed, setChatPanelCollapsed] = useState(false);
   const [boardSelectorOpen, setBoardSelectorOpen] = useState(false);
   const [pendingSendContent, setPendingSendContent] = useState<string | null>(null);
-  const [sidebarDatasets, setSidebarDatasets] = useState<(FileAsset | CachedTable)[]>([]);
 
   // Ref for BoardsView to access insertMarkdown
   const boardsViewRef = useRef<BoardsViewHandle>(null);
@@ -244,22 +241,6 @@ export default function WorkspacePage() {
     }
   }, [backendReady, defaultProjectId]);
 
-  // Load datasets for sidebar when project is selected
-  useEffect(() => {
-    if (backendReady && defaultProjectId) {
-      void (async () => {
-        try {
-          const [fileAssets, cachedTables] = await Promise.all([
-            listFileAssets(defaultProjectId),
-            fetchCachedTables(defaultProjectId),
-          ]);
-          setSidebarDatasets([...fileAssets, ...cachedTables]);
-        } catch (error) {
-          console.error('Failed to load datasets for sidebar', error);
-        }
-      })();
-    }
-  }, [backendReady, defaultProjectId, dataSourcesRefresh]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -570,35 +551,34 @@ export default function WorkspacePage() {
             </div>
 
             <div className="flex-1 overflow-y-auto py-2">
-              {/* Datasets Section */}
-              <SidebarSection
+              {/* Dataset - Menu Item */}
+              <SidebarMenuItem
+                icon={<Database className="h-4 w-4" />}
                 label="Dataset"
-                defaultOpen={true}
-                onAddClick={() => setShowAddDatasetModal(true)}
-              >
-                <DatasetList
-                  datasets={sidebarDatasets}
-                  maxItems={3}
-                  activeId={undefined}
-                  onSelect={() => { /* TODO: Handle dataset selection */ }}
-                />
-              </SidebarSection>
+                isActive={mainView === 'datasets'}
+                onClick={() => {
+                  setMainView('datasets');
+                  selectBoard(null);
+                }}
+              />
 
-              {/* Boards Section */}
+              {/* Board - Section Header + List */}
               <div className="mt-4">
-              <SidebarSection
-                label="Board"
-                defaultOpen={true}
-                onAddClick={handleCreateBoard}
-              >
-                <BoardList
-                  boards={boards}
-                  activeId={activeBoard?.id}
-                  onSelect={(board: Board) => selectBoard(board)}
-                  onDelete={(board: Board) => deleteBoard(board.id)}
-                  onUpdate={(boardId: string, data: { name?: string }) => updateBoard(boardId, data)}
-                />
-              </SidebarSection>
+                <SidebarSection
+                  icon={<Layers className="h-4 w-4" />}
+                  label="Board"
+                  isActive={mainView === 'boards'}
+                  onClick={() => setMainView('boards')}
+                  onAddClick={handleCreateBoard}
+                >
+                  <BoardList
+                    boards={boards}
+                    activeId={activeBoard?.id}
+                    onSelect={(board: Board) => selectBoard(board)}
+                    onDelete={(board: Board) => deleteBoard(board.id)}
+                    onUpdate={(boardId: string, data: { name?: string }) => updateBoard(boardId, data)}
+                  />
+                </SidebarSection>
               </div>
             </div>
 
@@ -633,6 +613,12 @@ export default function WorkspacePage() {
             {defaultProjectId ? (
               mainView === 'boards' ? (
                 <BoardsView ref={boardsViewRef} projectId={defaultProjectId} activeBoard={activeBoard} />
+              ) : mainView === 'datasets' ? (
+                <DatasetView
+                  projectId={defaultProjectId}
+                  onOpenAddModal={() => setShowAddDatasetModal(true)}
+                  refreshTrigger={dataSourcesRefresh}
+                />
               ) : (
                 <AssetListView projectId={defaultProjectId} initialTab={assetInitialTab} refreshTrigger={dataSourcesRefresh} />
               )

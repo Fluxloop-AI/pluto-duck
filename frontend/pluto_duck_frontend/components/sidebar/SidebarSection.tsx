@@ -1,54 +1,60 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
-import { ChevronDown, Plus } from 'lucide-react';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '../ui/collapsible';
+import { Plus } from 'lucide-react';
+import type { ReactNode } from 'react';
 
 interface SidebarSectionProps {
+  icon?: ReactNode;
   label: string;
-  defaultOpen?: boolean;
+  isActive?: boolean;
+  onClick?: () => void;
   onAddClick?: () => void;
-  children: ReactNode;
+  children?: ReactNode;
 }
 
 export function SidebarSection({
+  icon,
   label,
-  defaultOpen = true,
+  isActive,
+  onClick,
   onAddClick,
   children,
 }: SidebarSectionProps) {
-  const [isOpen, setIsOpen] = useState(defaultOpen);
-
   return (
-    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
-      <div className="flex items-center justify-between py-1 pl-[18px] pr-[14px]">
-        <CollapsibleTrigger className="flex items-center gap-1 hover:opacity-80 transition-opacity">
-          <span className="text-xs text-muted-foreground font-medium">
+    <div>
+      <div
+        className={`flex items-center justify-between py-1 pl-[18px] pr-[14px] ${
+          onClick ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''
+        }`}
+        onClick={onClick}
+        onKeyDown={onClick ? (e) => e.key === 'Enter' && onClick() : undefined}
+        role={onClick ? 'button' : undefined}
+        tabIndex={onClick ? 0 : undefined}
+      >
+        <div className="flex items-center gap-2">
+          {icon && <span className="text-muted-foreground">{icon}</span>}
+          <span
+            className={`text-sm font-medium ${
+              isActive ? 'text-foreground' : 'text-muted-foreground'
+            }`}
+          >
             {label}
           </span>
-          <ChevronDown
-            className={`h-4 w-4 text-muted-foreground transition-transform ${
-              isOpen ? '' : '-rotate-90'
-            }`}
-          />
-        </CollapsibleTrigger>
+        </div>
         {onAddClick && (
           <button
             type="button"
-            onClick={onAddClick}
+            onClick={(e) => {
+              e.stopPropagation();
+              onAddClick();
+            }}
             className="flex h-6 w-6 items-center justify-center rounded hover:bg-gray-200 transition-colors"
           >
             <Plus className="h-4 w-4 text-muted-foreground" />
           </button>
         )}
       </div>
-      <CollapsibleContent className="px-[14px]">
-        {children}
-      </CollapsibleContent>
-    </Collapsible>
+      {children && <div className="px-[14px]">{children}</div>}
+    </div>
   );
 }

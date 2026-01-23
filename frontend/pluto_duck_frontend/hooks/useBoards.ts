@@ -102,7 +102,11 @@ export function useBoards({ projectId, enabled = true }: UseBoardsOptions) {
     }
   }, [activeBoard, boards]);
 
-  const selectBoard = useCallback(async (board: Board) => {
+  const selectBoard = useCallback(async (board: Board | null) => {
+    if (!board) {
+      setActiveBoard(null);
+      return;
+    }
     try {
       // Fetch fresh details BEFORE setting activeBoard to avoid stale data overwrite
       const detail = await fetchBoardDetail(board.id);

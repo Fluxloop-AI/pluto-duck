@@ -1,52 +1,44 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Plus, Table2, Database, RefreshCw, FileText, HardDrive } from 'lucide-react';
+import { useEffect, useState, useRef } from 'react';
+import { Plus, RefreshCw, HardDrive, TrashIcon } from 'lucide-react';
 import { listFileAssets, type FileAsset } from '../../lib/fileAssetApi';
 import { fetchCachedTables, type CachedTable } from '../../lib/sourceApi';
+import { formatRelativeTime } from '../../lib/utils';
 
-type Dataset = FileAsset | CachedTable;
+export type Dataset = FileAsset | CachedTable;
 
 interface DatasetViewProps {
   projectId: string;
   onOpenAddModal?: () => void;
   refreshTrigger?: number;
+  activeDatasetId?: string;
+  onSelectDataset?: (dataset: Dataset) => void;
+  onDeleteDataset?: (dataset: Dataset) => void;
+  onRenameDataset?: (dataset: Dataset, newName: string) => void;
 }
 
 function isFileAsset(dataset: Dataset): dataset is FileAsset {
   return 'file_type' in dataset;
 }
 
-function formatBytes(bytes: number | null): string {
-  if (bytes === null || bytes === undefined) return '-';
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function formatNumber(num: number | null): string {
-  if (num === null || num === undefined) return '-';
-  return num.toLocaleString();
-}
-
-function formatDate(dateStr: string | null): string {
-  if (!dateStr) return '-';
-  const date = new Date(dateStr);
-  return date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
-
 export function DatasetView({
   projectId,
   onOpenAddModal,
   refreshTrigger = 0,
+  activeDatasetId,
+  onSelectDataset,
+  onDeleteDataset,
+  onRenameDataset,
 }: DatasetViewProps) {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
+  const [editingDatasetId, setEditingDatasetId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!projectId) return;
@@ -71,6 +63,23 @@ export function DatasetView({
     void loadDatasets();
   }, [projectId, refreshTrigger]);
 
+  // Update relative times every minute
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTick(t => t + 1);
+    }, 60000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Focus input when editing starts
+  useEffect(() => {
+    if (editingDatasetId && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editingDatasetId]);
+
   const getDatasetName = (dataset: Dataset): string => {
     if (isFileAsset(dataset)) {
       return dataset.name || dataset.table_name;
@@ -78,32 +87,38 @@ export function DatasetView({
     return dataset.local_table;
   };
 
-  const getDatasetType = (dataset: Dataset): string => {
-    if (isFileAsset(dataset)) {
-      return dataset.file_type.toUpperCase();
-    }
-    return 'Cached';
-  };
-
-  const getDatasetIcon = (dataset: Dataset) => {
-    if (isFileAsset(dataset)) {
-      return <FileText className="h-4 w-4" />;
-    }
-    return <Database className="h-4 w-4" />;
-  };
-
-  const getRowCount = (dataset: Dataset): number | null => {
-    if (isFileAsset(dataset)) {
-      return dataset.row_count;
-    }
-    return dataset.row_count;
-  };
-
   const getCreatedDate = (dataset: Dataset): string | null => {
     if (isFileAsset(dataset)) {
       return dataset.created_at;
     }
     return dataset.cached_at;
+  };
+
+  const handleStartRename = (dataset: Dataset) => {
+    // Only allow rename for FileAsset type
+    if (!isFileAsset(dataset)) return;
+    setEditingDatasetId(dataset.id);
+    setEditingName(getDatasetName(dataset));
+  };
+
+  const handleFinishRename = () => {
+    if (editingDatasetId && editingName.trim() && onRenameDataset) {
+      const dataset = datasets.find(d => d.id === editingDatasetId);
+      if (dataset && editingName.trim() !== getDatasetName(dataset)) {
+        onRenameDataset(dataset, editingName.trim());
+      }
+    }
+    setEditingDatasetId(null);
+    setEditingName('');
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleFinishRename();
+    } else if (e.key === 'Escape') {
+      setEditingDatasetId(null);
+      setEditingName('');
+    }
   };
 
   if (loading) {
@@ -173,34 +188,89 @@ export function DatasetView({
           </div>
         ) : (
           /* Dataset List */
-          <div className="grid gap-3">
+          <div className="space-y-1 pl-0.5">
             {datasets.map((dataset) => (
-              <div
-                key={dataset.id}
-                className="flex items-center gap-4 rounded-lg border bg-card p-4 transition-colors hover:bg-accent/50"
-              >
-                {/* Icon */}
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted">
-                  {getDatasetIcon(dataset)}
-                </div>
-
-                {/* Info */}
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate font-medium">{getDatasetName(dataset)}</span>
-                    <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                      {getDatasetType(dataset)}
-                    </span>
+              confirmingDeleteId === dataset.id ? (
+                // Inline delete confirmation UI
+                <div
+                  key={dataset.id}
+                  className="flex h-[56px] items-center justify-between gap-2 rounded-lg bg-destructive/10 px-2.5 text-sm"
+                >
+                  <span className="text-destructive text-xs font-medium">Delete this dataset?</span>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={() => setConfirmingDeleteId(null)}
+                      className="px-2 py-1 text-xs rounded hover:bg-background transition"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => {
+                        onDeleteDataset?.(dataset);
+                        setConfirmingDeleteId(null);
+                      }}
+                      className="px-2 py-1 text-xs rounded bg-destructive text-destructive-foreground hover:bg-destructive/90 transition"
+                    >
+                      Delete
+                    </button>
                   </div>
-                  <div className="mt-0.5 flex items-center gap-3 text-xs text-muted-foreground">
-                    <span>{formatNumber(getRowCount(dataset))} rows</span>
-                    {isFileAsset(dataset) && dataset.file_size_bytes && (
-                      <span>{formatBytes(dataset.file_size_bytes)}</span>
+                </div>
+              ) : (
+                // Normal dataset item
+                <div
+                  key={dataset.id}
+                  className={`
+                    group relative flex items-center gap-2 rounded-lg px-2.5 py-2.5 text-sm cursor-pointer transition-colors
+                    ${
+                      activeDatasetId === dataset.id
+                        ? 'bg-primary/10 text-primary'
+                        : 'text-foreground hover:bg-accent'
+                    }
+                  `}
+                  onClick={() => onSelectDataset?.(dataset)}
+                >
+                  <div className="flex-1 min-w-0">
+                    {editingDatasetId === dataset.id ? (
+                      <input
+                        ref={inputRef}
+                        type="text"
+                        value={editingName}
+                        onChange={(e) => setEditingName(e.target.value)}
+                        onBlur={handleFinishRename}
+                        onKeyDown={handleKeyDown}
+                        onClick={(e) => e.stopPropagation()}
+                        className={`w-full bg-transparent outline-none truncate ${activeDatasetId === dataset.id ? 'font-medium' : 'font-normal'}`}
+                      />
+                    ) : (
+                      <p
+                        className={`truncate ${activeDatasetId === dataset.id ? 'font-medium' : 'font-normal'}`}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          handleStartRename(dataset);
+                        }}
+                      >
+                        {getDatasetName(dataset)}
+                      </p>
                     )}
-                    <span>{formatDate(getCreatedDate(dataset))}</span>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {formatRelativeTime(getCreatedDate(dataset))}
+                    </p>
                   </div>
+
+                  {onDeleteDataset && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setConfirmingDeleteId(dataset.id);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 flex h-5 w-5 items-center justify-center rounded hover:bg-destructive/10 hover:text-destructive transition-opacity shrink-0"
+                      title="Delete dataset"
+                    >
+                      <TrashIcon className="h-3 w-3" />
+                    </button>
+                  )}
                 </div>
-              </div>
+              )
             ))}
           </div>
         )}

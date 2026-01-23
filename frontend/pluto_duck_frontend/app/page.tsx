@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState, useRef } from 'react';
-import { SettingsIcon, DatabaseIcon, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Package, Database, Layers, SquarePen } from 'lucide-react';
+import { SettingsIcon, DatabaseIcon, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Package, Database, Layers, SquarePen, Plus } from 'lucide-react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { isTauriRuntime } from '../lib/tauriRuntime';
 
@@ -31,8 +31,8 @@ import { Loader } from '../components/ai-elements/loader';
 import { fetchSettings } from '../lib/settingsApi';
 import { loadLocalModel, unloadLocalModel } from '../lib/modelsApi';
 import { fetchDataSources, fetchDataSourceDetail, type DataSource, type DataSourceTable } from '../lib/dataSourcesApi';
-import { listFileAssets, type FileAsset } from '../lib/fileAssetApi';
-import { fetchCachedTables, type CachedTable } from '../lib/sourceApi';
+import { listFileAssets, deleteFileAsset, type FileAsset } from '../lib/fileAssetApi';
+import { fetchCachedTables, dropCache, type CachedTable } from '../lib/sourceApi';
 import { fetchProject, type Project, type ProjectListItem } from '../lib/projectsApi';
 import { useBackendStatus } from '../hooks/useBackendStatus';
 
@@ -615,6 +615,33 @@ export default function WorkspacePage() {
               </button>
             </div>
 
+            {/* Action Button */}
+            {sidebarTab === 'boards' ? (
+              <button
+                type="button"
+                onClick={handleCreateBoard}
+                className="flex w-full items-center gap-3 mx-3 mb-1 px-2.5 py-3 text-sm text-muted-foreground hover:text-foreground hover:bg-accent rounded-lg transition-colors"
+                style={{ width: 'calc(100% - 24px)' }}
+              >
+                <div className="flex items-center justify-center rounded-full bg-primary/10" style={{ width: 22, height: 22 }}>
+                  <Plus className="h-3.5 w-3.5" />
+                </div>
+                New Board
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowAddDatasetModal(true)}
+                className="flex w-full items-center gap-3 mx-3 mb-1 px-2.5 py-3 text-sm text-muted-foreground hover:text-foreground hover:bg-accent rounded-lg transition-colors"
+                style={{ width: 'calc(100% - 24px)' }}
+              >
+                <div className="flex items-center justify-center rounded-full bg-primary/10" style={{ width: 22, height: 22 }}>
+                  <Plus className="h-3.5 w-3.5" />
+                </div>
+                Add Dataset
+              </button>
+            )}
+
             <div className="flex-1 overflow-y-auto px-3">
               {sidebarTab === 'boards' ? (
                 <BoardList
@@ -631,6 +658,21 @@ export default function WorkspacePage() {
                   onSelect={() => {}}
                   onBrowseAll={() => {
                     setMainView('datasets');
+                  }}
+                  onDelete={async (dataset) => {
+                    if (!defaultProjectId) return;
+                    try {
+                      // FileAsset has 'name', CachedTable has 'local_table'
+                      if ('name' in dataset) {
+                        await deleteFileAsset(defaultProjectId, dataset.id);
+                      } else {
+                        await dropCache(defaultProjectId, dataset.local_table);
+                      }
+                      // Refresh datasets list
+                      setDataSourcesRefresh(prev => prev + 1);
+                    } catch (error) {
+                      console.error('Failed to delete dataset', error);
+                    }
                   }}
                 />
               )}

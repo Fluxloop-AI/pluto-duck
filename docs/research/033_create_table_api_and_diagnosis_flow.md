@@ -1,9 +1,10 @@
 ---
-date: 2026-01-22T14:30:00+09:00
+date: 2026-01-23T10:00:00+09:00
 researcher: Claude
 topic: "Create Table API Flow & Data Diagnosis Implementation Research"
 tags: [research, codebase, create-table, file-import, diagnosis, metadata]
 status: complete
+last_verified: 2026-01-23
 ---
 
 # Research: Create Table API Flow & Data Diagnosis Implementation
@@ -30,21 +31,46 @@ status: complete
 ### 1. Frontend Create Table Flow
 
 #### 진입점: AddDatasetModal
-**File**: [AddDatasetModal.tsx](frontend/pluto_duck_frontend/components/data-sources/AddDatasetModal.tsx)
+**File**: [AddDatasetModal.tsx:464-534](frontend/pluto_duck_frontend/components/data-sources/AddDatasetModal.tsx#L464-L534)
 
-Scan 버튼 클릭 시 `handleScan()` 호출:
+Scan 버튼 클릭 시 `handleScan()` 호출 (Lines 464-534):
 ```typescript
-// 각 파일에 대해 importFile() API 호출
-const request: ImportFileRequest = {
-  file_path: file.path,
-  file_type: fileType as 'csv' | 'parquet',
-  table_name: tableName,  // 파일명 기반 자동 생성
-  name: file.name,
-  overwrite: false,
-  mode: 'replace',
-};
-await importFile(projectId, request);
+const handleScan = useCallback(async () => {
+  if (selectedFiles.length === 0) return;
+  setIsScanning(true);
+
+  // Keep track of used table names to avoid duplicates
+  const usedTableNames = new Set<string>();
+
+  // Import files sequentially to avoid DB conflicts
+  for (const file of selectedFiles) {
+    const fileType = getFileType(file.name);
+
+    // Generate unique table name
+    let tableName = generateTableName(file.name);
+    let suffix = 1;
+    while (usedTableNames.has(tableName)) {
+      tableName = `${generateTableName(file.name)}_${suffix}`;
+      suffix++;
+    }
+    usedTableNames.add(tableName);
+
+    await importFile(projectId, {
+      file_path: file.path,
+      file_type: fileType,
+      table_name: tableName,
+      name: file.name,
+      overwrite: true,
+    });
+  }
+  // ... error handling and modal close logic
+}, [projectId, selectedFiles, onImportSuccess, onOpenChange]);
 ```
+
+**구현 특징**:
+- **순차 처리**: DB 충돌 방지를 위해 파일을 순차적으로 import
+- **중복 테이블명 처리**: 동일 테이블명 존재 시 suffix 추가 (`_1`, `_2`, ...)
+- **상세 에러 처리**: 파일별 성공/실패 카운팅 및 에러 메시지 수집
 
 #### API 함수
 **File**: [fileAssetApi.ts:86-104](frontend/pluto_duck_frontend/lib/fileAssetApi.ts#L86-L104)
@@ -147,14 +173,25 @@ INSERT INTO _file_assets.files (
 **File**: [duckdb_utils.py:9-23](backend/pluto_duck_backend/app/services/duckdb_utils.py#L9-L23)
 
 ```python
-_duckdb_conn_lock = threading.RLock()
+_duckdb_conn_lock = threading.RLock()  # Line 9
 
 @contextmanager
-def connect_warehouse(path: Path):
+def connect_warehouse(path: Path):  # Lines 12-23
+    """Serialize DuckDB connections to avoid unique file handle conflicts."""
     with _duckdb_conn_lock:
         con = duckdb.connect(str(path))
-        yield con
+        try:
+            yield con
+        finally:
+            try:
+                con.close()
+            except Exception:
+                pass
 ```
+
+**스레드 안전성 패턴**:
+- `threading.RLock()` (Reentrant Lock)으로 DuckDB 연결 직렬화
+- try-finally로 예외 발생 시에도 연결 정리 보장
 
 ---
 
@@ -217,8 +254,9 @@ CREATE TABLE IF NOT EXISTS _sources.cached_tables (
 
 ### 5. 실행 히스토리 저장 구조
 
+#### A. run_history 테이블
 **Schema**: `_duckpipe.run_history`
-**File**: [repository.py:298-327](backend/pluto_duck_backend/app/services/chat/repository.py#L298-L327)
+**File**: [repository.py:299-309](backend/pluto_duck_backend/app/services/chat/repository.py#L299-L309)
 
 ```sql
 CREATE TABLE IF NOT EXISTS _duckpipe.run_history (
@@ -232,10 +270,25 @@ CREATE TABLE IF NOT EXISTS _duckpipe.run_history (
     duration_ms INTEGER,
     params JSON                    -- 실행 파라미터
 );
-
-CREATE INDEX idx_run_history_analysis ON _duckpipe.run_history(analysis_id);
-CREATE INDEX idx_run_history_started ON _duckpipe.run_history(started_at DESC);
 ```
+
+#### B. run_state 테이블
+**Schema**: `_duckpipe.run_state`
+**File**: [repository.py:313-318](backend/pluto_duck_backend/app/services/chat/repository.py#L313-L318)
+
+```sql
+CREATE TABLE IF NOT EXISTS _duckpipe.run_state (
+    analysis_id VARCHAR PRIMARY KEY,
+    last_run_id VARCHAR,
+    last_run_at TIMESTAMP,
+    last_run_status VARCHAR,
+    last_run_error VARCHAR
+);
+```
+
+**용도**:
+- `run_history`: 모든 파이프라인 실행 이력 저장, JSON `params`로 파라미터화된 실행 지원
+- `run_state`: 최신 실행 상태 조회를 위한 freshness 체크용 테이블
 
 ---
 
@@ -244,33 +297,59 @@ CREATE INDEX idx_run_history_started ON _duckpipe.run_history(started_at DESC);
 **File**: [schema.py:83-102](backend/pluto_duck_backend/agent/core/deep/tools/schema.py#L83-L102)
 
 ```python
-def describe_table(table_name: str, schema_name: str = "main") -> TableSchema:
-    """Get column information and row count for a table"""
-    with connect_warehouse(warehouse_path) as conn:
-        columns = conn.execute(f"PRAGMA table_info('{schema_name}.{table_name}')").fetchall()
-        row_count = conn.execute(f"SELECT COUNT(*) FROM {schema_name}.{table_name}").fetchone()[0]
-
-    return TableSchema(
-        columns=[
-            ColumnInfo(name=col[1], type=col[2], not_null=col[3], default=col[4], primary_key=col[5])
-            for col in columns
-        ],
-        row_count=row_count
-    )
+def describe_table(table: str, schema: str = "main") -> Dict[str, Any]:
+    with duckdb.connect(str(warehouse_path)) as con:
+        qualified = resolve_table_identifier(con, table, schema)
+        info = con.execute(f"PRAGMA table_info('{qualified}')").fetchall()
+        # (cid, name, type, notnull, dflt_value, pk)
+        columns = [
+            {
+                "name": row[1],
+                "type": row[2],
+                "not_null": bool(row[3]),
+                "default": _jsonable(row[4]),
+                "primary_key": bool(row[5]),
+            }
+            for row in info
+        ]
+        try:
+            row_count = con.execute(f"SELECT COUNT(*) FROM {qualified}").fetchone()[0]
+        except Exception:
+            row_count = None
+    return {"table": qualified, "columns": columns, "row_count": row_count}
 ```
+
+**특징**:
+- 스키마 resolution 지원 (main → analysis 폴백)
+- JSON-serializable 딕셔너리 반환
+- row_count 조회 실패 시 예외 처리
 
 ---
 
 ## Code References
 
 ### Frontend
-- [AddDatasetModal.tsx](frontend/pluto_duck_frontend/components/data-sources/AddDatasetModal.tsx) - Scan 버튼 및 import 로직
+- [AddDatasetModal.tsx:464-534](frontend/pluto_duck_frontend/components/data-sources/AddDatasetModal.tsx#L464-L534) - handleScan() 로직
 - [fileAssetApi.ts:86-104](frontend/pluto_duck_frontend/lib/fileAssetApi.ts#L86-L104) - importFile() API 함수
 - [fileAssetApi.ts:32-43](frontend/pluto_duck_frontend/lib/fileAssetApi.ts#L32-L43) - ImportFileRequest 인터페이스
+- [fileAssetApi.ts](frontend/pluto_duck_frontend/lib/fileAssetApi.ts) - 추가 API 함수들:
+  - `listFileAssets()` (109-119)
+  - `getFileAsset()` (124-128)
+  - `deleteFileAsset()` (133-142)
+  - `refreshFileAsset()` (147-151)
+  - `getFileSchema()` (156-160)
+  - `previewFileData()` (165-174)
 
 ### Backend API
 - [router.py:843-878](backend/pluto_duck_backend/app/api/v1/asset/router.py#L843-L878) - POST /asset/files 엔드포인트
 - [router.py:762-787](backend/pluto_duck_backend/app/api/v1/asset/router.py#L762-L787) - ImportFileRequest 모델
+- [router.py](backend/pluto_duck_backend/app/api/v1/asset/router.py) - 추가 File Asset 엔드포인트들:
+  - GET `/files` (880-887) - 파일 에셋 목록 조회
+  - GET `/files/{file_id}` (890-903) - 특정 파일 에셋 조회
+  - DELETE `/files/{file_id}` (905-918) - 파일 에셋 삭제
+  - POST `/files/{file_id}/refresh` (920-935) - 파일 재import
+  - GET `/files/{file_id}/schema` (937-950) - 테이블 스키마 조회
+  - GET `/files/{file_id}/preview` (952-970) - 데이터 미리보기
 
 ### Backend Service
 - [file_service.py:202-424](backend/pluto_duck_backend/app/services/asset/file_service.py#L202-L424) - import_file() 전체 로직
@@ -280,7 +359,8 @@ def describe_table(table_name: str, schema_name: str = "main") -> TableSchema:
 ### Metadata Schema
 - [repository.py:149-162](backend/pluto_duck_backend/app/services/chat/repository.py#L149-L162) - data_source_tables (JSON metadata 포함)
 - [repository.py:268-278](backend/pluto_duck_backend/app/services/chat/repository.py#L268-L278) - cached_tables (JSON metadata 포함)
-- [repository.py:298-327](backend/pluto_duck_backend/app/services/chat/repository.py#L298-L327) - run_history
+- [repository.py:299-309](backend/pluto_duck_backend/app/services/chat/repository.py#L299-L309) - run_history
+- [repository.py:313-318](backend/pluto_duck_backend/app/services/chat/repository.py#L313-L318) - run_state
 
 ---
 
@@ -419,3 +499,46 @@ class FileDiagnosisService:
 2. **LLM 컨텍스트 연동**: 진단 결과를 어떤 형태로 LLM에 전달할 것인가?
 3. **실시간 vs 배치**: 대용량 파일의 경우 백그라운드 진단 필요 여부
 4. **진단 범위**: 초기에는 어느 수준까지 진단할 것인가? (스키마만 vs 전체 데이터 스캔)
+
+---
+
+## Implementation Status
+
+### Create Table Flow: ✅ 구현 완료
+- 프론트엔드 → 백엔드 API → DuckDB 테이블 생성 전체 플로우 정상 동작
+- Replace, Append, Merge 모드 모두 지원
+- 메타데이터 저장 및 조회 정상 동작
+
+### Diagnosis Feature: ❌ 미구현
+- `POST /api/v1/asset/files/diagnose` 엔드포인트: 미구현
+- `_file_assets.file_diagnoses` 테이블: 미생성
+- `FileDiagnosisService` 클래스: 미생성
+- LLM 컨텍스트 저장 구조: 미설계
+
+### Recent Changes (Since Initial Research)
+| 날짜 | 변경사항 | 파일 |
+|------|----------|------|
+| 2026-01-22 | `deduplicate` 파라미터 추가 (append 모드에서 중복 행 스킵) | file_service.py, router.py |
+| 2026-01-22 | DuckDB 연결 관리 개선 (try-finally로 안전한 연결 해제) | duckdb_utils.py |
+
+---
+
+## Verification Log
+
+| 항목 | 상태 | 문서 라인 | 실제 라인 |
+|------|------|-----------|-----------|
+| AddDatasetModal.tsx handleScan() | ✅ | - | 464-534 |
+| fileAssetApi.ts importFile() | ✅ | 86-104 | 86-104 |
+| fileAssetApi.ts ImportFileRequest | ✅ | 32-43 | 32-43 |
+| router.py POST /files | ✅ | 843-878 | 843-878 |
+| router.py ImportFileRequest | ✅ | 762-787 | 762-787 |
+| file_service.py import_file() | ✅ | 202-424 | 202-424 |
+| file_service.py CREATE TABLE | ✅ | 258-280 | 258-280 |
+| file_service.py metadata storage | ✅ | 357-410 | 357-410 |
+| file_service.py schema definition | ✅ | 177-196 | 177-196 |
+| duckdb_utils.py connect_warehouse() | ✅ | 9-23 | 9-23 |
+| repository.py data_source_tables | ✅ | 149-162 | 149-162 |
+| repository.py cached_tables | ✅ | 268-278 | 268-278 |
+| repository.py run_history | ⚠️ | 298-327 | 299-309 |
+| repository.py run_state | ➕ | N/A | 313-318 |
+| schema.py describe_table() | ✅ | 83-102 | 83-102 |

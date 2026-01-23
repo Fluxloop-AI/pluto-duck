@@ -31,3 +31,10 @@ class AssetValidationError(AssetError):
     def __init__(self, message: str):
         super().__init__(f"Validation error: {message}")
 
+
+class DiagnosisError(AssetError):
+    """Error during file diagnosis."""
+
+    def __init__(self, message: str):
+        super().__init__(f"Diagnosis error: {message}")
+

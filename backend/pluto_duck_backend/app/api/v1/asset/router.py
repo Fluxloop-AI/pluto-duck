@@ -29,8 +29,10 @@ from pluto_duck_backend.app.services.asset import (
     FileAssetService,
     FileAsset,
     get_file_asset_service,
+    FileDiagnosisService,
+    get_file_diagnosis_service,
 )
-from pluto_duck_backend.app.services.asset.errors import AssetValidationError, AssetError
+from pluto_duck_backend.app.services.asset.errors import AssetValidationError, AssetError, DiagnosisError
 
 
 router = APIRouter(prefix="/asset", tags=["asset"])
@@ -967,4 +969,136 @@ def preview_file_data(
         )
     except AssetNotFoundError:
         raise HTTPException(status_code=404, detail=f"File asset '{file_id}' not found")
+
+
+# =============================================================================
+# File Diagnosis Request/Response Models
+# =============================================================================
+
+
+class DiagnoseFileRequestModel(BaseModel):
+    """Request for diagnosing a single file."""
+
+    file_path: str = Field(..., description="Path to the file to diagnose")
+    file_type: Literal["csv", "parquet"] = Field(..., description="Type of file")
+
+
+class DiagnoseFilesRequest(BaseModel):
+    """Request to diagnose multiple files."""
+
+    files: List[DiagnoseFileRequestModel] = Field(..., description="List of files to diagnose")
+    use_cache: bool = Field(True, description="Use cached results if available")
+
+
+class ColumnSchemaResponse(BaseModel):
+    """Schema information for a single column."""
+
+    name: str
+    type: str
+    nullable: bool = True
+
+
+class TypeSuggestionResponse(BaseModel):
+    """Suggestion for a better column type."""
+
+    column_name: str
+    current_type: str
+    suggested_type: str
+    confidence: float
+    sample_values: List[str] = []
+
+
+class FileDiagnosisResponse(BaseModel):
+    """Response for a single file diagnosis."""
+
+    file_path: str
+    file_type: str
+    columns: List[ColumnSchemaResponse] = Field(..., description="Column schema information")
+    missing_values: Dict[str, int]
+    row_count: int
+    file_size_bytes: int
+    type_suggestions: List[TypeSuggestionResponse] = []
+    diagnosed_at: Optional[datetime] = None
+
+
+class DiagnoseFilesResponse(BaseModel):
+    """Response for multiple file diagnoses."""
+
+    diagnoses: List[FileDiagnosisResponse]
+
+
+# =============================================================================
+# File Diagnosis Endpoints
+# =============================================================================
+
+
+@router.post("/files/diagnose", response_model=DiagnoseFilesResponse)
+def diagnose_files(
+    request: DiagnoseFilesRequest,
+    project_id: Optional[str] = Query(None),
+) -> DiagnoseFilesResponse:
+    """Diagnose CSV or Parquet files before import.
+
+    This endpoint analyzes files without importing them, providing:
+    - Schema information (columns, types, nullable)
+    - Missing value counts per column
+    - Row count and file size
+    - Type suggestions (optional, for detecting mismatched types)
+
+    Use this to preview data quality before creating tables.
+
+    Set use_cache=false to force fresh diagnosis even if cached results exist.
+    """
+    service = get_file_diagnosis_service(project_id)
+
+    diagnoses = []
+    for file_req in request.files:
+        try:
+            diagnosis = None
+
+            # Try to get cached diagnosis if caching is enabled
+            if request.use_cache:
+                diagnosis = service.get_cached_diagnosis(file_req.file_path)
+
+            # If no cached result, perform fresh diagnosis
+            if diagnosis is None:
+                diagnosis = service.diagnose_file(file_req.file_path, file_req.file_type)
+                # Save to cache for future requests
+                service.save_diagnosis(diagnosis)
+
+            diagnoses.append(
+                FileDiagnosisResponse(
+                    file_path=diagnosis.file_path,
+                    file_type=diagnosis.file_type,
+                    columns=[
+                        ColumnSchemaResponse(
+                            name=col.name,
+                            type=col.type,
+                            nullable=col.nullable,
+                        )
+                        for col in diagnosis.schema
+                    ],
+                    missing_values=diagnosis.missing_values,
+                    row_count=diagnosis.row_count,
+                    file_size_bytes=diagnosis.file_size_bytes,
+                    type_suggestions=[
+                        TypeSuggestionResponse(
+                            column_name=ts.column_name,
+                            current_type=ts.current_type,
+                            suggested_type=ts.suggested_type,
+                            confidence=ts.confidence,
+                            sample_values=ts.sample_values,
+                        )
+                        for ts in diagnosis.type_suggestions
+                    ],
+                    diagnosed_at=diagnosis.diagnosed_at,
+                )
+            )
+        except DiagnosisError as e:
+            # Check if it's a file not found error
+            if "not found" in str(e).lower():
+                raise HTTPException(status_code=404, detail=str(e))
+            raise HTTPException(status_code=400, detail=str(e))
+
+    return DiagnoseFilesResponse(diagnoses=diagnoses)
 

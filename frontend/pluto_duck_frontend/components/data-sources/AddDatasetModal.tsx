@@ -316,6 +316,7 @@ export function AddDatasetModal({
   const [diagnosisError, setDiagnosisError] = useState<string | null>(null);
   const [mergeFiles, setMergeFiles] = useState(false);
   const [schemasMatch, setSchemasMatch] = useState(false);
+  const [removeDuplicates, setRemoveDuplicates] = useState(true);
 
   // Ref for hidden file input (web fallback)
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -333,6 +334,7 @@ export function AddDatasetModal({
       setDiagnosisError(null);
       setMergeFiles(false);
       setSchemasMatch(false);
+      setRemoveDuplicates(true);
     }
   }, [open]);
 
@@ -643,6 +645,7 @@ export function AddDatasetModal({
             name: file.name,
             mode: 'append',
             target_table: tableName,
+            deduplicate: removeDuplicates,
           });
           successCount++;
         } catch (error) {
@@ -726,7 +729,7 @@ export function AddDatasetModal({
       console.error('All files failed to import:', errors);
       // Keep modal open so user can see the files and retry
     }
-  }, [projectId, selectedFiles, mergeFiles, schemasMatch, onImportSuccess, onOpenChange]);
+  }, [projectId, selectedFiles, mergeFiles, schemasMatch, removeDuplicates, onImportSuccess, onOpenChange]);
 
   // Go back from diagnose step to preview step
   const handleBackFromDiagnose = useCallback(() => {
@@ -784,6 +787,8 @@ export function AddDatasetModal({
             schemasMatch={schemasMatch}
             mergeFiles={mergeFiles}
             onMergeFilesChange={setMergeFiles}
+            removeDuplicates={removeDuplicates}
+            onRemoveDuplicatesChange={setRemoveDuplicates}
           />
         )}
       </DialogContent>

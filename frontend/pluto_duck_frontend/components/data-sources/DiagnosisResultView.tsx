@@ -22,6 +22,8 @@ interface DiagnosisResultViewProps {
   schemasMatch: boolean;
   mergeFiles: boolean;
   onMergeFilesChange: (checked: boolean) => void;
+  removeDuplicates: boolean;
+  onRemoveDuplicatesChange: (checked: boolean) => void;
 }
 
 // Helper to format file size
@@ -161,6 +163,8 @@ export function DiagnosisResultView({
   schemasMatch,
   mergeFiles,
   onMergeFilesChange,
+  removeDuplicates,
+  onRemoveDuplicatesChange,
 }: DiagnosisResultViewProps) {
   // Track which cards are expanded (default: first one expanded)
   const [expandedIndex, setExpandedIndex] = useState<number>(0);
@@ -212,6 +216,20 @@ export function DiagnosisResultView({
               </span>
             </div>
           </label>
+          {/* Deduplicate checkbox - shown when merge is enabled */}
+          {mergeFiles && (
+            <label className="flex items-center gap-3 cursor-pointer ml-7 mt-2">
+              <input
+                type="checkbox"
+                checked={removeDuplicates}
+                onChange={(e) => onRemoveDuplicatesChange(e.target.checked)}
+                className="w-4 h-4 rounded border-primary/50 text-primary focus:ring-primary/50 cursor-pointer"
+              />
+              <span className="text-sm text-muted-foreground">
+                중복된 행 제거 <span className="text-primary">(권장)</span>
+              </span>
+            </label>
+          )}
         </div>
       )}
 

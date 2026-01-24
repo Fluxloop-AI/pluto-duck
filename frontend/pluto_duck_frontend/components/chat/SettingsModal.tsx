@@ -81,7 +81,7 @@ const MENU_ITEMS_SETTINGS: MenuItem[] = [
 const MODELS = ALL_MODEL_OPTIONS;
 
 export function SettingsModal({ open, onOpenChange, onSettingsSaved }: SettingsModalProps) {
-  const [activeMenu, setActiveMenu] = useState<SettingsMenu>('models');
+  const [activeMenu, setActiveMenu] = useState<SettingsMenu>('profile');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);

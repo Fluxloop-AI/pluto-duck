@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { FolderSearch, TrashIcon } from 'lucide-react';
+import { TrashIcon } from 'lucide-react';
 import type { FileAsset } from '../../lib/fileAssetApi';
 import type { CachedTable } from '../../lib/sourceApi';
 import { formatRelativeTime } from '../../lib/utils';
@@ -10,19 +10,15 @@ type Dataset = FileAsset | CachedTable;
 
 interface DatasetListProps {
   datasets: Dataset[];
-  maxItems?: number;
   activeId?: string;
   onSelect: (dataset: Dataset) => void;
-  onBrowseAll: () => void;
   onDelete?: (dataset: Dataset) => void;
 }
 
 export function DatasetList({
   datasets,
-  maxItems = 3,
   activeId,
   onSelect,
-  onBrowseAll,
   onDelete,
 }: DatasetListProps) {
   const [tick, setTick] = useState(0);
@@ -64,28 +60,16 @@ export function DatasetList({
 
   if (datasets.length === 0) {
     return (
-      <div className="space-y-1 pl-0.5">
-        <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-          <p className="text-sm">No datasets yet</p>
-          <p className="text-xs mt-1">Add one to get started</p>
-        </div>
-        <button
-          type="button"
-          onClick={onBrowseAll}
-          className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2.5 cursor-pointer hover:bg-accent transition-colors"
-        >
-          <FolderSearch className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="text-sm text-muted-foreground">Browse all datasets...</span>
-        </button>
+      <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+        <p className="text-sm">No datasets yet</p>
+        <p className="text-xs mt-1">Add one to get started</p>
       </div>
     );
   }
 
-  const displayedDatasets = datasets.slice(0, maxItems);
-
   return (
     <div className="space-y-1 pl-0.5">
-      {displayedDatasets.map((dataset) => {
+      {datasets.map((dataset) => {
         const id = getDatasetId(dataset);
         const name = getDatasetName(dataset);
         const time = getDatasetTime(dataset);
@@ -158,14 +142,6 @@ export function DatasetList({
           </div>
         );
       })}
-      <button
-        type="button"
-        onClick={onBrowseAll}
-        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2.5 cursor-pointer hover:bg-accent transition-colors"
-      >
-        <FolderSearch className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="text-sm text-muted-foreground">Browse all datasets...</span>
-      </button>
     </div>
   );
 }

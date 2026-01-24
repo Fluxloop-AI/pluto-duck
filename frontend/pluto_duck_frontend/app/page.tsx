@@ -18,8 +18,7 @@ import {
 } from '../components/data-sources';
 import { BoardsView, BoardList, CreateBoardModal, BoardSelectorModal, type BoardsViewHandle } from '../components/boards';
 import { DatasetList } from '../components/sidebar';
-import { DatasetView, DatasetDetailView } from '../components/datasets';
-import type { Dataset } from '../components/datasets/DatasetView';
+import { DatasetDetailView } from '../components/datasets';
 import { AssetListView } from '../components/assets';
 import { ProjectSelector, CreateProjectModal } from '../components/projects';
 import { useBoards } from '../hooks/useBoards';
@@ -38,8 +37,10 @@ import { fetchProject, type Project, type ProjectListItem } from '../lib/project
 import { useBackendStatus } from '../hooks/useBackendStatus';
 
 type MainView = 'boards' | 'assets' | 'datasets';
+type Dataset = FileAsset | CachedTable;
 
 const SIDEBAR_COLLAPSED_KEY = 'pluto-duck-sidebar-collapsed';
+const SELECTED_DATASET_ID_KEY = 'pluto_selected_dataset_id';
 
 export default function WorkspacePage() {
   const { isReady: backendReady, isChecking: backendChecking } = useBackendStatus();
@@ -263,6 +264,37 @@ export default function WorkspacePage() {
       }
     })();
   }, [backendReady, defaultProjectId, dataSourcesRefresh]);
+
+  // Restore selected dataset from localStorage when datasets are loaded
+  useEffect(() => {
+    if (sidebarDatasets.length === 0) return;
+    // Only restore if no dataset is currently selected
+    if (selectedDataset) return;
+
+    if (typeof window !== 'undefined') {
+      const storedId = localStorage.getItem(SELECTED_DATASET_ID_KEY);
+      if (storedId) {
+        const dataset = sidebarDatasets.find(d => d.id === storedId);
+        if (dataset) {
+          setSelectedDataset(dataset);
+          return;
+        }
+      }
+      // If no stored ID or stored dataset not found, select the first one
+      setSelectedDataset(sidebarDatasets[0]);
+    }
+  }, [sidebarDatasets]);
+
+  // Save selected dataset ID to localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      if (selectedDataset) {
+        localStorage.setItem(SELECTED_DATASET_ID_KEY, selectedDataset.id);
+      } else {
+        localStorage.removeItem(SELECTED_DATASET_ID_KEY);
+      }
+    }
+  }, [selectedDataset]);
 
   useEffect(() => {
     if (!backendReady) return;
@@ -656,13 +688,9 @@ export default function WorkspacePage() {
               ) : (
                 <DatasetList
                   datasets={sidebarDatasets}
-                  maxItems={3}
+                  activeId={selectedDataset?.id}
                   onSelect={(dataset) => {
                     setSelectedDataset(dataset);
-                    setMainView('datasets');
-                  }}
-                  onBrowseAll={() => {
-                    setSelectedDataset(null);
                     setMainView('datasets');
                   }}
                   onDelete={async (dataset) => {
@@ -673,6 +701,11 @@ export default function WorkspacePage() {
                         await deleteFileAsset(defaultProjectId, dataset.id);
                       } else {
                         await dropCache(defaultProjectId, dataset.local_table);
+                      }
+                      // If deleted dataset was selected, clear selection
+                      // The restore effect will auto-select the first remaining dataset
+                      if (selectedDataset?.id === dataset.id) {
+                        setSelectedDataset(null);
                       }
                       // Refresh datasets list
                       setDataSourcesRefresh(prev => prev + 1);
@@ -723,11 +756,31 @@ export default function WorkspacePage() {
                     onBack={() => setSelectedDataset(null)}
                   />
                 ) : (
-                  <DatasetView
-                    projectId={defaultProjectId}
-                    onOpenAddModal={() => setShowAddDatasetModal(true)}
-                    refreshTrigger={dataSourcesRefresh}
-                  />
+                  <div className="flex h-full flex-col items-center justify-center gap-4">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+                      <Database className="h-8 w-8 text-muted-foreground" />
+                    </div>
+                    <div className="text-center">
+                      <h3 className="text-lg font-medium">
+                        {sidebarDatasets.length > 0 ? 'Select a dataset' : 'No datasets yet'}
+                      </h3>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {sidebarDatasets.length > 0
+                          ? 'Choose a dataset from the sidebar to view its details.'
+                          : 'Import CSV or Parquet files, or cache tables from connected databases.'}
+                      </p>
+                    </div>
+                    {sidebarDatasets.length === 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowAddDatasetModal(true)}
+                        className="flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                      >
+                        <Plus className="h-4 w-4" />
+                        Add Dataset
+                      </button>
+                    )}
+                  </div>
                 )
               ) : (
                 <AssetListView projectId={defaultProjectId} initialTab={assetInitialTab} refreshTrigger={dataSourcesRefresh} />

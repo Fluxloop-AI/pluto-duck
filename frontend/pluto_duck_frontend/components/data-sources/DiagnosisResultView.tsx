@@ -166,8 +166,8 @@ export function DiagnosisResultView({
   removeDuplicates,
   onRemoveDuplicatesChange,
 }: DiagnosisResultViewProps) {
-  // Track which cards are expanded (default: first one expanded)
-  const [expandedIndex, setExpandedIndex] = useState<number>(0);
+  // Track which cards are expanded (default: all collapsed)
+  const [expandedIndex, setExpandedIndex] = useState<number>(-1);
 
   const totalFiles = diagnoses.length;
   const totalRows = diagnoses.reduce((sum, d) => sum + d.row_count, 0);
@@ -177,7 +177,7 @@ export function DiagnosisResultView({
   }, 0);
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0">
       {/* Header */}
       <div className="flex items-center justify-between px-8 py-6 border-b border-border">
         <div>
@@ -234,7 +234,7 @@ export function DiagnosisResultView({
       )}
 
       {/* Scrollable Diagnosis Cards */}
-      <div className="flex-1 overflow-y-auto px-8 py-4 space-y-3">
+      <div className="flex-1 min-h-0 overflow-y-auto px-8 py-4 space-y-3">
         {diagnoses.map((diagnosis, index) => (
           <FileDiagnosisCard
             key={diagnosis.file_path}

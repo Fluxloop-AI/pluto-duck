@@ -10,7 +10,15 @@ Provides Pluto Duck integration with duckpipe:
 
 from .service import AssetService, get_asset_service
 from .file_service import FileAssetService, FileAsset, get_file_asset_service
-from .errors import AssetError, AssetNotFoundError, AssetExecutionError, AssetValidationError
+from .file_diagnosis_service import (
+    FileDiagnosisService,
+    FileDiagnosis,
+    ColumnSchema,
+    TypeSuggestion,
+    DiagnoseFileRequest,
+    get_file_diagnosis_service,
+)
+from .errors import AssetError, AssetNotFoundError, AssetExecutionError, AssetValidationError, DiagnosisError
 
 __all__ = [
     # Analysis (Saved Analysis)
@@ -20,10 +28,18 @@ __all__ = [
     "FileAssetService",
     "FileAsset",
     "get_file_asset_service",
+    # File Diagnosis
+    "FileDiagnosisService",
+    "FileDiagnosis",
+    "ColumnSchema",
+    "TypeSuggestion",
+    "DiagnoseFileRequest",
+    "get_file_diagnosis_service",
     # Errors
     "AssetError",
     "AssetNotFoundError",
     "AssetExecutionError",
     "AssetValidationError",
+    "DiagnosisError",
 ]
 

@@ -257,6 +257,26 @@ export async function cleanupExpiredCaches(projectId: string): Promise<{ cleaned
   return handleResponse(response);
 }
 
+export interface CachedTablePreview {
+  columns: string[];
+  rows: any[][];
+  total_rows: number | null;
+}
+
+export async function fetchCachedTablePreview(
+  projectId: string,
+  localTable: string,
+  limit: number = 100
+): Promise<CachedTablePreview> {
+  const url = buildUrl(
+    `/api/v1/source/cache/${encodeURIComponent(localTable)}/preview`,
+    projectId,
+    { limit: String(limit) }
+  );
+  const response = await fetch(url);
+  return handleResponse(response);
+}
+
 // =============================================================================
 // Folder Source Operations
 // =============================================================================

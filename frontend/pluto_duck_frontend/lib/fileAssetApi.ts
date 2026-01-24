@@ -60,6 +60,49 @@ export interface FilePreview {
 }
 
 // =============================================================================
+// Diagnosis Types
+// =============================================================================
+
+export interface DiagnoseFileRequest {
+  file_path: string;
+  file_type: FileType;
+}
+
+export interface ColumnSchema {
+  name: string;
+  type: string;
+  nullable: boolean;
+}
+
+export interface TypeSuggestion {
+  column_name: string;
+  current_type: string;
+  suggested_type: string;
+  confidence: number;
+  sample_values?: string[];
+}
+
+export interface FileDiagnosis {
+  file_path: string;
+  file_type: string;
+  columns: ColumnSchema[];
+  missing_values: Record<string, number>;
+  row_count: number;
+  file_size_bytes: number;
+  type_suggestions: TypeSuggestion[];
+  diagnosed_at: string;
+}
+
+export interface DiagnoseFilesRequest {
+  files: DiagnoseFileRequest[];
+  use_cache?: boolean;
+}
+
+export interface DiagnoseFilesResponse {
+  diagnoses: FileDiagnosis[];
+}
+
+// =============================================================================
 // Helper functions
 // =============================================================================
 
@@ -171,5 +214,27 @@ export async function previewFileData(
   const url = `${baseUrl}&limit=${limit}`;
   const response = await fetch(url);
   return handleResponse<FilePreview>(response);
+}
+
+/**
+ * Diagnose files before import.
+ * Extracts schema, missing values, and type suggestions.
+ */
+export async function diagnoseFiles(
+  projectId: string,
+  files: DiagnoseFileRequest[],
+  useCache: boolean = true
+): Promise<DiagnoseFilesResponse> {
+  const baseUrl = buildUrl('/files/diagnose', projectId);
+  const url = `${baseUrl}&use_cache=${useCache}`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ files }),
+  });
+
+  const result = await handleResponse<DiagnoseFilesResponse>(response);
+  return result;
 }
 

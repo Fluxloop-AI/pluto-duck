@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { TrashIcon } from 'lucide-react';
 import type { Board } from '../../lib/boardsApi';
+import { formatRelativeTime } from '../../lib/utils';
 
 interface BoardListProps {
   boards: Board[];
@@ -67,27 +68,6 @@ export function BoardList({ boards, activeId, onSelect, onDelete, onUpdate }: Bo
       </div>
     );
   }
-
-  const formatRelativeTime = (dateString: string) => {
-    const date = new Date(dateString);
-    const diffMs = Math.abs(Date.now() - date.getTime());
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
-
-    // Format as local date and time
-    return date.toLocaleString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
 
   // Extract preview text from Lexical JSON content
   const getPreviewText = (board: Board): string | null => {

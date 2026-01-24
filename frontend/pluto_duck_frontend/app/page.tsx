@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState, useRef } from 'react';
-import { SettingsIcon, DatabaseIcon, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Package, Database, Layers, SquarePen, Plus } from 'lucide-react';
+import { SettingsIcon, DatabaseIcon, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Package, Database, Layers, Plus } from 'lucide-react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { isTauriRuntime } from '../lib/tauriRuntime';
 
@@ -595,21 +595,13 @@ export default function WorkspacePage() {
           sidebarCollapsed ? 'w-0 border-r-0' : 'w-64 border-r'
         }`}>
           <div className="flex h-full w-64 min-w-64 flex-col">
-            <div className="flex items-center justify-between pl-[18px] pr-[14px] pt-3 pb-3">
+            <div className="pl-[18px] pr-[14px] pt-3 pb-3">
               <ProjectSelector
                 currentProject={currentProject}
                 projects={projects}
                 onSelectProject={handleSelectProject}
                 onNewProject={() => setShowCreateProjectModal(true)}
               />
-              <button
-                type="button"
-                onClick={handleCreateBoard}
-                className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-black/10 transition-colors"
-                title="New board"
-              >
-                <SquarePen className="h-4 w-4" />
-              </button>
             </div>
 
             {/* Tab Slide UI */}

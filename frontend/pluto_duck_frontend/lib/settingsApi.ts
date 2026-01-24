@@ -10,12 +10,14 @@ export interface UserSettings {
     theme: string;
   };
   default_project_id?: string | null;
+  user_name?: string | null;
 }
 
 export interface UpdateSettingsRequest {
   llm_api_key?: string;
   llm_model?: string;
   llm_provider?: string;
+  user_name?: string;
 }
 
 export interface UpdateSettingsResponse {

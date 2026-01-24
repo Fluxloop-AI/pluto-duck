@@ -706,7 +706,7 @@ export default function WorkspacePage() {
             <div className="space-y-1 px-3 pb-4">
               <button
                 type="button"
-                className="flex w-full items-center gap-2 rounded-lg px-[10px] py-2 text-sm hover:bg-black/10 transition-colors"
+                className="flex w-full items-center gap-2 rounded-lg px-[10px] py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-black/10 transition-colors"
                 onClick={() => setDataSourcesOpen(true)}
               >
                 <DatabaseIcon className="h-4 w-4" />
@@ -714,7 +714,7 @@ export default function WorkspacePage() {
               </button>
               <button
                 type="button"
-                className={`flex w-full items-center gap-2 rounded-lg px-[10px] py-2 text-sm transition-colors ${
+                className={`flex w-full items-center gap-2 rounded-lg px-[10px] py-2 text-sm text-muted-foreground hover:text-foreground transition-colors ${
                   mainView === 'assets'
                     ? 'bg-black/10'
                     : 'hover:bg-black/10'
@@ -726,7 +726,7 @@ export default function WorkspacePage() {
               </button>
               <button
                 type="button"
-                className="flex w-full items-center gap-2 rounded-lg px-[10px] py-2 text-sm hover:bg-black/10 transition-colors"
+                className="flex w-full items-center gap-2 rounded-lg px-[10px] py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-black/10 transition-colors"
                 onClick={() => setSettingsOpen(true)}
               >
                 <SettingsIcon className="h-4 w-4" />

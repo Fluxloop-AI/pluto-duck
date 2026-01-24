@@ -23,6 +23,7 @@ class UpdateSettingsRequest(BaseModel):
     llm_api_key: Optional[str] = Field(None, description="OpenAI API key")
     llm_model: Optional[str] = Field(None, description="Default LLM model")
     llm_provider: Optional[str] = Field(None, description="LLM provider (currently only 'openai')")
+    user_name: Optional[str] = Field(None, description="User display name")
 
 
 class SettingsResponse(BaseModel):
@@ -34,6 +35,7 @@ class SettingsResponse(BaseModel):
     data_sources: Optional[Any] = None
     ui_preferences: Dict[str, Any] = {"theme": "dark"}
     default_project_id: Optional[str] = None
+    user_name: Optional[str] = None
 
 
 class UpdateSettingsResponse(BaseModel):
@@ -72,6 +74,7 @@ def get_settings() -> SettingsResponse:
         data_sources=settings.get("data_sources"),
         ui_preferences=settings.get("ui_preferences") or {"theme": "dark"},
         default_project_id=repo._default_project_id,
+        user_name=settings.get("user_name"),
     )
 
 
@@ -104,7 +107,10 @@ def update_settings(request: UpdateSettingsRequest) -> UpdateSettingsResponse:
         if request.llm_provider != "openai":
             raise HTTPException(status_code=400, detail="Currently only 'openai' provider is supported")
         payload["llm_provider"] = request.llm_provider
-    
+
+    if request.user_name is not None:
+        payload["user_name"] = request.user_name
+
     if payload:
         repo.update_settings(payload)
     

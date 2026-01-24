@@ -34,6 +34,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../ui/select';
+import { Avatar, AvatarFallback } from '../ui/avatar';
 import { fetchSettings, updateSettings, resetDatabase, type UpdateSettingsRequest } from '../../lib/settingsApi';
 import {
   downloadLocalModel,
@@ -80,7 +81,7 @@ const MENU_ITEMS_SETTINGS: MenuItem[] = [
 const MODELS = ALL_MODEL_OPTIONS;
 
 export function SettingsModal({ open, onOpenChange, onSettingsSaved }: SettingsModalProps) {
-  const [activeMenu, setActiveMenu] = useState<SettingsMenu>('models');
+  const [activeMenu, setActiveMenu] = useState<SettingsMenu>('profile');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
@@ -88,6 +89,7 @@ export function SettingsModal({ open, onOpenChange, onSettingsSaved }: SettingsM
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState('gpt-5-mini');
   const [hasExistingKey, setHasExistingKey] = useState(false);
+  const [userName, setUserName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [localModels, setLocalModels] = useState<LocalModelInfo[]>([]);
@@ -176,6 +178,7 @@ export function SettingsModal({ open, onOpenChange, onSettingsSaved }: SettingsM
       if (settings.llm_model) {
         setModel(settings.llm_model);
       }
+      setUserName(settings.user_name || '');
       await fetchLocalModels();
       await fetchDownloadStatuses();
     } catch (err) {
@@ -784,6 +787,85 @@ export function SettingsModal({ open, onOpenChange, onSettingsSaved }: SettingsM
     </div>
   );
 
+  const handleSaveProfile = async () => {
+    setError(null);
+    setSuccessMessage(null);
+    setSaving(true);
+
+    try {
+      const payload: UpdateSettingsRequest = {
+        user_name: userName.trim() || undefined,
+      };
+
+      await updateSettings(payload);
+      setSuccessMessage('Profile saved successfully!');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save profile');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const renderProfileContent = () => {
+    const avatarLetter = userName.trim() ? userName.trim()[0].toUpperCase() : '?';
+
+    return (
+      <div className="flex flex-col h-full">
+        <div className="flex-1 overflow-y-auto">
+          <div className="grid gap-6">
+            {/* Avatar and Name Display */}
+            <div className="flex items-center gap-4">
+              <Avatar className="h-16 w-16 text-xl">
+                <AvatarFallback>{avatarLetter}</AvatarFallback>
+              </Avatar>
+              <span className="text-lg font-medium">
+                {userName.trim() || 'No name set'}
+              </span>
+            </div>
+
+            {/* Display Name Input */}
+            <div className="grid gap-2">
+              <label htmlFor="display-name" className="text-sm font-medium">
+                Display Name
+              </label>
+              <Input
+                id="display-name"
+                type="text"
+                placeholder="Enter your name"
+                value={userName}
+                onChange={(e) => setUserName(e.target.value)}
+              />
+            </div>
+
+            {/* Error Message */}
+            {error && (
+              <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                {error}
+              </div>
+            )}
+
+            {/* Success Message */}
+            {successMessage && (
+              <div className="rounded-md bg-green-500/10 p-3 text-sm text-green-600 dark:text-green-400">
+                {successMessage}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex justify-end gap-2 pt-4 border-t border-border mt-4">
+          <Button variant="outline" onClick={handleCancel} disabled={saving}>
+            Cancel
+          </Button>
+          <Button onClick={handleSaveProfile} disabled={loading || saving}>
+            {saving ? 'Saving...' : 'Save Changes'}
+          </Button>
+        </div>
+      </div>
+    );
+  };
+
   const renderContent = () => {
     if (loading) {
       return (
@@ -801,6 +883,7 @@ export function SettingsModal({ open, onOpenChange, onSettingsSaved }: SettingsM
       case 'data':
         return renderDataContent();
       case 'profile':
+        return renderProfileContent();
       case 'preferences':
       case 'notifications':
         return renderPlaceholder(activeMenu);

@@ -19,6 +19,9 @@ interface DiagnosisResultViewProps {
   onImport: () => void;
   onClose: () => void;
   isImporting: boolean;
+  schemasMatch: boolean;
+  mergeFiles: boolean;
+  onMergeFilesChange: (checked: boolean) => void;
 }
 
 // Helper to format file size
@@ -155,6 +158,9 @@ export function DiagnosisResultView({
   onImport,
   onClose,
   isImporting,
+  schemasMatch,
+  mergeFiles,
+  onMergeFilesChange,
 }: DiagnosisResultViewProps) {
   // Track which cards are expanded (default: first one expanded)
   const [expandedIndex, setExpandedIndex] = useState<number>(0);
@@ -186,6 +192,28 @@ export function DiagnosisResultView({
           <X size={20} />
         </button>
       </div>
+
+      {/* Merge Files Banner - shown when schemas match */}
+      {schemasMatch && diagnoses.length >= 2 && (
+        <div className="mx-8 mt-4 p-4 bg-primary/5 border border-primary/20 rounded-xl">
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={mergeFiles}
+              onChange={(e) => onMergeFilesChange(e.target.checked)}
+              className="w-4 h-4 rounded border-primary/50 text-primary focus:ring-primary/50 cursor-pointer"
+            />
+            <div>
+              <span className="text-sm font-medium text-foreground">
+                {diagnoses.length}개의 파일을 하나의 데이터셋으로 통합
+              </span>
+              <span className="text-sm text-muted-foreground ml-2">
+                (총 {formatNumber(totalRows)}행)
+              </span>
+            </div>
+          </label>
+        </div>
+      )}
 
       {/* Scrollable Diagnosis Cards */}
       <div className="flex-1 overflow-y-auto px-8 py-4 space-y-3">

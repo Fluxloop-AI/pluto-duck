@@ -45,6 +45,40 @@ function getFileType(filename: string): FileType | null {
   return null;
 }
 
+// Helper to check if all file diagnoses have identical schemas
+// Returns true only when: 2+ files, same file_type, identical columns (name case-insensitive, type)
+function areSchemasIdentical(diagnoses: FileDiagnosis[]): boolean {
+  // Need at least 2 files to compare
+  if (diagnoses.length < 2) return false;
+
+  const first = diagnoses[0];
+
+  // Check all files have the same file_type
+  const allSameType = diagnoses.every(d => d.file_type === first.file_type);
+  if (!allSameType) return false;
+
+  // Compare columns: count, names (case-insensitive), and types
+  const firstColumns = first.columns;
+
+  for (let i = 1; i < diagnoses.length; i++) {
+    const current = diagnoses[i];
+
+    // Check column count
+    if (current.columns.length !== firstColumns.length) return false;
+
+    // Check each column matches (name case-insensitive, type exact)
+    for (let j = 0; j < firstColumns.length; j++) {
+      const firstCol = firstColumns[j];
+      const currentCol = current.columns[j];
+
+      if (firstCol.name.toLowerCase() !== currentCol.name.toLowerCase()) return false;
+      if (firstCol.type !== currentCol.type) return false;
+    }
+  }
+
+  return true;
+}
+
 // Helper to generate a valid table name from filename
 function generateTableName(filename: string): string {
   // Remove extension
@@ -280,6 +314,8 @@ export function AddDatasetModal({
   const [diagnosisResults, setDiagnosisResults] = useState<FileDiagnosis[] | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [diagnosisError, setDiagnosisError] = useState<string | null>(null);
+  const [mergeFiles, setMergeFiles] = useState(false);
+  const [schemasMatch, setSchemasMatch] = useState(false);
 
   // Ref for hidden file input (web fallback)
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -295,6 +331,8 @@ export function AddDatasetModal({
       setDiagnosisResults(null);
       setIsImporting(false);
       setDiagnosisError(null);
+      setMergeFiles(false);
+      setSchemasMatch(false);
     }
   }, [open]);
 
@@ -517,6 +555,10 @@ export function AddDatasetModal({
     try {
       const response = await diagnoseFiles(projectId, filesToDiagnose);
       setDiagnosisResults(response.diagnoses);
+      // Check if schemas are identical for merge option
+      const schemasIdentical = areSchemasIdentical(response.diagnoses);
+      setSchemasMatch(schemasIdentical);
+      setMergeFiles(false); // Reset merge checkbox when re-scanning
       setStep('diagnose');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to diagnose files';
@@ -536,6 +578,92 @@ export function AddDatasetModal({
     let failCount = 0;
     const errors: string[] = [];
 
+    // Merged import: combine all files into single table
+    if (mergeFiles && schemasMatch && selectedFiles.length >= 2) {
+      const firstFile = selectedFiles[0];
+
+      if (!firstFile.path) {
+        errors.push(`${firstFile.name}: No file path available (web upload not supported yet)`);
+        setIsImporting(false);
+        console.error('First file has no path:', errors);
+        return;
+      }
+
+      const fileType = getFileType(firstFile.name);
+      if (!fileType) {
+        errors.push(`${firstFile.name}: Unsupported file type`);
+        setIsImporting(false);
+        console.error('First file has unsupported type:', errors);
+        return;
+      }
+
+      const tableName = generateTableName(firstFile.name);
+
+      // First file: create table with replace mode
+      try {
+        await importFile(projectId, {
+          file_path: firstFile.path,
+          file_type: fileType,
+          table_name: tableName,
+          name: firstFile.name,
+          overwrite: true,
+          mode: 'replace',
+        });
+        successCount++;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        errors.push(`${firstFile.name}: ${message}`);
+        setIsImporting(false);
+        console.error('First file failed to import:', errors);
+        return; // First file failure means entire merge fails
+      }
+
+      // Remaining files: append to the first table
+      for (let i = 1; i < selectedFiles.length; i++) {
+        const file = selectedFiles[i];
+
+        if (!file.path) {
+          errors.push(`${file.name}: No file path available`);
+          console.warn(`Skipping file without path: ${file.name}`);
+          continue;
+        }
+
+        const appendFileType = getFileType(file.name);
+        if (!appendFileType) {
+          errors.push(`${file.name}: Unsupported file type`);
+          console.warn(`Skipping file with unsupported type: ${file.name}`);
+          continue;
+        }
+
+        try {
+          await importFile(projectId, {
+            file_path: file.path,
+            file_type: appendFileType,
+            table_name: tableName,
+            name: file.name,
+            mode: 'append',
+            target_table: tableName,
+          });
+          successCount++;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown error';
+          errors.push(`${file.name}: ${message}`);
+          console.warn(`Append failed for ${file.name}:`, message);
+          // Continue with remaining files (partial success allowed)
+        }
+      }
+
+      setIsImporting(false);
+      onImportSuccess?.();
+
+      if (errors.length > 0) {
+        console.warn('Some files failed during merge:', errors);
+      }
+      onOpenChange(false);
+      return;
+    }
+
+    // Standard import: each file becomes its own table
     // Keep track of used table names to avoid duplicates
     const usedTableNames = new Set<string>();
 
@@ -598,7 +726,7 @@ export function AddDatasetModal({
       console.error('All files failed to import:', errors);
       // Keep modal open so user can see the files and retry
     }
-  }, [projectId, selectedFiles, onImportSuccess, onOpenChange]);
+  }, [projectId, selectedFiles, mergeFiles, schemasMatch, onImportSuccess, onOpenChange]);
 
   // Go back from diagnose step to preview step
   const handleBackFromDiagnose = useCallback(() => {
@@ -653,6 +781,9 @@ export function AddDatasetModal({
             onImport={handleConfirmImport}
             onClose={handleCancel}
             isImporting={isImporting}
+            schemasMatch={schemasMatch}
+            mergeFiles={mergeFiles}
+            onMergeFilesChange={setMergeFiles}
           />
         )}
       </DialogContent>

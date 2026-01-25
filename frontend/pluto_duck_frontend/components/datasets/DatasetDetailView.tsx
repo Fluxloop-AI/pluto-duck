@@ -77,6 +77,14 @@ interface SourceFile {
   size: number | null;
 }
 
+interface HistoryItem {
+  id: string;
+  title: string;
+  timestamp: string;
+  isHighlighted: boolean;
+  badge?: string;
+}
+
 export function DatasetDetailView({
   projectId,
   dataset,
@@ -267,6 +275,30 @@ function SummaryTabContent({
     }];
   }, [originalFileName, rowCount, columnCount, fileSize]);
 
+  // Mock history data based on dataset creation date
+  const historyItems = useMemo((): HistoryItem[] => {
+    const createdDate = createdAt ? new Date(createdAt) : new Date();
+    const processedDate = new Date(createdDate);
+    processedDate.setDate(processedDate.getDate() + 1);
+    processedDate.setHours(9, 15, 0, 0);
+
+    return [
+      {
+        id: '1',
+        title: 'Pre-processing completed',
+        timestamp: processedDate.toISOString(),
+        isHighlighted: true,
+        badge: 'Agent',
+      },
+      {
+        id: '2',
+        title: 'Dataset created',
+        timestamp: createdDate.toISOString(),
+        isHighlighted: false,
+      },
+    ];
+  }, [createdAt]);
+
   return (
     <div className="space-y-8">
       {/* DATA CONTEXT Section */}
@@ -365,6 +397,36 @@ function SummaryTabContent({
             <Plus className="h-4 w-4" />
             <span>Add More Data</span>
           </button>
+
+          {/* History */}
+          <div className="pt-4 space-y-3">
+            <span className="text-sm text-muted-foreground">History</span>
+            <div className="space-y-4">
+              {historyItems.map((item) => (
+                <div key={item.id} className="flex items-start gap-3">
+                  <span
+                    className={cn(
+                      'mt-1.5 h-2.5 w-2.5 rounded-full shrink-0',
+                      item.isHighlighted ? 'bg-blue-500' : 'bg-muted-foreground/40'
+                    )}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm">{item.title}</span>
+                      {item.badge && (
+                        <span className="text-xs px-2 py-0.5 rounded bg-blue-50 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400">
+                          {item.badge}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {formatDate(item.timestamp)}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 

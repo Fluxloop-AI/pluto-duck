@@ -747,7 +747,6 @@ export default function WorkspacePage() {
                   <DatasetDetailView
                     projectId={defaultProjectId}
                     dataset={selectedDataset}
-                    onBack={() => setSelectedDataset(null)}
                   />
                 ) : (
                   <div className="flex h-full flex-col items-center justify-center gap-4">

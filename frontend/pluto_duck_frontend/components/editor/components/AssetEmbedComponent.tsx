@@ -179,10 +179,10 @@ interface LoadingDisplayProps {
   retryCount: number;
   isRetrying: boolean;
   displayType: 'table' | 'chart';
-  rowsPerPage?: number;
+  initialRows?: number;
 }
 
-function LoadingDisplay({ retryCount, isRetrying, displayType, rowsPerPage = 5 }: LoadingDisplayProps) {
+function LoadingDisplay({ retryCount, isRetrying, displayType, initialRows = 5 }: LoadingDisplayProps) {
   return (
     <div className="space-y-3">
       {/* Retry indicator */}
@@ -197,7 +197,7 @@ function LoadingDisplay({ retryCount, isRetrying, displayType, rowsPerPage = 5 }
       {displayType === 'chart' ? (
         <ChartSkeleton />
       ) : (
-        <TableSkeleton rows={rowsPerPage} />
+        <TableSkeleton rows={initialRows} />
       )}
     </div>
   );
@@ -484,7 +484,7 @@ export function AssetEmbedComponent({
           retryCount={retryCount}
           isRetrying={isRetrying}
           displayType={config.displayType}
-          rowsPerPage={config.tableConfig?.rowsPerPage}
+          initialRows={config.tableConfig?.rowsPerPage}
         />
       );
     }
@@ -496,7 +496,7 @@ export function AssetEmbedComponent({
           columns={data.columns}
           rows={data.rows}
           totalRows={data.totalRows}
-          rowsPerPage={config.tableConfig?.rowsPerPage || 5}
+          initialRows={config.tableConfig?.rowsPerPage || 5}
         />
       );
     }

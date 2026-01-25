@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  History,
+  Stethoscope,
   Pencil,
   RefreshCw,
   Table2,
@@ -19,7 +19,7 @@ import { DatasetHeader } from './DatasetHeader';
 
 export type Dataset = FileAsset | CachedTable;
 
-type DatasetTab = 'summary' | 'history' | 'table';
+type DatasetTab = 'summary' | 'diagnosis' | 'table';
 
 interface DatasetDetailViewProps {
   projectId: string;
@@ -77,7 +77,7 @@ interface SourceFile {
   size: number | null;
 }
 
-interface HistoryItem {
+interface DiagnosisItem {
   id: string;
   title: string;
   timestamp: string;
@@ -129,7 +129,7 @@ export function DatasetDetailView({
 
   const tabs: { id: DatasetTab; label: string }[] = [
     { id: 'summary', label: 'Summary' },
-    { id: 'history', label: 'History' },
+    { id: 'diagnosis', label: 'Diagnosis' },
     { id: 'table', label: 'Table' },
   ];
 
@@ -180,11 +180,11 @@ export function DatasetDetailView({
               setActiveTab={setActiveTab}
             />
           )}
-          {activeTab === 'history' && (
+          {activeTab === 'diagnosis' && (
             <PlaceholderTabContent
-              icon={<History className="h-8 w-8 text-muted-foreground" />}
+              icon={<Stethoscope className="h-8 w-8 text-muted-foreground" />}
               title="Coming soon"
-              description="Change history and version tracking"
+              description="Dataset diagnosis and analysis"
             />
           )}
         </div>
@@ -272,8 +272,8 @@ function SummaryTabContent({
     }];
   }, [originalFileName, rowCount, columnCount, fileSize]);
 
-  // Mock history data based on dataset creation date
-  const historyItems = useMemo((): HistoryItem[] => {
+  // Mock diagnosis data based on dataset creation date
+  const diagnosisItems = useMemo((): DiagnosisItem[] => {
     const createdDate = createdAt ? new Date(createdAt) : new Date();
     const processedDate = new Date(createdDate);
     processedDate.setDate(processedDate.getDate() + 1);
@@ -395,11 +395,11 @@ function SummaryTabContent({
             <span>Add More Data</span>
           </button>
 
-          {/* History */}
+          {/* Diagnosis */}
           <div className="pt-4 space-y-3">
-            <span className="text-sm text-muted-foreground">History</span>
+            <span className="text-sm text-muted-foreground">Diagnosis</span>
             <div className="space-y-4">
-              {historyItems.map((item) => (
+              {diagnosisItems.map((item) => (
                 <div key={item.id} className="flex items-start gap-3">
                   <span
                     className={cn(

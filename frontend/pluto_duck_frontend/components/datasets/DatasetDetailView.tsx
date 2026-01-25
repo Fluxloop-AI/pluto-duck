@@ -441,7 +441,7 @@ function SummaryTabContent({
             onClick={() => setActiveTab('table')}
             className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
-            <span>View Full</span>
+            <span>View More</span>
             <ChevronRight className="h-4 w-4" />
           </button>
         </div>
@@ -451,45 +451,13 @@ function SummaryTabContent({
             <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
           </div>
         ) : preview && preview.rows.length > 0 ? (
-          <div className="rounded-lg border border-border overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-muted/50">
-                    {preview.columns.map((col, i) => (
-                      <th
-                        key={i}
-                        className="px-4 py-3 text-left text-xs font-medium text-muted-foreground whitespace-nowrap"
-                      >
-                        {col}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {preview.rows.slice(0, 5).map((row, rowIndex) => (
-                    <tr
-                      key={rowIndex}
-                      className="border-t border-border/50 hover:bg-muted/30 transition-colors"
-                    >
-                      {row.map((cell, cellIndex) => (
-                        <td
-                          key={cellIndex}
-                          className="px-4 py-2.5 text-sm whitespace-nowrap"
-                        >
-                          {cell === null || cell === undefined
-                            ? <span className="text-muted-foreground">-</span>
-                            : typeof cell === 'number'
-                              ? cell.toLocaleString()
-                              : String(cell)}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <AssetTableView
+            columns={preview.columns}
+            rows={preview.rows}
+            totalRows={preview.total_rows ?? preview.rows.length}
+            initialRows={5}
+            hideFooter
+          />
         ) : (
           <div className="flex h-48 items-center justify-center rounded-lg border border-border">
             <p className="text-sm text-muted-foreground">No preview data available</p>

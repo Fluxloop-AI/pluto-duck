@@ -10,6 +10,7 @@ interface AssetTableViewProps {
   initialRows?: number;
   increment?: number;
   alwaysShowSearch?: boolean;
+  hideFooter?: boolean;
 }
 
 interface MatchPosition {
@@ -24,6 +25,7 @@ export function AssetTableView({
   initialRows = 10,
   increment = 10,
   alwaysShowSearch = false,
+  hideFooter = false,
 }: AssetTableViewProps) {
   // Visible rows state (Show More pattern)
   const [visibleRowCount, setVisibleRowCount] = useState(initialRows);
@@ -320,20 +322,22 @@ export function AssetTableView({
       </div>
 
       {/* Show More / Status */}
-      <div className="flex items-center justify-between text-sm text-muted-foreground">
-        <span>
-          Showing {displayedRows.length} of {rows.length} rows
-          {totalRows > rows.length && ` (${totalRows.toLocaleString()} total)`}
-        </span>
-        {hasMoreRows && (
-          <button
-            onClick={handleShowMore}
-            className="px-3 py-1.5 rounded-md border border-border hover:bg-muted hover:border-foreground/20 transition-colors"
-          >
-            Show {Math.min(increment, remainingRows)} more rows
-          </button>
-        )}
-      </div>
+      {!hideFooter && (
+        <div className="flex items-center justify-between text-sm text-muted-foreground">
+          <span>
+            Showing {displayedRows.length} of {rows.length} rows
+            {totalRows > rows.length && ` (${totalRows.toLocaleString()} total)`}
+          </span>
+          {hasMoreRows && (
+            <button
+              onClick={handleShowMore}
+              className="px-3 py-1.5 rounded-md border border-border hover:bg-muted hover:border-foreground/20 transition-colors"
+            >
+              Show {Math.min(increment, remainingRows)} more rows
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -478,6 +478,7 @@ function TableTabContent({ preview, loading, error }: TableTabContentProps) {
         columns={preview.columns}
         rows={preview.rows}
         totalRows={preview.total_rows ?? preview.rows.length}
+        alwaysShowSearch
       />
 
       {/* Add More Data Button */}

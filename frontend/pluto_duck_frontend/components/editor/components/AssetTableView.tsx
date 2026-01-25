@@ -9,6 +9,7 @@ interface AssetTableViewProps {
   totalRows: number;
   initialRows?: number;
   increment?: number;
+  alwaysShowSearch?: boolean;
 }
 
 interface MatchPosition {
@@ -22,6 +23,7 @@ export function AssetTableView({
   totalRows,
   initialRows = 10,
   increment = 10,
+  alwaysShowSearch = false,
 }: AssetTableViewProps) {
   // Visible rows state (Show More pattern)
   const [visibleRowCount, setVisibleRowCount] = useState(initialRows);
@@ -98,33 +100,37 @@ export function AssetTableView({
     setCurrentMatchIndex(0);
   }, [searchQuery, displayedRows]);
 
+  // Derived state: show search bar
+  const showSearch = alwaysShowSearch || isSearchOpen;
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ctrl+F or Cmd+F to toggle search
+      // Ctrl+F or Cmd+F to focus/open search
       if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
-        // Only handle if the table container or its children are focused/hovered
         const tableContainer = tableContainerRef.current;
         if (tableContainer) {
           const isTableFocused = tableContainer.contains(document.activeElement);
           const isTableHovered = tableContainer.matches(':hover');
 
-          if (isTableFocused || isTableHovered || isSearchOpen) {
+          if (isTableFocused || isTableHovered || showSearch) {
             e.preventDefault();
-            setIsSearchOpen(true);
+            if (!alwaysShowSearch) {
+              setIsSearchOpen(true);
+            }
             setTimeout(() => searchInputRef.current?.focus(), 0);
           }
         }
       }
 
-      // ESC to close search
-      if (e.key === 'Escape' && isSearchOpen) {
+      // ESC to close search (only when not alwaysShowSearch)
+      if (e.key === 'Escape' && isSearchOpen && !alwaysShowSearch) {
         setIsSearchOpen(false);
         setSearchQuery('');
       }
 
       // Enter to go to next match, Shift+Enter for previous
-      if (e.key === 'Enter' && isSearchOpen && matchPositions.length > 0) {
+      if (e.key === 'Enter' && showSearch && matchPositions.length > 0 && document.activeElement === searchInputRef.current) {
         e.preventDefault();
         if (e.shiftKey) {
           setCurrentMatchIndex((prev) =>
@@ -140,7 +146,7 @@ export function AssetTableView({
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isSearchOpen, matchPositions.length]);
+  }, [showSearch, isSearchOpen, alwaysShowSearch, matchPositions.length]);
 
   // Navigate to previous match
   const goToPreviousMatch = useCallback(() => {
@@ -158,7 +164,7 @@ export function AssetTableView({
     );
   }, [matchPositions.length]);
 
-  // Close search
+  // Close search (only used when not alwaysShowSearch)
   const closeSearch = useCallback(() => {
     setIsSearchOpen(false);
     setSearchQuery('');
@@ -192,8 +198,8 @@ export function AssetTableView({
   return (
     <div ref={tableContainerRef} className="space-y-3" tabIndex={-1}>
       {/* Search Bar */}
-      {isSearchOpen && (
-        <div className="flex items-center gap-2 p-2 rounded-lg border border-border bg-muted/30">
+      {showSearch && (
+        <div className={`flex items-center gap-2 p-2 rounded-lg bg-muted/30 ${!alwaysShowSearch ? 'border border-border' : ''}`}>
           <Search className="h-4 w-4 text-muted-foreground shrink-0" />
           <input
             ref={searchInputRef}
@@ -202,7 +208,7 @@ export function AssetTableView({
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search in table..."
             className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/60"
-            autoFocus
+            autoFocus={!alwaysShowSearch}
           />
           {matchPositions.length > 0 && (
             <span className="text-xs text-muted-foreground shrink-0">
@@ -232,13 +238,15 @@ export function AssetTableView({
               <ChevronDown className="h-4 w-4" />
             </button>
           </div>
-          <button
-            onClick={closeSearch}
-            className="p-1 rounded hover:bg-muted transition-colors"
-            title="Close (Esc)"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          {!alwaysShowSearch && (
+            <button
+              onClick={closeSearch}
+              className="p-1 rounded hover:bg-muted transition-colors"
+              title="Close (Esc)"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
         </div>
       )}
 

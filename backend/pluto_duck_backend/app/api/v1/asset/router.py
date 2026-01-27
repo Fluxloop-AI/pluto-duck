@@ -972,6 +972,33 @@ def preview_file_data(
 
 
 # =============================================================================
+# Count Duplicates Request/Response Models
+# =============================================================================
+
+
+class CountDuplicatesFileRequest(BaseModel):
+    """Request for a single file in count duplicates request."""
+
+    file_path: str = Field(..., description="Path to the file")
+    file_type: Literal["csv", "parquet"] = Field(..., description="Type of file")
+
+
+class CountDuplicatesRequest(BaseModel):
+    """Request to count duplicate rows across multiple files."""
+
+    files: List[CountDuplicatesFileRequest] = Field(..., description="List of files to check for duplicates")
+
+
+class CountDuplicatesResponse(BaseModel):
+    """Response for duplicate row count."""
+
+    total_rows: int = Field(..., description="Total number of rows across all files")
+    duplicate_rows: int = Field(..., description="Number of duplicate rows")
+    estimated_rows: int = Field(..., description="Estimated rows after deduplication (total - duplicates)")
+    skipped: bool = Field(False, description="Whether calculation was skipped due to row limit")
+
+
+# =============================================================================
 # File Diagnosis Request/Response Models
 # =============================================================================
 
@@ -1128,6 +1155,40 @@ class DiagnoseFilesResponse(BaseModel):
 # =============================================================================
 # File Diagnosis Endpoints
 # =============================================================================
+
+
+@router.post("/files/count-duplicates", response_model=CountDuplicatesResponse)
+def count_duplicate_rows(
+    request: CountDuplicatesRequest,
+    project_id: Optional[str] = Query(None),
+) -> CountDuplicatesResponse:
+    """Count duplicate rows across multiple files.
+
+    This endpoint calculates the number of duplicate rows when merging files,
+    allowing users to preview deduplication results before import.
+
+    If total rows exceed 100,000, calculation is skipped and skipped=true is returned.
+    """
+    from pluto_duck_backend.app.services.asset.file_diagnosis_service import DiagnoseFileRequest
+
+    service = get_file_diagnosis_service(project_id)
+
+    # Convert request to DiagnoseFileRequest objects
+    file_requests = [
+        DiagnoseFileRequest(file_path=f.file_path, file_type=f.file_type)
+        for f in request.files
+    ]
+
+    try:
+        result = service.count_cross_file_duplicates(files=file_requests)
+        return CountDuplicatesResponse(
+            total_rows=result["total_rows"],
+            duplicate_rows=result["duplicate_rows"],
+            estimated_rows=result["estimated_rows"],
+            skipped=result["skipped"],
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to count duplicates: {e}")
 
 
 @router.post("/files/diagnose", response_model=DiagnoseFilesResponse)

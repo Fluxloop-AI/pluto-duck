@@ -1414,6 +1414,127 @@ class FileDiagnosisService:
         return diagnoses
 
     # =========================================================================
+    # Duplicate Counting Methods
+    # =========================================================================
+
+    def count_cross_file_duplicates(
+        self,
+        files: List[DiagnoseFileRequest],
+        row_limit: int = 100000,
+    ) -> Dict[str, Any]:
+        """Count duplicate rows across multiple files.
+
+        This method calculates cross-file duplicates by:
+        1. Summing row counts from each file
+        2. If total exceeds row_limit, return skipped=True
+        3. Using UNION ALL + COUNT(DISTINCT *) to find unique rows
+        4. Calculating duplicates = total - unique
+
+        Args:
+            files: List of files to check for duplicates
+            row_limit: Maximum total rows before skipping calculation (default 100,000)
+
+        Returns:
+            Dict with keys:
+                - total_rows: Total row count across all files
+                - duplicate_rows: Number of duplicate rows
+                - estimated_rows: Rows after deduplication (total - duplicates)
+                - skipped: True if row_limit exceeded
+        """
+        if not files:
+            return {
+                "total_rows": 0,
+                "duplicate_rows": 0,
+                "estimated_rows": 0,
+                "skipped": False,
+            }
+
+        with self._get_connection() as conn:
+            # Step 1: Calculate total row count
+            total_rows = 0
+            read_exprs: List[str] = []
+
+            for file_req in files:
+                # Detect encoding for CSV files
+                encoding: Optional[str] = None
+                if file_req.file_type == "csv":
+                    encoding_info = self._detect_encoding(file_req.file_path)
+                    encoding = encoding_info.detected
+
+                read_expr = self._build_read_expr(
+                    file_req.file_path,
+                    file_req.file_type,
+                    encoding=encoding,
+                )
+                read_exprs.append(read_expr)
+
+                # Get row count for this file
+                try:
+                    result = conn.execute(f"SELECT COUNT(*) FROM {read_expr}").fetchone()
+                    total_rows += result[0] if result else 0
+                except duckdb.Error as e:
+                    logger.warning(f"Failed to count rows for {file_req.file_path}: {e}")
+                    continue
+
+            # Step 2: Check row limit
+            if total_rows > row_limit:
+                logger.info(f"Row limit exceeded ({total_rows} > {row_limit}), skipping duplicate calculation")
+                return {
+                    "total_rows": total_rows,
+                    "duplicate_rows": 0,
+                    "estimated_rows": total_rows,
+                    "skipped": True,
+                }
+
+            # Step 3: Count unique rows using UNION ALL + DISTINCT
+            if len(read_exprs) == 0:
+                return {
+                    "total_rows": 0,
+                    "duplicate_rows": 0,
+                    "estimated_rows": 0,
+                    "skipped": False,
+                }
+
+            # Build UNION ALL query
+            union_query = " UNION ALL ".join([f"SELECT * FROM {expr}" for expr in read_exprs])
+
+            try:
+                # Count distinct rows
+                # Using a subquery with DISTINCT to count unique rows
+                unique_count_query = f"""
+                    SELECT COUNT(*) FROM (
+                        SELECT DISTINCT * FROM ({union_query})
+                    )
+                """
+                result = conn.execute(unique_count_query).fetchone()
+                unique_rows = result[0] if result else 0
+
+                # Step 4: Calculate duplicates
+                duplicate_rows = total_rows - unique_rows
+                estimated_rows = unique_rows
+
+                logger.info(
+                    f"Duplicate count complete: total={total_rows}, unique={unique_rows}, "
+                    f"duplicates={duplicate_rows}"
+                )
+
+                return {
+                    "total_rows": total_rows,
+                    "duplicate_rows": duplicate_rows,
+                    "estimated_rows": estimated_rows,
+                    "skipped": False,
+                }
+            except duckdb.Error as e:
+                logger.error(f"Failed to count unique rows: {e}")
+                # Return total rows with no duplicates on error
+                return {
+                    "total_rows": total_rows,
+                    "duplicate_rows": 0,
+                    "estimated_rows": total_rows,
+                    "skipped": False,
+                }
+
+    # =========================================================================
     # Caching Methods
     # =========================================================================
 

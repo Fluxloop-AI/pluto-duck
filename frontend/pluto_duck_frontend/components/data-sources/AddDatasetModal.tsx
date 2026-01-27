@@ -8,7 +8,7 @@ import type { UnlistenFn } from '@tauri-apps/api/event';
 import { Dialog, DialogContent } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { isTauriRuntime } from '../../lib/tauriRuntime';
-import { importFile, diagnoseFiles, type FileType, type FileDiagnosis, type DiagnoseFileRequest } from '../../lib/fileAssetApi';
+import { importFile, diagnoseFiles, countDuplicateRows, type FileType, type FileDiagnosis, type DiagnoseFileRequest, type DuplicateCountResponse } from '../../lib/fileAssetApi';
 import { DiagnosisResultView } from './DiagnosisResultView';
 import { DatasetAnalyzingView } from './DatasetAnalyzingView';
 
@@ -317,6 +317,7 @@ export function AddDatasetModal({
   const [schemasMatch, setSchemasMatch] = useState(false);
   const [removeDuplicates, setRemoveDuplicates] = useState(true);
   const [llmReady, setLlmReady] = useState(false);
+  const [duplicateInfo, setDuplicateInfo] = useState<DuplicateCountResponse | null>(null);
 
   // Ref for hidden file input (web fallback)
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -335,6 +336,7 @@ export function AddDatasetModal({
       setSchemasMatch(false);
       setRemoveDuplicates(true);
       setLlmReady(false);
+      setDuplicateInfo(null);
     }
   }, [open]);
 
@@ -566,8 +568,10 @@ export function AddDatasetModal({
 
       // Check if schemas are identical for merge option
       const schemasIdentical = areSchemasIdentical(fastResponse.diagnoses);
+      console.log('[AddDatasetModal] Schemas identical:', schemasIdentical, 'files:', fastResponse.diagnoses.length);
       setSchemasMatch(schemasIdentical);
       setMergeFiles(false); // Reset merge checkbox when re-scanning
+      setDuplicateInfo(null); // Reset duplicate info
 
       // Second API call: with LLM analysis (slower)
       try {
@@ -576,6 +580,21 @@ export function AddDatasetModal({
       } catch (llmError) {
         // LLM failure is not critical - we already have the fast diagnosis
         console.warn('LLM analysis failed, using basic diagnosis:', llmError);
+      }
+
+      // If schemas match, count duplicates in parallel with LLM
+      if (schemasIdentical) {
+        console.log('[AddDatasetModal] Calling countDuplicateRows API...');
+        try {
+          const dupResponse = await countDuplicateRows(projectId, filesToDiagnose);
+          setDuplicateInfo(dupResponse);
+          console.log('[AddDatasetModal] Duplicate count result:', dupResponse);
+        } catch (dupError) {
+          // Duplicate count failure is not critical
+          console.warn('Duplicate count failed:', dupError);
+        }
+      } else {
+        console.log('[AddDatasetModal] Skipping duplicate count - schemas do not match');
       }
 
       setLlmReady(true);
@@ -820,6 +839,7 @@ export function AddDatasetModal({
             onMergeFilesChange={setMergeFiles}
             removeDuplicates={removeDuplicates}
             onRemoveDuplicatesChange={setRemoveDuplicates}
+            duplicateInfo={duplicateInfo}
           />
         )}
       </DialogContent>

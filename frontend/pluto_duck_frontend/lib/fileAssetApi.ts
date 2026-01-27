@@ -183,6 +183,17 @@ export interface DiagnoseFilesResponse {
 }
 
 // =============================================================================
+// Duplicate Count Types
+// =============================================================================
+
+export interface DuplicateCountResponse {
+  total_rows: number;
+  duplicate_rows: number;
+  estimated_rows: number;
+  skipped: boolean;
+}
+
+// =============================================================================
 // Helper functions
 // =============================================================================
 
@@ -325,5 +336,28 @@ export async function diagnoseFiles(
 
   const result = await handleResponse<DiagnoseFilesResponse>(response);
   return result;
+}
+
+/**
+ * Count duplicate rows across multiple files.
+ * Used to preview deduplication results before import.
+ *
+ * @param projectId - Project ID
+ * @param files - List of files to check for duplicates
+ * @returns Duplicate count statistics
+ */
+export async function countDuplicateRows(
+  projectId: string,
+  files: DiagnoseFileRequest[]
+): Promise<DuplicateCountResponse> {
+  const url = buildUrl('/files/count-duplicates', projectId);
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ files }),
+  });
+
+  return handleResponse<DuplicateCountResponse>(response);
 }
 

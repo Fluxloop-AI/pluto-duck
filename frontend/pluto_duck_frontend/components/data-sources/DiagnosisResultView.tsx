@@ -3,7 +3,7 @@
 import { X, AlertTriangle, ArrowRight, FileText, ChevronDown, ChevronUp } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '../ui/button';
-import type { FileDiagnosis, ColumnSchema, TypeSuggestion } from '../../lib/fileAssetApi';
+import type { FileDiagnosis, ColumnSchema, TypeSuggestion, DuplicateCountResponse } from '../../lib/fileAssetApi';
 
 interface SelectedFile {
   id: string;
@@ -24,6 +24,7 @@ interface DiagnosisResultViewProps {
   onMergeFilesChange: (checked: boolean) => void;
   removeDuplicates: boolean;
   onRemoveDuplicatesChange: (checked: boolean) => void;
+  duplicateInfo: DuplicateCountResponse | null;
 }
 
 // Helper to format file size
@@ -165,6 +166,7 @@ export function DiagnosisResultView({
   onMergeFilesChange,
   removeDuplicates,
   onRemoveDuplicatesChange,
+  duplicateInfo,
 }: DiagnosisResultViewProps) {
   // Track which cards are expanded (default: all collapsed)
   const [expandedIndex, setExpandedIndex] = useState<number>(-1);

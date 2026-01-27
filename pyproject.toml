@@ -41,6 +41,7 @@ dependencies = [
     "aiofiles>=23.0,<24.0", # For async file uploads in boards service
     "python-multipart>=0.0.6,<0.1", # For FastAPI file upload support
     "sqlglot>=20.0,<21.0", # For duckpipe SQL parsing
+    "chardet>=5.0,<6.0", # For encoding detection in file diagnosis
 ]
 
 [project.optional-dependencies]

@@ -8,8 +8,9 @@ import type { UnlistenFn } from '@tauri-apps/api/event';
 import { Dialog, DialogContent } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { isTauriRuntime } from '../../lib/tauriRuntime';
-import { importFile, diagnoseFiles, type FileType, type FileDiagnosis, type DiagnoseFileRequest } from '../../lib/fileAssetApi';
+import { importFile, diagnoseFiles, countDuplicateRows, type FileType, type FileDiagnosis, type DiagnoseFileRequest, type DuplicateCountResponse, type MergedAnalysis } from '../../lib/fileAssetApi';
 import { DiagnosisResultView } from './DiagnosisResultView';
+import { DatasetAnalyzingView } from './DatasetAnalyzingView';
 
 interface SelectedFile {
   id: string;
@@ -99,7 +100,7 @@ interface AddDatasetModalProps {
   onOpenPostgresModal?: () => void;
 }
 
-type Step = 'select' | 'preview' | 'diagnose';
+type Step = 'select' | 'preview' | 'analyzing' | 'diagnose';
 
 // ============================================================================
 // SelectSourceView - Initial view with dropzone and options
@@ -315,6 +316,9 @@ export function AddDatasetModal({
   const [mergeFiles, setMergeFiles] = useState(false);
   const [schemasMatch, setSchemasMatch] = useState(false);
   const [removeDuplicates, setRemoveDuplicates] = useState(true);
+  const [llmReady, setLlmReady] = useState(false);
+  const [duplicateInfo, setDuplicateInfo] = useState<DuplicateCountResponse | null>(null);
+  const [mergedAnalysis, setMergedAnalysis] = useState<MergedAnalysis | null>(null);
 
   // Ref for hidden file input (web fallback)
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -332,6 +336,9 @@ export function AddDatasetModal({
       setMergeFiles(false);
       setSchemasMatch(false);
       setRemoveDuplicates(true);
+      setLlmReady(false);
+      setDuplicateInfo(null);
+      setMergedAnalysis(null);
     }
   }, [open]);
 
@@ -522,6 +529,7 @@ export function AddDatasetModal({
 
     setIsDiagnosing(true);
     setDiagnosisError(null);
+    setLlmReady(false);
 
     // Build diagnosis request
     const filesToDiagnose: DiagnoseFileRequest[] = [];
@@ -551,17 +559,75 @@ export function AddDatasetModal({
       return;
     }
 
+    // Immediately transition to analyzing step (before API calls)
+    setStep('analyzing');
+    setDiagnosisResults(null);
+
     try {
-      const response = await diagnoseFiles(projectId, filesToDiagnose);
-      setDiagnosisResults(response.diagnoses);
+      // First API call: fast diagnosis without LLM
+      const fastResponse = await diagnoseFiles(projectId, filesToDiagnose, true, false);
+      setDiagnosisResults(fastResponse.diagnoses);
+
       // Check if schemas are identical for merge option
-      const schemasIdentical = areSchemasIdentical(response.diagnoses);
+      const schemasIdentical = areSchemasIdentical(fastResponse.diagnoses);
+      console.log('[AddDatasetModal] Schemas identical:', schemasIdentical, 'files:', fastResponse.diagnoses.length);
       setSchemasMatch(schemasIdentical);
       setMergeFiles(false); // Reset merge checkbox when re-scanning
-      setStep('diagnose');
+      setDuplicateInfo(null); // Reset duplicate info
+
+      // If schemas match, count duplicates first to include in LLM merge context
+      let dupResponse: DuplicateCountResponse | null = null;
+      if (schemasIdentical) {
+        console.log('[AddDatasetModal] Calling countDuplicateRows API...');
+        try {
+          dupResponse = await countDuplicateRows(projectId, filesToDiagnose);
+          setDuplicateInfo(dupResponse);
+          console.log('[AddDatasetModal] Duplicate count result:', dupResponse);
+        } catch (dupError) {
+          // Duplicate count failure is not critical
+          console.warn('Duplicate count failed:', dupError);
+        }
+      } else {
+        console.log('[AddDatasetModal] Skipping duplicate count - schemas do not match');
+      }
+
+      // Second API call: with LLM analysis (slower)
+      try {
+        // If schemas match and we have duplicate info, include merge analysis
+        const includeMergeAnalysis = schemasIdentical && dupResponse !== null;
+        const mergeContext = dupResponse ? {
+          total_rows: dupResponse.total_rows,
+          duplicate_rows: dupResponse.duplicate_rows,
+          estimated_rows: dupResponse.estimated_rows,
+          skipped: dupResponse.skipped,
+        } : undefined;
+
+        const llmResponse = await diagnoseFiles(
+          projectId,
+          filesToDiagnose,
+          true,
+          true,
+          includeMergeAnalysis,
+          mergeContext
+        );
+        setDiagnosisResults(llmResponse.diagnoses);
+
+        // Store merged analysis if present
+        if (llmResponse.merged_analysis) {
+          setMergedAnalysis(llmResponse.merged_analysis);
+          console.log('[AddDatasetModal] Merged analysis received:', llmResponse.merged_analysis);
+        }
+      } catch (llmError) {
+        // LLM failure is not critical - we already have the fast diagnosis
+        console.warn('LLM analysis failed, using basic diagnosis:', llmError);
+      }
+
+      setLlmReady(true);
     } catch (error) {
+      // First API call failed - go back to preview
       const message = error instanceof Error ? error.message : 'Failed to diagnose files';
       setDiagnosisError(message);
+      setStep('preview');
       console.error('Diagnosis failed:', error);
     } finally {
       setIsDiagnosing(false);
@@ -569,7 +635,7 @@ export function AddDatasetModal({
   }, [projectId, selectedFiles]);
 
   // Import files - called when Import button is clicked on diagnose step
-  const handleConfirmImport = useCallback(async () => {
+  const handleConfirmImport = useCallback(async (datasetNames: Record<number, string>) => {
     if (selectedFiles.length === 0) return;
 
     setIsImporting(true);
@@ -596,7 +662,8 @@ export function AddDatasetModal({
         return;
       }
 
-      const tableName = generateTableName(firstFile.name);
+      // Use edited name if provided, otherwise use merged analysis suggestion or default
+      const tableName = datasetNames[0] || mergedAnalysis?.suggested_name || generateTableName(firstFile.name);
 
       // First file: create table with replace mode
       try {
@@ -668,7 +735,10 @@ export function AddDatasetModal({
     const usedTableNames = new Set<string>();
 
     // Import files sequentially to avoid DB conflicts
-    for (const file of selectedFiles) {
+    for (let i = 0; i < selectedFiles.length; i++) {
+      const file = selectedFiles[i];
+      const diagnosis = diagnosisResults?.[i];
+
       // Only Tauri files with paths can be imported
       if (!file.path) {
         errors.push(`${file.name}: No file path available (web upload not supported yet)`);
@@ -683,11 +753,12 @@ export function AddDatasetModal({
         continue;
       }
 
-      // Generate unique table name
-      let tableName = generateTableName(file.name);
+      // Use edited name if provided, otherwise use LLM suggestion or default
+      let tableName = datasetNames[i] || diagnosis?.llm_analysis?.suggested_name || generateTableName(file.name);
       let suffix = 1;
       while (usedTableNames.has(tableName)) {
-        tableName = `${generateTableName(file.name)}_${suffix}`;
+        const baseName = datasetNames[i] || diagnosis?.llm_analysis?.suggested_name || generateTableName(file.name);
+        tableName = `${baseName}_${suffix}`;
         suffix++;
       }
       usedTableNames.add(tableName);
@@ -726,13 +797,18 @@ export function AddDatasetModal({
       console.error('All files failed to import:', errors);
       // Keep modal open so user can see the files and retry
     }
-  }, [projectId, selectedFiles, mergeFiles, schemasMatch, removeDuplicates, onImportSuccess, onOpenChange]);
+  }, [projectId, selectedFiles, mergeFiles, schemasMatch, removeDuplicates, diagnosisResults, mergedAnalysis, onImportSuccess, onOpenChange]);
 
   // Go back from diagnose step to preview step
   const handleBackFromDiagnose = useCallback(() => {
     setStep('preview');
     setDiagnosisResults(null);
     setDiagnosisError(null);
+  }, []);
+
+  // Transition from analyzing step to diagnose step
+  const handleAnalyzingComplete = useCallback(() => {
+    setStep('diagnose');
   }, []);
 
   return (
@@ -772,6 +848,14 @@ export function AddDatasetModal({
             diagnosisError={diagnosisError}
           />
         )}
+        {step === 'analyzing' && (
+          <DatasetAnalyzingView
+            diagnosisResults={diagnosisResults}
+            selectedFiles={selectedFiles}
+            onComplete={handleAnalyzingComplete}
+            llmReady={llmReady}
+          />
+        )}
         {step === 'diagnose' && diagnosisResults && (
           <DiagnosisResultView
             diagnoses={diagnosisResults}
@@ -785,6 +869,8 @@ export function AddDatasetModal({
             onMergeFilesChange={setMergeFiles}
             removeDuplicates={removeDuplicates}
             onRemoveDuplicatesChange={setRemoveDuplicates}
+            duplicateInfo={duplicateInfo}
+            mergedAnalysis={mergedAnalysis}
           />
         )}
       </DialogContent>

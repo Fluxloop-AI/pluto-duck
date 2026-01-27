@@ -82,6 +82,78 @@ export interface TypeSuggestion {
   sample_values?: string[];
 }
 
+// Extended diagnosis types (for loading screen)
+export interface EncodingInfo {
+  detected: string;
+  confidence: number;
+}
+
+export interface ParsingIntegrity {
+  total_lines: number;
+  parsed_rows: number;
+  malformed_rows: number;
+  has_errors: boolean;
+  error_message?: string;
+}
+
+export interface NumericStats {
+  min: number;
+  max: number;
+  median: number;
+  mean: number;
+  stddev: number;
+  distinct_count: number;
+}
+
+export interface ValueFrequency {
+  value: string;
+  frequency: number;
+}
+
+export interface CategoricalStats {
+  unique_count: number;
+  top_values: ValueFrequency[];
+  avg_length: number;
+}
+
+export interface DateStats {
+  min_date: string;
+  max_date: string;
+  span_days: number;
+  distinct_days: number;
+}
+
+export interface ColumnStatistics {
+  column_name: string;
+  column_type: string;
+  semantic_type?: string;
+  null_count: number;
+  null_percentage: number;
+  numeric_stats?: NumericStats;
+  categorical_stats?: CategoricalStats;
+  date_stats?: DateStats;
+}
+
+// LLM Analysis types
+export interface PotentialItem {
+  question: string;
+  analysis: string;
+}
+
+export interface IssueItem {
+  issue: string;
+  suggestion: string;
+}
+
+export interface LLMAnalysis {
+  suggested_name: string;
+  context: string;
+  potential: PotentialItem[];
+  issues: IssueItem[];
+  analyzed_at?: string;
+  model_used: string;
+}
+
 export interface FileDiagnosis {
   file_path: string;
   file_type: string;
@@ -91,15 +163,51 @@ export interface FileDiagnosis {
   file_size_bytes: number;
   type_suggestions: TypeSuggestion[];
   diagnosed_at: string;
+  // Extended fields (optional - for loading screen)
+  encoding?: EncodingInfo;
+  parsing_integrity?: ParsingIntegrity;
+  column_statistics?: ColumnStatistics[];
+  sample_rows?: any[][];
+  // LLM analysis (optional - only when includeLlm=true)
+  llm_analysis?: LLMAnalysis;
+}
+
+// Merge context for LLM analysis
+export interface MergeContext {
+  total_rows: number;
+  duplicate_rows: number;
+  estimated_rows: number;
+  skipped: boolean;
+}
+
+// Merged analysis result from LLM
+export interface MergedAnalysis {
+  suggested_name: string;
+  context: string;
 }
 
 export interface DiagnoseFilesRequest {
   files: DiagnoseFileRequest[];
   use_cache?: boolean;
+  include_llm?: boolean;
+  include_merge_analysis?: boolean;
+  merge_context?: MergeContext;
 }
 
 export interface DiagnoseFilesResponse {
   diagnoses: FileDiagnosis[];
+  merged_analysis?: MergedAnalysis;
+}
+
+// =============================================================================
+// Duplicate Count Types
+// =============================================================================
+
+export interface DuplicateCountResponse {
+  total_rows: number;
+  duplicate_rows: number;
+  estimated_rows: number;
+  skipped: boolean;
 }
 
 // =============================================================================
@@ -219,14 +327,61 @@ export async function previewFileData(
 /**
  * Diagnose files before import.
  * Extracts schema, missing values, and type suggestions.
+ *
+ * @param projectId - Project ID
+ * @param files - List of files to diagnose
+ * @param useCache - Whether to use cached results (default: true)
+ * @param includeLlm - Whether to include LLM analysis (default: false, slower)
+ * @param includeMergeAnalysis - Whether to include merge analysis when schemas match (default: false)
+ * @param mergeContext - Merge context with duplicate info (only when includeMergeAnalysis=true)
  */
 export async function diagnoseFiles(
   projectId: string,
   files: DiagnoseFileRequest[],
-  useCache: boolean = true
+  useCache: boolean = true,
+  includeLlm: boolean = false,
+  includeMergeAnalysis: boolean = false,
+  mergeContext?: MergeContext
 ): Promise<DiagnoseFilesResponse> {
-  const baseUrl = buildUrl('/files/diagnose', projectId);
-  const url = `${baseUrl}&use_cache=${useCache}`;
+  const url = buildUrl('/files/diagnose', projectId);
+
+  const requestBody: DiagnoseFilesRequest = {
+    files,
+    use_cache: useCache,
+    include_llm: includeLlm,
+  };
+
+  // Only include merge analysis fields when requested
+  if (includeMergeAnalysis) {
+    requestBody.include_merge_analysis = true;
+    if (mergeContext) {
+      requestBody.merge_context = mergeContext;
+    }
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(requestBody),
+  });
+
+  const result = await handleResponse<DiagnoseFilesResponse>(response);
+  return result;
+}
+
+/**
+ * Count duplicate rows across multiple files.
+ * Used to preview deduplication results before import.
+ *
+ * @param projectId - Project ID
+ * @param files - List of files to check for duplicates
+ * @returns Duplicate count statistics
+ */
+export async function countDuplicateRows(
+  projectId: string,
+  files: DiagnoseFileRequest[]
+): Promise<DuplicateCountResponse> {
+  const url = buildUrl('/files/count-duplicates', projectId);
 
   const response = await fetch(url, {
     method: 'POST',
@@ -234,7 +389,6 @@ export async function diagnoseFiles(
     body: JSON.stringify({ files }),
   });
 
-  const result = await handleResponse<DiagnoseFilesResponse>(response);
-  return result;
+  return handleResponse<DuplicateCountResponse>(response);
 }
 

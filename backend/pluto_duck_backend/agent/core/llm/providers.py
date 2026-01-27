@@ -1,7 +1,27 @@
-"""LLM provider abstractions for the agent skeleton."""
+"""LLM provider abstractions for the agent skeleton.
+
+.. deprecated::
+    This module is deprecated. Use `pluto_duck_backend.app.services.llm.LLMService`
+    instead for all LLM interactions. This module is kept for backward compatibility
+    but will be removed in a future release.
+
+Migration guide:
+    Old:
+        from pluto_duck_backend.agent.core.llm.providers import get_llm_provider
+        provider = get_llm_provider()
+        response = await provider.ainvoke(prompt)
+
+    New:
+        from pluto_duck_backend.app.services.llm import LLMService
+        llm_service = LLMService()
+        response = await llm_service.complete(prompt)
+        # Or for structured output:
+        result = await llm_service.complete_structured(prompt, ResponseSchema)
+"""
 
 from __future__ import annotations
 
+import warnings
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Dict, Iterable, Optional
 
@@ -86,10 +106,20 @@ def get_llm_provider(
 ) -> BaseLLMProvider:
     """Return an LLM provider configured via `PlutoDuckSettings`.
 
+    .. deprecated::
+        Use `pluto_duck_backend.app.services.llm.LLMService` instead.
+        This function is kept for backward compatibility.
+
     Args:
         scripted_responses: Optional test responses for MockLLMProvider
         model: Optional model override for this specific request
     """
+    warnings.warn(
+        "get_llm_provider() is deprecated. "
+        "Use pluto_duck_backend.app.services.llm.LLMService instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
 
     if scripted_responses is not None:
         return MockLLMProvider(scripted_responses)
@@ -113,7 +143,7 @@ def get_llm_provider(
         local_id = resolved_model.split(":", 1)[1]
         return LlamaCppLLMProvider(local_id)
 
-    # Get API key: env var > database settings
+    # Get API key: env var > database settings > OPENAI_API_KEY fallback
     api_key = settings.agent.api_key
     if not api_key:
         # Try to load from database
@@ -124,6 +154,10 @@ def get_llm_provider(
             api_key = db_settings.get("llm_api_key")
         except Exception:
             pass  # If DB is not available, continue with None
+    if not api_key:
+        # Fallback to OPENAI_API_KEY (consistent with deep/agent.py)
+        import os
+        api_key = os.getenv("OPENAI_API_KEY")
 
     if settings.agent.mock_mode or not api_key:
         return MockLLMProvider()

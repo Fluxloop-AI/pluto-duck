@@ -436,3 +436,64 @@ class TestDiagnosisCaching:
 
         # Verify it's gone
         assert diagnosis_service.get_cached_diagnosis(str(sample_csv)) is None
+
+    def test_cached_diagnosis_preserves_llm_analysis(
+        self, diagnosis_service: FileDiagnosisService, sample_csv: Path
+    ):
+        """Test that cached diagnosis preserves LLM analysis results."""
+        from datetime import timezone
+        from pluto_duck_backend.app.services.asset.file_diagnosis_service import (
+            LLMAnalysisResult,
+            PotentialItem,
+            IssueItem,
+        )
+
+        diagnosis = diagnosis_service.diagnose_file(str(sample_csv), "csv")
+
+        # Add LLM analysis to the diagnosis
+        diagnosis.llm_analysis = LLMAnalysisResult(
+            suggested_name="test_dataset",
+            context="This is a test dataset for unit testing.",
+            potential=[
+                PotentialItem(question="What is the data about?", analysis="Analyze columns"),
+                PotentialItem(question="Any patterns?", analysis="Check distributions"),
+            ],
+            issues=[
+                IssueItem(issue="Missing values", suggestion="Fill or remove nulls"),
+            ],
+            analyzed_at=diagnosis.diagnosed_at,
+            model_used="test-model",
+        )
+
+        # Save the diagnosis with LLM analysis
+        diagnosis_service.save_diagnosis(diagnosis)
+
+        # Retrieve and verify LLM analysis is preserved
+        cached = diagnosis_service.get_cached_diagnosis(str(sample_csv))
+        assert cached is not None
+        assert cached.llm_analysis is not None
+
+        # Check all LLM analysis fields
+        assert cached.llm_analysis.suggested_name == "test_dataset"
+        assert "test dataset" in cached.llm_analysis.context.lower()
+        assert len(cached.llm_analysis.potential) == 2
+        assert cached.llm_analysis.potential[0].question == "What is the data about?"
+        assert len(cached.llm_analysis.issues) == 1
+        assert cached.llm_analysis.issues[0].issue == "Missing values"
+        assert cached.llm_analysis.model_used == "test-model"
+
+    def test_cached_diagnosis_without_llm_analysis(
+        self, diagnosis_service: FileDiagnosisService, sample_csv: Path
+    ):
+        """Test that diagnosis without LLM analysis can be cached and retrieved."""
+        diagnosis = diagnosis_service.diagnose_file(str(sample_csv), "csv")
+
+        # Ensure no LLM analysis
+        assert diagnosis.llm_analysis is None
+
+        # Save and retrieve
+        diagnosis_service.save_diagnosis(diagnosis)
+        cached = diagnosis_service.get_cached_diagnosis(str(sample_csv))
+
+        assert cached is not None
+        assert cached.llm_analysis is None

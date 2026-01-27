@@ -80,11 +80,11 @@ export function DatasetCard({
         </p>
       )}
 
-      <div className="space-y-2">
+      <div className="flex flex-col gap-2">
         {dataset.files.map((file, idx) => (
           <div
             key={idx}
-            className="inline-flex items-center gap-2 bg-muted/60 rounded-lg px-3 py-2 border border-border mr-2"
+            className="flex items-center gap-2 bg-muted/60 rounded-lg px-3 py-2 border border-border w-fit"
           >
             <Grid3X3 className="w-4 h-4 text-muted-foreground" />
             <span className="text-foreground text-sm">{file}</span>

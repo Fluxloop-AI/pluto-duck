@@ -162,9 +162,12 @@ export function DatasetAnalyzingView({
     }
   }, [stepStatuses, visibleResults]);
 
-  // Track which phase we've started processing
-  const [phase1Started, setPhase1Started] = useState(false);
-  const [phase2Started, setPhase2Started] = useState(false);
+  // Track which phase we've started processing (using refs to avoid cleanup issues)
+  const phase1StartedRef = useRef(false);
+  const phase2StartedRef = useRef(false);
+
+  // Track when data first arrives (prevents re-trigger on subsequent updates)
+  const [dataArrived, setDataArrived] = useState(false);
 
   // Steps 1-5 IDs (file/data analysis)
   const PHASE1_STEPS = ['files', 'parsing', 'columns', 'quality', 'statistics'];
@@ -176,11 +179,18 @@ export function DatasetAnalyzingView({
     setStepStatuses((prev) => ({ ...prev, files: 'processing' }));
   }, []);
 
-  // Phase 1: Process steps 1-5 when diagnosisResults arrives
+  // Detect when diagnosisResults first arrives (only triggers once)
   useEffect(() => {
-    if (!diagnosisResults || phase1Started) return;
+    if (diagnosisResults && !dataArrived) {
+      setDataArrived(true);
+    }
+  }, [diagnosisResults, dataArrived]);
 
-    setPhase1Started(true);
+  // Phase 1: Process steps 1-5 when data first arrives
+  useEffect(() => {
+    if (!dataArrived || phase1StartedRef.current) return;
+
+    phase1StartedRef.current = true;
     let isActive = true;
     let currentIndex = 0;
 
@@ -188,8 +198,8 @@ export function DatasetAnalyzingView({
       if (!isActive) return;
 
       if (currentIndex >= PHASE1_STEPS.length) {
-        // Phase 1 complete, start phase 2 if llmReady
-        if (!phase2Started) {
+        // Phase 1 complete, start phase 2 processing indicator if not started yet
+        if (!phase2StartedRef.current) {
           setStepStatuses((prev) => ({ ...prev, naming: 'processing' }));
         }
         return;
@@ -223,13 +233,13 @@ export function DatasetAnalyzingView({
       isActive = false;
       clearTimeout(startTimer);
     };
-  }, [diagnosisResults, phase1Started, phase2Started]);
+  }, [dataArrived]);
 
   // Phase 2: Process steps 6-9 when llmReady becomes true
   useEffect(() => {
-    if (!llmReady || phase2Started) return;
+    if (!llmReady || phase2StartedRef.current) return;
 
-    setPhase2Started(true);
+    phase2StartedRef.current = true;
     let isActive = true;
     let currentIndex = 0;
 
@@ -273,7 +283,7 @@ export function DatasetAnalyzingView({
       isActive = false;
       clearTimeout(startTimer);
     };
-  }, [llmReady, phase2Started, onComplete]);
+  }, [llmReady, onComplete]);
 
   const renderStepIcon = (status: StepStatus) => {
     if (status === 'processing') {

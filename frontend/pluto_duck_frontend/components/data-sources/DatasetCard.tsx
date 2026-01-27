@@ -1,7 +1,13 @@
 'use client';
 
-import { Pencil, FileSpreadsheet } from 'lucide-react';
+import { Pencil, Grid3X3 } from 'lucide-react';
 import { StatusBadge, type DatasetStatus } from './StatusBadge';
+
+export interface DatasetStats {
+  rows: number;
+  columns: number;
+  issues: number;
+}
 
 export interface Dataset {
   id: number;
@@ -9,6 +15,7 @@ export interface Dataset {
   status: DatasetStatus;
   description: string;
   files: string[];
+  stats?: DatasetStats;
 }
 
 interface DatasetCardProps {
@@ -20,6 +27,11 @@ interface DatasetCardProps {
   onEditNameChange: (name: string) => void;
 }
 
+// Helper to format number with commas
+function formatNumber(num: number): string {
+  return num.toLocaleString();
+}
+
 export function DatasetCard({
   dataset,
   isEditing,
@@ -29,10 +41,10 @@ export function DatasetCard({
   onEditNameChange,
 }: DatasetCardProps) {
   return (
-    <div className="border border-border rounded-xl overflow-hidden p-4 transition-all hover:shadow-sm hover:border-muted-foreground/30">
+    <div className="border border-border rounded-xl overflow-hidden p-5 transition-all hover:shadow-sm hover:border-muted-foreground/30">
       <StatusBadge status={dataset.status} />
 
-      <div className="mt-3 mb-2 flex items-center gap-2">
+      <div className="mt-3 mb-1 flex items-center gap-2">
         {isEditing ? (
           <input
             type="text"
@@ -40,12 +52,12 @@ export function DatasetCard({
             onChange={(e) => onEditNameChange(e.target.value)}
             onBlur={() => onSaveEdit(dataset.id)}
             onKeyDown={(e) => e.key === 'Enter' && onSaveEdit(dataset.id)}
-            className="text-lg font-semibold text-foreground bg-muted rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-primary"
+            className="text-xl font-bold text-foreground bg-muted rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-primary"
             autoFocus
           />
         ) : (
           <>
-            <h3 className="text-lg font-semibold text-foreground">{dataset.name}</h3>
+            <h3 className="text-xl font-bold text-foreground">{dataset.name}</h3>
             <button
               onClick={() => onStartEdit(dataset.id, dataset.name)}
               className="p-1.5 hover:bg-muted rounded-lg transition-colors"
@@ -57,8 +69,14 @@ export function DatasetCard({
       </div>
 
       {dataset.description && (
-        <p className="text-muted-foreground text-sm leading-relaxed mb-4">
+        <p className="text-muted-foreground text-sm leading-relaxed mb-1">
           {dataset.description}
+        </p>
+      )}
+
+      {dataset.stats && (
+        <p className="text-muted-foreground text-sm mb-4">
+          {formatNumber(dataset.stats.rows)} rows · {formatNumber(dataset.stats.columns)} columns · {dataset.stats.issues} issues
         </p>
       )}
 
@@ -66,10 +84,10 @@ export function DatasetCard({
         {dataset.files.map((file, idx) => (
           <div
             key={idx}
-            className="flex items-center gap-2.5 bg-muted rounded-lg px-3 py-2 border border-border"
+            className="inline-flex items-center gap-2 bg-muted/60 rounded-lg px-3 py-2 border border-border mr-2"
           >
-            <FileSpreadsheet className="w-4 h-4 text-muted-foreground" />
-            <span className="text-foreground text-sm font-medium">{file}</span>
+            <Grid3X3 className="w-4 h-4 text-muted-foreground" />
+            <span className="text-foreground text-sm">{file}</span>
           </div>
         ))}
       </div>

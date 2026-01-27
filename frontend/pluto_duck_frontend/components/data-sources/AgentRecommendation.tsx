@@ -1,6 +1,6 @@
 'use client';
 
-import { Sparkles, Check } from 'lucide-react';
+import { Package, Check } from 'lucide-react';
 
 // Helper to format number with commas
 function formatNumber(num: number): string {
@@ -45,48 +45,28 @@ export function AgentRecommendation({
   };
 
   return (
-    <div className="bg-primary/5 rounded-xl p-4 mb-4 border border-primary/20">
+    <div className="bg-sky-50 dark:bg-sky-950/30 rounded-xl p-4 mb-4">
       {/* Header */}
-      <div className="flex items-center gap-2.5 mb-4">
-        <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center">
-          <Sparkles className="w-4 h-4 text-primary" />
-        </div>
-        <span className="text-primary font-semibold">AI 추천</span>
+      <div className="flex items-center gap-2 mb-3">
+        <Package className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+        <span className="text-sky-600 dark:text-sky-400 font-semibold text-sm">Agent Recommendation</span>
       </div>
 
       {/* Checkboxes */}
-      <div className="space-y-3">
+      <div className="space-y-2">
         {/* Make files into 1 dataset */}
-        <label className="flex items-center gap-3 cursor-pointer group">
-          <div
-            className={`w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 transition-all duration-200 ${
-              isMerged
-                ? 'bg-primary'
-                : 'bg-background border-2 border-muted-foreground/30 group-hover:border-primary/50'
-            }`}
-            onClick={toggleMerge}
-          >
-            {isMerged && <Check className="w-3 h-3 text-primary-foreground" strokeWidth={3} />}
-          </div>
-          <span className={`text-sm transition-colors ${isMerged ? 'text-foreground' : 'text-muted-foreground'}`}>
-            {fileCount}개의 파일을 하나의 데이터셋으로 통합 (총 {formatNumber(totalRows)}행)
+        <label className="flex items-center gap-2.5 cursor-pointer group">
+          <Check className="w-4 h-4 text-foreground flex-shrink-0" strokeWidth={2.5} />
+          <span className="text-sm font-medium text-foreground">
+            Make {fileCount} files into 1 dataset (total {formatNumber(totalRows)} rows)
           </span>
         </label>
 
         {/* Remove duplicated rows */}
-        <label className={`flex items-center gap-3 group ${isMerged ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'}`}>
-          <div
-            className={`w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 transition-all duration-200 ${
-              removeDuplicates && isMerged
-                ? 'bg-primary'
-                : 'bg-background border-2 border-muted-foreground/30 group-hover:border-primary/50'
-            } ${!isMerged ? 'opacity-50' : ''}`}
-            onClick={toggleRemoveDuplicates}
-          >
-            {removeDuplicates && isMerged && <Check className="w-3 h-3 text-primary-foreground" strokeWidth={3} />}
-          </div>
-          <span className={`text-sm transition-colors ${removeDuplicates && isMerged ? 'text-foreground' : 'text-muted-foreground'}`}>
-            중복된 {formatNumber(duplicateRows)}행 제거 (총 예상 {formatNumber(estimatedRows)}행)
+        <label className="flex items-center gap-2.5 cursor-pointer group">
+          <Check className="w-4 h-4 text-foreground flex-shrink-0" strokeWidth={2.5} />
+          <span className="text-sm font-medium text-foreground">
+            Remove duplicated {formatNumber(duplicateRows)} rows (total estimated {formatNumber(estimatedRows)} rows)
           </span>
         </label>
       </div>

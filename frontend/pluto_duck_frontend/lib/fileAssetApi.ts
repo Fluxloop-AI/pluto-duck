@@ -134,6 +134,26 @@ export interface ColumnStatistics {
   date_stats?: DateStats;
 }
 
+// LLM Analysis types
+export interface PotentialItem {
+  question: string;
+  analysis: string;
+}
+
+export interface IssueItem {
+  issue: string;
+  suggestion: string;
+}
+
+export interface LLMAnalysis {
+  suggested_name: string;
+  context: string;
+  potential: PotentialItem[];
+  issues: IssueItem[];
+  analyzed_at?: string;
+  model_used: string;
+}
+
 export interface FileDiagnosis {
   file_path: string;
   file_type: string;
@@ -148,11 +168,14 @@ export interface FileDiagnosis {
   parsing_integrity?: ParsingIntegrity;
   column_statistics?: ColumnStatistics[];
   sample_rows?: any[][];
+  // LLM analysis (optional - only when includeLlm=true)
+  llm_analysis?: LLMAnalysis;
 }
 
 export interface DiagnoseFilesRequest {
   files: DiagnoseFileRequest[];
   use_cache?: boolean;
+  include_llm?: boolean;
 }
 
 export interface DiagnoseFilesResponse {
@@ -276,19 +299,28 @@ export async function previewFileData(
 /**
  * Diagnose files before import.
  * Extracts schema, missing values, and type suggestions.
+ *
+ * @param projectId - Project ID
+ * @param files - List of files to diagnose
+ * @param useCache - Whether to use cached results (default: true)
+ * @param includeLlm - Whether to include LLM analysis (default: false, slower)
  */
 export async function diagnoseFiles(
   projectId: string,
   files: DiagnoseFileRequest[],
-  useCache: boolean = true
+  useCache: boolean = true,
+  includeLlm: boolean = false
 ): Promise<DiagnoseFilesResponse> {
-  const baseUrl = buildUrl('/files/diagnose', projectId);
-  const url = `${baseUrl}&use_cache=${useCache}`;
+  const url = buildUrl('/files/diagnose', projectId);
 
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ files }),
+    body: JSON.stringify({
+      files,
+      use_cache: useCache,
+      include_llm: includeLlm,
+    }),
   });
 
   const result = await handleResponse<DiagnoseFilesResponse>(response);

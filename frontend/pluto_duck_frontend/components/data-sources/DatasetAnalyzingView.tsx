@@ -12,9 +12,10 @@ interface SelectedFile {
 }
 
 interface DatasetAnalyzingViewProps {
-  diagnosisResults: FileDiagnosis[];
+  diagnosisResults: FileDiagnosis[] | null;
   selectedFiles: SelectedFile[];
   onComplete: () => void;
+  llmReady: boolean;
 }
 
 type StepStatus = 'pending' | 'processing' | 'completed';
@@ -137,6 +138,7 @@ export function DatasetAnalyzingView({
   diagnosisResults,
   selectedFiles,
   onComplete,
+  llmReady,
 }: DatasetAnalyzingViewProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -160,51 +162,118 @@ export function DatasetAnalyzingView({
     }
   }, [stepStatuses, visibleResults]);
 
-  // Sequential step progression
-  useEffect(() => {
-    let currentIndex = 0;
-    let isActive = true;
+  // Track which phase we've started processing
+  const [phase1Started, setPhase1Started] = useState(false);
+  const [phase2Started, setPhase2Started] = useState(false);
 
-    const processStep = () => {
+  // Steps 1-5 IDs (file/data analysis)
+  const PHASE1_STEPS = ['files', 'parsing', 'columns', 'quality', 'statistics'];
+  // Steps 6-9 IDs (LLM analysis)
+  const PHASE2_STEPS = ['naming', 'description', 'understanding', 'integration'];
+
+  // Start with first step processing immediately on mount
+  useEffect(() => {
+    setStepStatuses((prev) => ({ ...prev, files: 'processing' }));
+  }, []);
+
+  // Phase 1: Process steps 1-5 when diagnosisResults arrives
+  useEffect(() => {
+    if (!diagnosisResults || phase1Started) return;
+
+    setPhase1Started(true);
+    let isActive = true;
+    let currentIndex = 0;
+
+    const processPhase1Step = () => {
       if (!isActive) return;
 
-      if (currentIndex >= ANALYSIS_STEPS.length) {
-        setTimeout(() => {
-          if (isActive) onComplete();
-        }, 800);
+      if (currentIndex >= PHASE1_STEPS.length) {
+        // Phase 1 complete, start phase 2 if llmReady
+        if (!phase2Started) {
+          setStepStatuses((prev) => ({ ...prev, naming: 'processing' }));
+        }
         return;
       }
 
-      const currentStep = ANALYSIS_STEPS[currentIndex];
-      setStepStatuses((prev) => ({ ...prev, [currentStep.id]: 'processing' }));
+      const stepId = PHASE1_STEPS[currentIndex];
+      setStepStatuses((prev) => ({ ...prev, [stepId]: 'processing' }));
 
-      // Vary processing time based on step - longer for data-rich steps
-      const hasData = ['files', 'parsing', 'columns', 'quality', 'statistics'].includes(currentStep.id);
-      const processingTime = hasData ? (800 + Math.random() * 400) : (400 + Math.random() * 200);
+      // Processing time for each step (300-500ms as per plan)
+      const processingTime = 300 + Math.random() * 200;
 
       setTimeout(() => {
         if (!isActive) return;
 
-        setStepStatuses((prev) => ({ ...prev, [currentStep.id]: 'completed' }));
+        setStepStatuses((prev) => ({ ...prev, [stepId]: 'completed' }));
 
         setTimeout(() => {
           if (!isActive) return;
-
-          setVisibleResults((prev) => ({ ...prev, [currentStep.id]: true }));
+          setVisibleResults((prev) => ({ ...prev, [stepId]: true }));
         }, 150);
 
         currentIndex++;
-        setTimeout(processStep, 300);
+        setTimeout(processPhase1Step, 300);
       }, processingTime);
     };
 
-    const startTimer = setTimeout(processStep, 400);
+    // Small delay before starting to allow UI to settle
+    const startTimer = setTimeout(processPhase1Step, 200);
 
     return () => {
       isActive = false;
       clearTimeout(startTimer);
     };
-  }, [onComplete, selectedFiles, diagnosisResults]);
+  }, [diagnosisResults, phase1Started, phase2Started]);
+
+  // Phase 2: Process steps 6-9 when llmReady becomes true
+  useEffect(() => {
+    if (!llmReady || phase2Started) return;
+
+    setPhase2Started(true);
+    let isActive = true;
+    let currentIndex = 0;
+
+    const processPhase2Step = () => {
+      if (!isActive) return;
+
+      if (currentIndex >= PHASE2_STEPS.length) {
+        // All steps complete, trigger onComplete (600-800ms delay as per plan)
+        const completeDelay = 600 + Math.random() * 200;
+        setTimeout(() => {
+          if (isActive) onComplete();
+        }, completeDelay);
+        return;
+      }
+
+      const stepId = PHASE2_STEPS[currentIndex];
+      setStepStatuses((prev) => ({ ...prev, [stepId]: 'processing' }));
+
+      // Faster processing for LLM steps since data is already ready
+      const processingTime = 300 + Math.random() * 150;
+
+      setTimeout(() => {
+        if (!isActive) return;
+
+        setStepStatuses((prev) => ({ ...prev, [stepId]: 'completed' }));
+
+        setTimeout(() => {
+          if (!isActive) return;
+          setVisibleResults((prev) => ({ ...prev, [stepId]: true }));
+        }, 150);
+
+        currentIndex++;
+        setTimeout(processPhase2Step, 250);
+      }, processingTime);
+    };
+
+    // Start processing phase 2
+    const startTimer = setTimeout(processPhase2Step, 200);
+
+    return () => {
+      isActive = false;
+      clearTimeout(startTimer);
+    };
+  }, [llmReady, phase2Started, onComplete]);
 
   const renderStepIcon = (status: StepStatus) => {
     if (status === 'processing') {
@@ -223,11 +292,15 @@ export function DatasetAnalyzingView({
   const renderStepResult = (stepId: string) => {
     if (!visibleResults[stepId]) return null;
 
+    // For steps 1-5, need diagnosisResults to show data
+    const needsDiagnosisData = ['files', 'parsing', 'columns', 'quality', 'statistics'].includes(stepId);
+    if (needsDiagnosisData && !diagnosisResults) return null;
+
     switch (stepId) {
       case 'files':
         return (
           <div className="ml-7 mt-1 space-y-0.5 animate-fade-in">
-            {diagnosisResults.map((diagnosis) => (
+            {diagnosisResults!.map((diagnosis) => (
               <div key={diagnosis.file_path} className="flex items-center gap-2">
                 <span className="text-muted-foreground text-xs font-mono">
                   {getFileNameFromPath(diagnosis.file_path)}
@@ -241,7 +314,7 @@ export function DatasetAnalyzingView({
       case 'parsing':
         return (
           <div className="ml-7 mt-1 space-y-0.5 animate-fade-in">
-            {diagnosisResults.map((diagnosis) => {
+            {diagnosisResults!.map((diagnosis) => {
               const successRate = getParsingSuccessRateForFile(diagnosis);
               return (
                 <div key={diagnosis.file_path} className="flex items-center gap-2">
@@ -263,7 +336,7 @@ export function DatasetAnalyzingView({
       case 'columns':
         return (
           <div className="ml-7 mt-1 space-y-1 animate-fade-in">
-            {diagnosisResults.map((diagnosis) => {
+            {diagnosisResults!.map((diagnosis) => {
               const typeSummary = getColumnTypeSummaryForFile(diagnosis);
               return (
                 <div key={diagnosis.file_path} className="space-y-0.5">
@@ -285,7 +358,7 @@ export function DatasetAnalyzingView({
       case 'quality':
         return (
           <div className="ml-7 mt-1 space-y-0.5 animate-fade-in">
-            {diagnosisResults.map((diagnosis) => {
+            {diagnosisResults!.map((diagnosis) => {
               const missingRate = calculateMissingRateForFile(diagnosis);
               const suggestions = diagnosis.type_suggestions?.length || 0;
               return (
@@ -306,7 +379,7 @@ export function DatasetAnalyzingView({
       case 'statistics':
         return (
           <div className="ml-7 mt-1 space-y-0.5 animate-fade-in">
-            {diagnosisResults.map((diagnosis) => {
+            {diagnosisResults!.map((diagnosis) => {
               const dateRange = getDateRangeSummaryForFile(diagnosis);
               const numericRange = getNumericRangeSummaryForFile(diagnosis);
               return (

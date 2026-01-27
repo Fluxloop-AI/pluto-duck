@@ -988,6 +988,7 @@ class DiagnoseFilesRequest(BaseModel):
 
     files: List[DiagnoseFileRequestModel] = Field(..., description="List of files to diagnose")
     use_cache: bool = Field(True, description="Use cached results if available")
+    include_llm: bool = Field(False, description="Include LLM analysis (slower, provides insights)")
 
 
 class ColumnSchemaResponse(BaseModel):
@@ -1141,11 +1142,12 @@ async def diagnose_files(
     - Missing value counts per column
     - Row count and file size
     - Type suggestions (optional, for detecting mismatched types)
-    - LLM-generated analysis (context, potential analyses, issues)
+    - LLM-generated analysis (when include_llm=true)
 
     Use this to preview data quality before creating tables.
 
     Set use_cache=false to force fresh diagnosis even if cached results exist.
+    Set include_llm=true to include LLM-generated analysis (slower).
     """
     from pluto_duck_backend.app.services.asset.file_diagnosis_service import DiagnoseFileRequest
 
@@ -1157,12 +1159,17 @@ async def diagnose_files(
         for f in request.files
     ]
 
-    # Run diagnosis with LLM analysis
+    # Run diagnosis (with or without LLM analysis based on include_llm flag)
     try:
-        all_diagnoses = await service.diagnose_files_with_llm(
-            files=file_requests,
-            use_cache=request.use_cache,
-        )
+        if request.include_llm:
+            # Include LLM analysis (slower)
+            all_diagnoses = await service.diagnose_files_with_llm(
+                files=file_requests,
+                use_cache=request.use_cache,
+            )
+        else:
+            # Technical diagnosis only (fast)
+            all_diagnoses = service.diagnose_files(files=file_requests)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Diagnosis failed: {e}")
 

@@ -316,6 +316,7 @@ export function AddDatasetModal({
   const [mergeFiles, setMergeFiles] = useState(false);
   const [schemasMatch, setSchemasMatch] = useState(false);
   const [removeDuplicates, setRemoveDuplicates] = useState(true);
+  const [llmReady, setLlmReady] = useState(false);
 
   // Ref for hidden file input (web fallback)
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -333,6 +334,7 @@ export function AddDatasetModal({
       setMergeFiles(false);
       setSchemasMatch(false);
       setRemoveDuplicates(true);
+      setLlmReady(false);
     }
   }, [open]);
 
@@ -523,6 +525,7 @@ export function AddDatasetModal({
 
     setIsDiagnosing(true);
     setDiagnosisError(null);
+    setLlmReady(false);
 
     // Build diagnosis request
     const filesToDiagnose: DiagnoseFileRequest[] = [];
@@ -552,17 +555,35 @@ export function AddDatasetModal({
       return;
     }
 
+    // Immediately transition to analyzing step (before API calls)
+    setStep('analyzing');
+    setDiagnosisResults(null);
+
     try {
-      const response = await diagnoseFiles(projectId, filesToDiagnose);
-      setDiagnosisResults(response.diagnoses);
+      // First API call: fast diagnosis without LLM
+      const fastResponse = await diagnoseFiles(projectId, filesToDiagnose, true, false);
+      setDiagnosisResults(fastResponse.diagnoses);
+
       // Check if schemas are identical for merge option
-      const schemasIdentical = areSchemasIdentical(response.diagnoses);
+      const schemasIdentical = areSchemasIdentical(fastResponse.diagnoses);
       setSchemasMatch(schemasIdentical);
       setMergeFiles(false); // Reset merge checkbox when re-scanning
-      setStep('analyzing');
+
+      // Second API call: with LLM analysis (slower)
+      try {
+        const llmResponse = await diagnoseFiles(projectId, filesToDiagnose, true, true);
+        setDiagnosisResults(llmResponse.diagnoses);
+      } catch (llmError) {
+        // LLM failure is not critical - we already have the fast diagnosis
+        console.warn('LLM analysis failed, using basic diagnosis:', llmError);
+      }
+
+      setLlmReady(true);
     } catch (error) {
+      // First API call failed - go back to preview
       const message = error instanceof Error ? error.message : 'Failed to diagnose files';
       setDiagnosisError(message);
+      setStep('preview');
       console.error('Diagnosis failed:', error);
     } finally {
       setIsDiagnosing(false);
@@ -778,11 +799,12 @@ export function AddDatasetModal({
             diagnosisError={diagnosisError}
           />
         )}
-        {step === 'analyzing' && diagnosisResults && (
+        {step === 'analyzing' && (
           <DatasetAnalyzingView
             diagnosisResults={diagnosisResults}
             selectedFiles={selectedFiles}
             onComplete={handleAnalyzingComplete}
+            llmReady={llmReady}
           />
         )}
         {step === 'diagnose' && diagnosisResults && (

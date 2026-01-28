@@ -40,6 +40,7 @@ export interface ImportFileRequest {
   target_table?: string;
   merge_keys?: string[];
   deduplicate?: boolean;
+  diagnosis_id?: string;
 }
 
 export interface FileSchema {
@@ -170,6 +171,8 @@ export interface FileDiagnosis {
   sample_rows?: any[][];
   // LLM analysis (optional - only when includeLlm=true)
   llm_analysis?: LLMAnalysis;
+  // Diagnosis ID for linking to FileAsset
+  diagnosis_id?: string;
 }
 
 // Merge context for LLM analysis
@@ -390,5 +393,35 @@ export async function countDuplicateRows(
   });
 
   return handleResponse<DuplicateCountResponse>(response);
+}
+
+/**
+ * Get diagnosis for an existing file asset.
+ * Returns null if no diagnosis exists (404).
+ *
+ * @param projectId - Project ID
+ * @param fileId - File asset ID
+ * @returns FileDiagnosis or null if not found
+ */
+export async function getFileDiagnosis(
+  projectId: string,
+  fileId: string
+): Promise<FileDiagnosis | null> {
+  const url = buildUrl(`/files/${encodeURIComponent(fileId)}/diagnosis`, projectId);
+  console.log('[fileAssetApi] getFileDiagnosis URL:', url);
+
+  const response = await fetch(url);
+  console.log('[fileAssetApi] getFileDiagnosis response status:', response.status);
+
+  if (response.status === 404) {
+    console.log('[fileAssetApi] getFileDiagnosis: No diagnosis found (404)');
+    return null;
+  }
+
+  const result = await handleResponse<FileDiagnosis>(response);
+  console.log('[fileAssetApi] getFileDiagnosis result:', result);
+  console.log('[fileAssetApi] llm_analysis:', result?.llm_analysis);
+  console.log('[fileAssetApi] potential:', result?.llm_analysis?.potential);
+  return result;
 }
 

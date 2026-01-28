@@ -610,6 +610,8 @@ export function AddDatasetModal({
           includeMergeAnalysis,
           mergeContext
         );
+        console.log('[AddDatasetModal] LLM response diagnoses:', llmResponse.diagnoses);
+        console.log('[AddDatasetModal] First diagnosis_id:', llmResponse.diagnoses[0]?.diagnosis_id);
         setDiagnosisResults(llmResponse.diagnoses);
 
         // Store merged analysis if present
@@ -665,6 +667,9 @@ export function AddDatasetModal({
       // Use edited name if provided, otherwise use merged analysis suggestion or default
       const tableName = datasetNames[0] || mergedAnalysis?.suggested_name || generateTableName(firstFile.name);
 
+      // Get the first diagnosis for diagnosis_id
+      const firstDiagnosis = diagnosisResults?.[0];
+
       // First file: create table with replace mode
       let createdAsset: FileAsset | undefined;
       try {
@@ -675,6 +680,7 @@ export function AddDatasetModal({
           name: tableName,
           overwrite: true,
           mode: 'replace',
+          diagnosis_id: firstDiagnosis?.diagnosis_id,
         });
         successCount++;
       } catch (error) {
@@ -772,6 +778,7 @@ export function AddDatasetModal({
           table_name: tableName,
           name: tableName,
           overwrite: true,
+          diagnosis_id: diagnosis?.diagnosis_id,
         });
         successCount++;
       } catch (error) {

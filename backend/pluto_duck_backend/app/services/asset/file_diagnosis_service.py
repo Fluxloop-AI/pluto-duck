@@ -365,6 +365,7 @@ class FileDiagnosis:
         column_statistics: Per-column statistics
         sample_rows: Sample data rows (up to 5)
         llm_analysis: LLM-generated analysis result (optional)
+        diagnosis_id: Unique ID of this diagnosis (set after save)
     """
 
     file_path: str
@@ -382,6 +383,8 @@ class FileDiagnosis:
     sample_rows: List[List[Any]] = field(default_factory=list)
     # LLM analysis result
     llm_analysis: Optional[LLMAnalysisResult] = None
+    # Diagnosis ID (set after save to cache)
+    diagnosis_id: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
@@ -399,6 +402,7 @@ class FileDiagnosis:
             "column_statistics": [cs.to_dict() for cs in self.column_statistics],
             "sample_rows": self.sample_rows,
             "llm_analysis": self.llm_analysis.to_dict() if self.llm_analysis else None,
+            "diagnosis_id": self.diagnosis_id,
         }
 
 
@@ -1455,7 +1459,8 @@ class FileDiagnosisService:
                         logger.info(f"LLM analysis added for {diagnosis.file_path}")
 
                     # Save updated diagnosis to cache
-                    self.save_diagnosis(diagnosis)
+                    saved_id = self.save_diagnosis(diagnosis)
+                    logger.info(f"[diagnose_files_with_llm] Saved diagnosis: file={diagnosis.file_path}, diagnosis_id={saved_id}")
 
                 # Extract merged analysis if present
                 if batch_result.merged_result is not None:
@@ -1610,14 +1615,19 @@ class FileDiagnosisService:
 
         Returns:
             ID of the saved diagnosis record
+
+        Note:
+            Also sets diagnosis.diagnosis_id to the generated ID
         """
         diagnosis_id = f"diag_{uuid.uuid4().hex[:12]}"
+        logger.info(f"[save_diagnosis] Generated diagnosis_id={diagnosis_id} for file={diagnosis.file_path}")
 
         # Serialize complex fields to JSON
         schema_json = json.dumps([col.to_dict() for col in diagnosis.schema])
         missing_values_json = json.dumps(diagnosis.missing_values)
         type_suggestions_json = json.dumps([ts.to_dict() for ts in diagnosis.type_suggestions])
         llm_analysis_json = json.dumps(diagnosis.llm_analysis.to_dict()) if diagnosis.llm_analysis else None
+        logger.info(f"[save_diagnosis] llm_analysis present: {diagnosis.llm_analysis is not None}")
 
         with self._get_connection() as conn:
             # Delete existing diagnosis for this file path
@@ -1646,28 +1656,36 @@ class FileDiagnosisService:
                 diagnosis.diagnosed_at,
                 llm_analysis_json,
             ])
+            logger.info(f"[save_diagnosis] Diagnosis saved to DB: diagnosis_id={diagnosis_id}")
+
+        # Set the diagnosis_id on the diagnosis object
+        diagnosis.diagnosis_id = diagnosis_id
 
         return diagnosis_id
 
-    def get_cached_diagnosis(self, file_path: str) -> Optional[FileDiagnosis]:
-        """Get a cached diagnosis result for a file.
+    def get_diagnosis_by_id(self, diagnosis_id: str) -> Optional[FileDiagnosis]:
+        """Get a diagnosis by its ID.
 
         Args:
-            file_path: Path to the file
+            diagnosis_id: Diagnosis ID (e.g., 'diag_xxxxxxxxxxxx')
 
         Returns:
-            FileDiagnosis if cached, None otherwise
+            FileDiagnosis if found, None otherwise
         """
+        logger.info(f"[get_diagnosis_by_id] Looking up diagnosis_id={diagnosis_id}, project_id={self.project_id}")
         with self._get_connection() as conn:
             result = conn.execute(f"""
                 SELECT file_path, file_type, schema_info, missing_values,
                        type_suggestions, row_count, file_size_bytes, diagnosed_at, llm_analysis
                 FROM {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
-                WHERE file_path = ? AND project_id = ?
-            """, [file_path, self.project_id]).fetchone()
+                WHERE id = ? AND project_id = ?
+            """, [diagnosis_id, self.project_id]).fetchone()
 
             if not result:
+                logger.warning(f"[get_diagnosis_by_id] Diagnosis NOT FOUND for id={diagnosis_id}")
                 return None
+
+            logger.info(f"[get_diagnosis_by_id] Diagnosis FOUND: file_path={result[0]}")
 
             # Deserialize JSON fields
             schema_data = json.loads(result[2]) if result[2] else []
@@ -1731,6 +1749,93 @@ class FileDiagnosisService:
                 type_suggestions=type_suggestions,
                 diagnosed_at=result[7],
                 llm_analysis=llm_analysis,
+                diagnosis_id=diagnosis_id,
+            )
+
+    def get_cached_diagnosis(self, file_path: str) -> Optional[FileDiagnosis]:
+        """Get a cached diagnosis result for a file.
+
+        Args:
+            file_path: Path to the file
+
+        Returns:
+            FileDiagnosis if cached, None otherwise
+        """
+        with self._get_connection() as conn:
+            result = conn.execute(f"""
+                SELECT id, file_path, file_type, schema_info, missing_values,
+                       type_suggestions, row_count, file_size_bytes, diagnosed_at, llm_analysis
+                FROM {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
+                WHERE file_path = ? AND project_id = ?
+            """, [file_path, self.project_id]).fetchone()
+
+            if not result:
+                return None
+
+            # Deserialize JSON fields
+            cached_diagnosis_id = result[0]
+            schema_data = json.loads(result[3]) if result[3] else []
+            missing_values = json.loads(result[4]) if result[4] else {}
+            type_suggestions_data = json.loads(result[5]) if result[5] else []
+            llm_analysis_data = json.loads(result[9]) if result[9] else None
+
+            # Reconstruct schema
+            schema = [
+                ColumnSchema(
+                    name=col["name"],
+                    type=col["type"],
+                    nullable=col.get("nullable", True),
+                )
+                for col in schema_data
+            ]
+
+            # Reconstruct type suggestions
+            type_suggestions = [
+                TypeSuggestion(
+                    column_name=ts["column_name"],
+                    current_type=ts["current_type"],
+                    suggested_type=ts["suggested_type"],
+                    confidence=ts["confidence"],
+                    sample_values=ts.get("sample_values", []),
+                )
+                for ts in type_suggestions_data
+            ]
+
+            # Reconstruct LLM analysis if present
+            llm_analysis: Optional[LLMAnalysisResult] = None
+            if llm_analysis_data:
+                llm_analysis = LLMAnalysisResult(
+                    suggested_name=llm_analysis_data.get("suggested_name", ""),
+                    context=llm_analysis_data.get("context", ""),
+                    potential=[
+                        PotentialItem(
+                            question=p.get("question", ""),
+                            analysis=p.get("analysis", ""),
+                        )
+                        for p in llm_analysis_data.get("potential", [])
+                    ],
+                    issues=[
+                        IssueItem(
+                            issue=i.get("issue", ""),
+                            suggestion=i.get("suggestion", ""),
+                        )
+                        for i in llm_analysis_data.get("issues", [])
+                    ],
+                    analyzed_at=datetime.fromisoformat(llm_analysis_data["analyzed_at"]) if llm_analysis_data.get("analyzed_at") else datetime.now(UTC),
+                    model_used=llm_analysis_data.get("model_used", "unknown"),
+                )
+
+            return FileDiagnosis(
+                file_path=result[1],
+                file_type=result[2],
+                schema=schema,
+                missing_values=missing_values,
+                row_count=result[6],
+                file_size_bytes=result[7],
+                type_suggestions=type_suggestions,
+                diagnosed_at=result[8],
+                llm_analysis=llm_analysis,
+                diagnosis_id=cached_diagnosis_id,
             )
 
     def delete_cached_diagnosis(self, file_path: str) -> bool:

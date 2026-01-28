@@ -9,7 +9,10 @@ Provides REST endpoints for:
 
 from __future__ import annotations
 
+import logging
 from contextlib import contextmanager
+
+logger = logging.getLogger(__name__)
 from datetime import datetime
 from pathlib import Path
 import tempfile
@@ -786,6 +789,10 @@ class ImportFileRequest(BaseModel):
         False,
         description="When appending, skip rows that are exact duplicates of existing rows in the target table",
     )
+    diagnosis_id: Optional[str] = Field(
+        None,
+        description="ID of the diagnosis to link to this file asset",
+    )
 
 
 class FileAssetResponse(BaseModel):
@@ -800,6 +807,7 @@ class FileAssetResponse(BaseModel):
     row_count: Optional[int] = None
     column_count: Optional[int] = None
     file_size_bytes: Optional[int] = None
+    diagnosis_id: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -832,6 +840,7 @@ def _file_asset_to_response(asset: FileAsset) -> FileAssetResponse:
         row_count=asset.row_count,
         column_count=asset.column_count,
         file_size_bytes=asset.file_size_bytes,
+        diagnosis_id=asset.diagnosis_id,
         created_at=asset.created_at,
         updated_at=asset.updated_at,
     )
@@ -851,12 +860,13 @@ def import_file(
 
     This creates a table from the file and registers it as a File Asset.
     File Assets go directly to Asset Zone (no ATTACH, no TTL).
-    
+
     Modes:
     - replace: Create new table or overwrite existing
     - append: Add rows to existing table
     - merge: Upsert based on merge_keys
     """
+    logger.info(f"[import_file] Request received: table_name={request.table_name}, diagnosis_id={request.diagnosis_id}")
     service = get_file_asset_service(project_id)
 
     try:
@@ -871,7 +881,9 @@ def import_file(
             target_table=request.target_table,
             merge_keys=request.merge_keys,
             deduplicate=request.deduplicate,
+            diagnosis_id=request.diagnosis_id,
         )
+        logger.info(f"[import_file] Asset created: id={asset.id}, diagnosis_id={asset.diagnosis_id}")
         return _file_asset_to_response(asset)
     except AssetValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -1155,6 +1167,8 @@ class FileDiagnosisResponse(BaseModel):
     sample_rows: List[List[Any]] = []
     # LLM analysis result
     llm_analysis: Optional[LLMAnalysisResponse] = None
+    # Diagnosis ID for linking to FileAsset
+    diagnosis_id: Optional[str] = None
 
 
 class MergedAnalysisResponse(BaseModel):
@@ -1376,8 +1390,144 @@ async def diagnose_files(
                     analyzed_at=diagnosis.llm_analysis.analyzed_at,
                     model_used=diagnosis.llm_analysis.model_used,
                 ) if diagnosis.llm_analysis else None,
+                diagnosis_id=diagnosis.diagnosis_id,
             )
         )
 
     return DiagnoseFilesResponse(diagnoses=diagnoses, merged_analysis=merged_analysis_response)
+
+
+@router.get("/files/{file_id}/diagnosis", response_model=FileDiagnosisResponse)
+def get_file_diagnosis(
+    file_id: str,
+    project_id: Optional[str] = Query(None),
+) -> FileDiagnosisResponse:
+    """Get diagnosis for a file asset.
+
+    Retrieves the diagnosis linked to a file asset.
+    First tries to lookup by diagnosis_id (if present), then falls back to file_path.
+    """
+    logger.info(f"[get_file_diagnosis] Request for file_id={file_id}")
+    file_service = get_file_asset_service(project_id)
+    asset = file_service.get_file(file_id)
+    if not asset:
+        logger.warning(f"[get_file_diagnosis] File asset not found: {file_id}")
+        raise HTTPException(status_code=404, detail=f"File asset '{file_id}' not found")
+
+    logger.info(f"[get_file_diagnosis] Asset found: id={asset.id}, diagnosis_id={asset.diagnosis_id}, file_path={asset.file_path}")
+
+    diagnosis_service = get_file_diagnosis_service(project_id)
+    diagnosis = None
+
+    # Method 1: Lookup by diagnosis_id (if present)
+    if asset.diagnosis_id:
+        logger.info(f"[get_file_diagnosis] Trying lookup by diagnosis_id: {asset.diagnosis_id}")
+        diagnosis = diagnosis_service.get_diagnosis_by_id(asset.diagnosis_id)
+        logger.info(f"[get_file_diagnosis] Lookup result by diagnosis_id: {'FOUND' if diagnosis else 'NOT FOUND'}")
+
+    # Method 2: Fallback to file_path lookup (for legacy assets without diagnosis_id)
+    if diagnosis is None:
+        logger.info(f"[get_file_diagnosis] Trying fallback lookup by file_path: {asset.file_path}")
+        diagnosis = diagnosis_service.get_cached_diagnosis(asset.file_path)
+        logger.info(f"[get_file_diagnosis] Lookup result by file_path: {'FOUND' if diagnosis else 'NOT FOUND'}")
+
+    if diagnosis is None:
+        logger.warning(f"[get_file_diagnosis] No diagnosis found for file_id={file_id}")
+        raise HTTPException(status_code=404, detail=f"No diagnosis found for file '{file_id}'")
+
+    # Convert to response
+    return FileDiagnosisResponse(
+        file_path=diagnosis.file_path,
+        file_type=diagnosis.file_type,
+        columns=[
+            ColumnSchemaResponse(
+                name=col.name,
+                type=col.type,
+                nullable=col.nullable,
+            )
+            for col in diagnosis.schema
+        ],
+        missing_values=diagnosis.missing_values,
+        row_count=diagnosis.row_count,
+        file_size_bytes=diagnosis.file_size_bytes,
+        type_suggestions=[
+            TypeSuggestionResponse(
+                column_name=ts.column_name,
+                current_type=ts.current_type,
+                suggested_type=ts.suggested_type,
+                confidence=ts.confidence,
+                sample_values=ts.sample_values,
+            )
+            for ts in diagnosis.type_suggestions
+        ],
+        diagnosed_at=diagnosis.diagnosed_at,
+        encoding=EncodingInfoResponse(
+            detected=diagnosis.encoding.detected,
+            confidence=diagnosis.encoding.confidence,
+        ) if diagnosis.encoding else None,
+        parsing_integrity=ParsingIntegrityResponse(
+            total_lines=diagnosis.parsing_integrity.total_lines,
+            parsed_rows=diagnosis.parsing_integrity.parsed_rows,
+            malformed_rows=diagnosis.parsing_integrity.malformed_rows,
+            has_errors=diagnosis.parsing_integrity.has_errors,
+            error_message=diagnosis.parsing_integrity.error_message,
+        ) if diagnosis.parsing_integrity else None,
+        column_statistics=[
+            ColumnStatisticsResponse(
+                column_name=cs.column_name,
+                column_type=cs.column_type,
+                semantic_type=cs.semantic_type,
+                null_count=cs.null_count,
+                null_percentage=cs.null_percentage,
+                numeric_stats=NumericStatsResponse(
+                    min=cs.numeric_stats.min,
+                    max=cs.numeric_stats.max,
+                    median=cs.numeric_stats.median,
+                    mean=cs.numeric_stats.mean,
+                    stddev=cs.numeric_stats.stddev,
+                    distinct_count=cs.numeric_stats.distinct_count,
+                ) if cs.numeric_stats else None,
+                categorical_stats=CategoricalStatsResponse(
+                    unique_count=cs.categorical_stats.unique_count,
+                    top_values=[
+                        ValueFrequencyResponse(
+                            value=vf.value,
+                            frequency=vf.frequency,
+                        )
+                        for vf in cs.categorical_stats.top_values
+                    ],
+                    avg_length=cs.categorical_stats.avg_length,
+                ) if cs.categorical_stats else None,
+                date_stats=DateStatsResponse(
+                    min_date=cs.date_stats.min_date,
+                    max_date=cs.date_stats.max_date,
+                    span_days=cs.date_stats.span_days,
+                    distinct_days=cs.date_stats.distinct_days,
+                ) if cs.date_stats else None,
+            )
+            for cs in diagnosis.column_statistics
+        ],
+        sample_rows=diagnosis.sample_rows,
+        llm_analysis=LLMAnalysisResponse(
+            suggested_name=diagnosis.llm_analysis.suggested_name,
+            context=diagnosis.llm_analysis.context,
+            potential=[
+                PotentialItemResponse(
+                    question=p.question,
+                    analysis=p.analysis,
+                )
+                for p in diagnosis.llm_analysis.potential
+            ],
+            issues=[
+                IssueItemResponse(
+                    issue=i.issue,
+                    suggestion=i.suggestion,
+                )
+                for i in diagnosis.llm_analysis.issues
+            ],
+            analyzed_at=diagnosis.llm_analysis.analyzed_at,
+            model_used=diagnosis.llm_analysis.model_used,
+        ) if diagnosis.llm_analysis else None,
+        diagnosis_id=diagnosis.diagnosis_id,
+    )
 

@@ -48,3 +48,6 @@ ref
 node_modules
 
 thoughts
+.fluxloop
+.claude
+docs

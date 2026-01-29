@@ -9,6 +9,6 @@ from pluto_duck_backend.app.api.v1.boards.queries import router as queries_route
 
 router = APIRouter(tags=["boards"])
 
-router.include_router(boards_router, prefix="/boards", tags=["boards"])
-router.include_router(items_router, prefix="/boards", tags=["boards"])
-router.include_router(queries_router, prefix="/boards", tags=["boards"])
+router.include_router(boards_router, prefix="", tags=["boards"])
+router.include_router(items_router, prefix="", tags=["boards"])
+router.include_router(queries_router, prefix="", tags=["boards"])

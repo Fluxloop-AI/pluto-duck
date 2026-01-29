@@ -3,13 +3,37 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException
 
-from pluto_duck_backend.app.services.asset import get_file_asset_service, get_file_diagnosis_service
+from pluto_duck_backend.app.api.deps import get_project_id_query
+from pluto_duck_backend.app.api.v1.asset.diagnosis.schemas import (
+    CategoricalStatsResponse,
+    ColumnSchemaResponse,
+    ColumnStatisticsResponse,
+    CountDuplicatesRequest,
+    CountDuplicatesResponse,
+    DateStatsResponse,
+    DiagnoseFilesRequest,
+    DiagnoseFilesResponse,
+    EncodingInfoResponse,
+    FileDiagnosisResponse,
+    IssueItemResponse,
+    LLMAnalysisResponse,
+    MergedAnalysisResponse,
+    NumericStatsResponse,
+    ParsingIntegrityResponse,
+    PotentialItemResponse,
+    TypeSuggestionResponse,
+    ValueFrequencyResponse,
+)
+from pluto_duck_backend.app.services.asset import (
+    FileAssetService,
+    FileDiagnosisService,
+    get_file_asset_service,
+    get_file_diagnosis_service,
+)
 from pluto_duck_backend.app.services.asset.errors import DiagnosisError
 
 logger = logging.getLogger(__name__)
@@ -19,205 +43,22 @@ router = APIRouter()
 
 
 # =============================================================================
-# Count Duplicates Request/Response Models
+# Dependency helpers
 # =============================================================================
 
 
-class CountDuplicatesFileRequest(BaseModel):
-    """Request for a single file in count duplicates request."""
-
-    file_path: str = Field(..., description="Path to the file")
-    file_type: Literal["csv", "parquet"] = Field(..., description="Type of file")
-
-
-class CountDuplicatesRequest(BaseModel):
-    """Request to count duplicate rows across multiple files."""
-
-    files: List[CountDuplicatesFileRequest] = Field(..., description="List of files to check for duplicates")
+def get_file_diagnosis_service_dep(
+    project_id: Optional[str] = Depends(get_project_id_query),
+) -> FileDiagnosisService:
+    """Provide a FileDiagnosisService scoped to the project."""
+    return get_file_diagnosis_service(project_id)
 
 
-class CountDuplicatesResponse(BaseModel):
-    """Response for duplicate row count."""
-
-    total_rows: int = Field(..., description="Total number of rows across all files")
-    duplicate_rows: int = Field(..., description="Number of duplicate rows")
-    estimated_rows: int = Field(..., description="Estimated rows after deduplication (total - duplicates)")
-    skipped: bool = Field(False, description="Whether calculation was skipped due to row limit")
-
-
-# =============================================================================
-# File Diagnosis Request/Response Models
-# =============================================================================
-
-
-class DiagnoseFileRequestModel(BaseModel):
-    """Request for diagnosing a single file."""
-
-    file_path: str = Field(..., description="Path to the file to diagnose")
-    file_type: Literal["csv", "parquet"] = Field(..., description="Type of file")
-
-
-class MergeContextRequest(BaseModel):
-    """Request for merge context when files have identical schemas."""
-
-    total_rows: int = Field(..., description="Total rows across all files")
-    duplicate_rows: int = Field(..., description="Number of duplicate rows")
-    estimated_rows: int = Field(..., description="Estimated rows after deduplication")
-    skipped: bool = Field(False, description="Whether duplicate calculation was skipped due to row limit")
-
-
-class DiagnoseFilesRequest(BaseModel):
-    """Request to diagnose multiple files."""
-
-    files: List[DiagnoseFileRequestModel] = Field(..., description="List of files to diagnose")
-    use_cache: bool = Field(True, description="Use cached results if available")
-    include_llm: bool = Field(False, description="Include LLM analysis (slower, provides insights)")
-    include_merge_analysis: bool = Field(False, description="Include merged dataset analysis (requires include_llm=true)")
-    merge_context: Optional[MergeContextRequest] = Field(None, description="Context for merging files with identical schemas")
-
-
-class ColumnSchemaResponse(BaseModel):
-    """Schema information for a single column."""
-
-    name: str
-    type: str
-    nullable: bool = True
-
-
-class TypeSuggestionResponse(BaseModel):
-    """Suggestion for a better column type."""
-
-    column_name: str
-    current_type: str
-    suggested_type: str
-    confidence: float
-    sample_values: List[str] = []
-
-
-class EncodingInfoResponse(BaseModel):
-    """Response for detected file encoding."""
-
-    detected: str
-    confidence: float
-
-
-class ParsingIntegrityResponse(BaseModel):
-    """Response for parsing integrity check."""
-
-    total_lines: int
-    parsed_rows: int
-    malformed_rows: int
-    has_errors: bool
-    error_message: Optional[str] = None
-
-
-class NumericStatsResponse(BaseModel):
-    """Response for numeric column statistics."""
-
-    min: Optional[float] = None
-    max: Optional[float] = None
-    median: Optional[float] = None
-    mean: Optional[float] = None
-    stddev: Optional[float] = None
-    distinct_count: int = 0
-
-
-class ValueFrequencyResponse(BaseModel):
-    """Response for value frequency."""
-
-    value: str
-    frequency: int
-
-
-class CategoricalStatsResponse(BaseModel):
-    """Response for categorical column statistics."""
-
-    unique_count: int
-    top_values: List[ValueFrequencyResponse] = []
-    avg_length: float = 0
-
-
-class DateStatsResponse(BaseModel):
-    """Response for date column statistics."""
-
-    min_date: Optional[str] = None
-    max_date: Optional[str] = None
-    span_days: Optional[int] = None
-    distinct_days: int = 0
-
-
-class ColumnStatisticsResponse(BaseModel):
-    """Response for column statistics."""
-
-    column_name: str
-    column_type: str
-    semantic_type: str
-    null_count: int
-    null_percentage: float
-    numeric_stats: Optional[NumericStatsResponse] = None
-    categorical_stats: Optional[CategoricalStatsResponse] = None
-    date_stats: Optional[DateStatsResponse] = None
-
-
-class PotentialItemResponse(BaseModel):
-    """Response for a potential analysis question."""
-
-    question: str
-    analysis: str
-
-
-class IssueItemResponse(BaseModel):
-    """Response for a data quality issue."""
-
-    issue: str
-    suggestion: str
-
-
-class LLMAnalysisResponse(BaseModel):
-    """Response for LLM-generated dataset analysis."""
-
-    suggested_name: str
-    context: str
-    potential: List[PotentialItemResponse] = []
-    issues: List[IssueItemResponse] = []
-    analyzed_at: Optional[datetime] = None
-    model_used: str
-
-
-class FileDiagnosisResponse(BaseModel):
-    """Response for a single file diagnosis."""
-
-    file_path: str
-    file_type: str
-    columns: List[ColumnSchemaResponse] = Field(..., description="Column schema information")
-    missing_values: Dict[str, int]
-    row_count: int
-    file_size_bytes: int
-    type_suggestions: List[TypeSuggestionResponse] = []
-    diagnosed_at: Optional[datetime] = None
-    # Extended diagnosis fields
-    encoding: Optional[EncodingInfoResponse] = None
-    parsing_integrity: Optional[ParsingIntegrityResponse] = None
-    column_statistics: List[ColumnStatisticsResponse] = []
-    sample_rows: List[List[Any]] = []
-    # LLM analysis result
-    llm_analysis: Optional[LLMAnalysisResponse] = None
-    # Diagnosis ID for linking to FileAsset
-    diagnosis_id: Optional[str] = None
-
-
-class MergedAnalysisResponse(BaseModel):
-    """Response for LLM-generated merged dataset analysis."""
-
-    suggested_name: str = Field(..., description="Suggested name for the merged dataset")
-    context: str = Field(..., description="Description of the merged dataset")
-
-
-class DiagnoseFilesResponse(BaseModel):
-    """Response for multiple file diagnoses."""
-
-    diagnoses: List[FileDiagnosisResponse]
-    merged_analysis: Optional[MergedAnalysisResponse] = Field(None, description="Merged dataset analysis (when include_merge_analysis=true)")
+def get_file_asset_service_dep(
+    project_id: Optional[str] = Depends(get_project_id_query),
+) -> FileAssetService:
+    """Provide a FileAssetService scoped to the project."""
+    return get_file_asset_service(project_id)
 
 
 # =============================================================================
@@ -228,7 +69,7 @@ class DiagnoseFilesResponse(BaseModel):
 @router.post("/count-duplicates", response_model=CountDuplicatesResponse)
 def count_duplicate_rows(
     request: CountDuplicatesRequest,
-    project_id: Optional[str] = Query(None),
+    service: FileDiagnosisService = Depends(get_file_diagnosis_service_dep),
 ) -> CountDuplicatesResponse:
     """Count duplicate rows across multiple files.
 
@@ -238,8 +79,6 @@ def count_duplicate_rows(
     If total rows exceed 100,000, calculation is skipped and skipped=true is returned.
     """
     from pluto_duck_backend.app.services.asset.file_diagnosis_service import DiagnoseFileRequest
-
-    service = get_file_diagnosis_service(project_id)
 
     # Convert request to DiagnoseFileRequest objects
     file_requests = [
@@ -262,7 +101,7 @@ def count_duplicate_rows(
 @router.post("/diagnose", response_model=DiagnoseFilesResponse)
 async def diagnose_files(
     request: DiagnoseFilesRequest,
-    project_id: Optional[str] = Query(None),
+    service: FileDiagnosisService = Depends(get_file_diagnosis_service_dep),
 ) -> DiagnoseFilesResponse:
     """Diagnose CSV or Parquet files before import.
 
@@ -281,8 +120,6 @@ async def diagnose_files(
     Set include_merge_analysis=true with merge_context to get merged dataset name suggestion.
     """
     from pluto_duck_backend.app.services.asset.file_diagnosis_service import DiagnoseFileRequest
-
-    service = get_file_diagnosis_service(project_id)
 
     # Convert request to DiagnoseFileRequest objects
     file_requests = [
@@ -435,7 +272,8 @@ async def diagnose_files(
 @router.get("/{file_id}/diagnosis", response_model=FileDiagnosisResponse)
 def get_file_diagnosis(
     file_id: str,
-    project_id: Optional[str] = Query(None),
+    file_service: FileAssetService = Depends(get_file_asset_service_dep),
+    diagnosis_service: FileDiagnosisService = Depends(get_file_diagnosis_service_dep),
 ) -> FileDiagnosisResponse:
     """Get diagnosis for a file asset.
 
@@ -443,7 +281,6 @@ def get_file_diagnosis(
     First tries to lookup by diagnosis_id (if present), then falls back to file_path.
     """
     logger.info(f"[get_file_diagnosis] Request for file_id={file_id}")
-    file_service = get_file_asset_service(project_id)
     asset = file_service.get_file(file_id)
     if not asset:
         logger.warning(f"[get_file_diagnosis] File asset not found: {file_id}")
@@ -456,7 +293,6 @@ def get_file_diagnosis(
         asset.file_path,
     )
 
-    diagnosis_service = get_file_diagnosis_service(project_id)
     diagnosis = None
 
     # Method 1: Lookup by diagnosis_id (if present)

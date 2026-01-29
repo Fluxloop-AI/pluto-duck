@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Dict
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, status
 
+from pluto_duck_backend.app.api.deps import get_project_id_header
+from pluto_duck_backend.app.api.v1.boards.queries.schemas import CreateQueryRequest, QueryResultResponse
 from pluto_duck_backend.app.services.boards import (
     BoardsRepository,
     BoardsService,
@@ -16,27 +17,6 @@ from pluto_duck_backend.app.services.boards import (
 
 
 router = APIRouter()
-
-
-# ========== Request/Response Models ==========
-
-
-class CreateQueryRequest(BaseModel):
-    """Request to create a query for chart/table/metric item."""
-
-    query_text: str
-    data_source_tables: Optional[List[str]] = None
-    refresh_mode: str = "manual"
-    refresh_interval_seconds: Optional[int] = None
-
-
-class QueryResultResponse(BaseModel):
-    """Query execution result."""
-
-    columns: List[str]
-    data: List[Dict[str, Any]]
-    row_count: int
-    executed_at: str
 
 
 # ========== Helper Functions ==========
@@ -83,7 +63,7 @@ def create_query(
 @router.post("/items/{item_id}/query/execute", response_model=QueryResultResponse)
 async def execute_query(
     item_id: str,
-    project_id: str = Header(..., alias="X-Project-ID"),
+    project_id: str = Depends(get_project_id_header),
     service: BoardsService = Depends(get_service),
     repo: BoardsRepository = Depends(get_repo),
 ) -> QueryResultResponse:

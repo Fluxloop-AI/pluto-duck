@@ -9,217 +9,21 @@ Provides REST endpoints for:
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import List, Optional
 
-from fastapi import APIRouter, Query
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends
 
+from pluto_duck_backend.app.api.deps import get_project_id_query
+from pluto_duck_backend.app.api.v1.asset.analyses.schemas import (
+    LineageGraphEdge,
+    LineageGraphNode,
+    LineageGraphResponse,
+)
 from pluto_duck_backend.app.core.config import get_settings
 from pluto_duck_backend.app.services.duckdb_utils import connect_warehouse
-from pluto_duck_backend.app.services.asset import get_asset_service
+from pluto_duck_backend.app.services.asset import AssetService, get_asset_service
 
-router = APIRouter(prefix="/asset", tags=["asset"])
-
-
-# =============================================================================
-# Request/Response Models
-# =============================================================================
-
-
-class ParameterDefRequest(BaseModel):
-    """Parameter definition in request."""
-
-    name: str
-    type: str = "string"
-    required: bool = False
-    default: Optional[Any] = None
-    description: Optional[str] = None
-
-
-class CreateAnalysisRequest(BaseModel):
-    """Request to create an Analysis."""
-
-    sql: str = Field(..., description="SQL query")
-    name: str = Field(..., description="Human-readable name")
-    analysis_id: Optional[str] = Field(None, description="Unique ID (auto-generated if not provided)")
-    description: Optional[str] = Field(None, description="Description")
-    materialization: Literal["view", "table", "append", "parquet"] = Field(
-        "view", description="Materialization strategy"
-    )
-    parameters: Optional[List[ParameterDefRequest]] = Field(None, description="Parameter definitions")
-    tags: Optional[List[str]] = Field(None, description="Tags for categorization")
-
-
-class UpdateAnalysisRequest(BaseModel):
-    """Request to update an Analysis."""
-
-    sql: Optional[str] = None
-    name: Optional[str] = None
-    description: Optional[str] = None
-    materialization: Optional[Literal["view", "table", "append", "parquet"]] = None
-    parameters: Optional[List[ParameterDefRequest]] = None
-    tags: Optional[List[str]] = None
-
-
-class CompileRequest(BaseModel):
-    """Request to compile an analysis."""
-
-    params: Optional[Dict[str, Any]] = Field(None, description="Parameter values")
-    force: bool = Field(False, description="Force recompilation ignoring freshness")
-
-
-class ExecuteRequest(BaseModel):
-    """Request to execute an analysis."""
-
-    params: Optional[Dict[str, Any]] = Field(None, description="Parameter values")
-    force: bool = Field(False, description="Force execution ignoring freshness")
-    continue_on_failure: bool = Field(
-        False,
-        description="Continue executing remaining steps even if one fails"
-    )
-
-
-class AnalysisResponse(BaseModel):
-    """Response for an Analysis."""
-
-    id: str
-    name: str
-    sql: str
-    description: Optional[str] = None
-    materialization: str
-    parameters: List[Dict[str, Any]] = []
-    tags: List[str] = []
-    result_table: str
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
-
-    model_config = {"from_attributes": True}
-
-
-class ExecutionStepResponse(BaseModel):
-    """Response for an execution step."""
-
-    analysis_id: str
-    action: str
-    reason: Optional[str] = None
-    operation: Optional[str] = None
-    target_table: Optional[str] = None
-
-
-class ExecutionPlanResponse(BaseModel):
-    """Response for an execution plan."""
-
-    target_id: str
-    steps: List[ExecutionStepResponse]
-    params: Dict[str, Any] = {}
-
-
-class StepResultResponse(BaseModel):
-    """Response for a step result."""
-
-    run_id: str
-    analysis_id: str
-    status: str
-    started_at: datetime
-    finished_at: Optional[datetime] = None
-    duration_ms: Optional[int] = None
-    rows_affected: Optional[int] = None
-    error: Optional[str] = None
-
-
-class ExecutionResultResponse(BaseModel):
-    """Response for execution result."""
-
-    success: bool
-    target_id: str
-    step_results: List[StepResultResponse]
-
-
-class FreshnessResponse(BaseModel):
-    """Response for freshness status."""
-
-    analysis_id: str
-    is_stale: bool
-    last_run_at: Optional[datetime] = None
-    stale_reason: Optional[str] = None
-
-
-class LineageNodeResponse(BaseModel):
-    """A node in lineage."""
-
-    type: str
-    id: str
-    name: Optional[str] = None
-    full: Optional[str] = None
-
-
-class LineageResponse(BaseModel):
-    """Response for lineage information."""
-
-    analysis_id: str
-    upstream: List[LineageNodeResponse]
-    downstream: List[LineageNodeResponse]
-
-
-class LineageGraphNode(BaseModel):
-    """A node in the full lineage graph."""
-
-    id: str
-    type: str  # analysis, source, file
-    name: Optional[str] = None
-    materialization: Optional[str] = None
-    is_stale: Optional[bool] = None
-    last_run_at: Optional[datetime] = None
-
-
-class LineageGraphEdge(BaseModel):
-    """An edge in the full lineage graph."""
-
-    source: str
-    target: str
-
-
-class LineageGraphResponse(BaseModel):
-    """Response for full lineage graph."""
-
-    nodes: List[LineageGraphNode]
-    edges: List[LineageGraphEdge]
-
-
-class RunHistoryResponse(BaseModel):
-    """Response for run history entry."""
-
-    run_id: str
-    analysis_id: str
-    status: str
-    started_at: datetime
-    finished_at: Optional[datetime] = None
-    duration_ms: Optional[int] = None
-    rows_affected: Optional[int] = None
-    error_message: Optional[str] = None
-
-
-class AnalysisDataResponse(BaseModel):
-    """Response for analysis data."""
-
-    columns: List[str]
-    rows: List[List[Any]]
-    total_rows: int
-
-
-class ExportAnalysisRequest(BaseModel):
-    """Request to export analysis results to a CSV file path."""
-
-    file_path: str = Field(..., description="Destination path for the CSV file")
-    force: bool = Field(False, description="Force execution even if fresh")
-
-
-class ExportAnalysisResponse(BaseModel):
-    """Response for analysis export."""
-
-    status: str
-    file_path: str
+router = APIRouter(tags=["asset"])
 
 
 # Local import after model declarations to avoid circular dependencies.
@@ -232,16 +36,22 @@ router.include_router(files_router, prefix="/files", tags=["asset"])
 router.include_router(diagnosis_router, prefix="/files", tags=["asset"])
 
 
+def get_asset_service_dep(
+    project_id: Optional[str] = Depends(get_project_id_query),
+) -> AssetService:
+    """Provide an AssetService scoped to the project."""
+    return get_asset_service(project_id)
+
+
 @router.get("/lineage-graph", response_model=LineageGraphResponse)
 def get_lineage_graph(
-    project_id: Optional[str] = Query(None),
+    service: AssetService = Depends(get_asset_service_dep),
 ) -> LineageGraphResponse:
     """Get the full lineage graph for all analyses.
 
     Returns all analyses as nodes and their dependencies as edges.
     Useful for visualizing the entire data pipeline.
     """
-    service = get_asset_service(project_id)
     analyses = service.list_analyses()
 
     nodes: List[LineageGraphNode] = []

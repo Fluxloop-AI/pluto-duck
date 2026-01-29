@@ -2,69 +2,37 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List
 
-from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Query
 
-from pluto_duck_backend.app.services.source import FolderSource, SourceNotFoundError, get_source_service
+from pluto_duck_backend.app.api.deps import get_project_id_query_required
+from pluto_duck_backend.app.api.v1.source.folders.schemas import (
+    CreateFolderSourceRequest,
+    FolderFileResponse,
+    FolderScanResponse,
+    FolderSourceResponse,
+)
+from pluto_duck_backend.app.services.source import (
+    FolderSource,
+    SourceNotFoundError,
+    SourceService,
+    get_source_service,
+)
 
 
 router = APIRouter()
 
 
 # =============================================================================
-# Request/Response Models
-# =============================================================================
-
-
-class FolderSourceResponse(BaseModel):
-    """Response for a folder source."""
-
-    id: str
-    name: str
-    path: str
-    allowed_types: str
-    pattern: Optional[str] = None
-    created_at: datetime
-    updated_at: Optional[datetime] = None
-
-
-class CreateFolderSourceRequest(BaseModel):
-    """Request to create a folder source."""
-
-    name: str = Field(..., description="Display name for this folder source")
-    path: str = Field(..., description="Local directory path")
-    allowed_types: Literal["csv", "parquet", "both"] = Field(
-        "both", description="Which file types to include"
-    )
-    pattern: Optional[str] = Field(
-        None, description="Optional filename pattern (e.g. *.csv)"
-    )
-
-
-class FolderFileResponse(BaseModel):
-    """A discovered file within a folder source."""
-
-    path: str
-    name: str
-    file_type: Literal["csv", "parquet"]
-    size_bytes: int
-    modified_at: datetime
-
-
-class FolderScanResponse(BaseModel):
-    folder_id: str
-    scanned_at: datetime
-    new_files: int
-    changed_files: int
-    deleted_files: int
-
-
-# =============================================================================
 # Helper Functions
 # =============================================================================
+
+def get_source_service_dep(
+    project_id: str = Depends(get_project_id_query_required),
+) -> SourceService:
+    """Provide a SourceService scoped to the project."""
+    return get_source_service(project_id)
 
 
 def _folder_source_to_response(src: FolderSource) -> FolderSourceResponse:
@@ -86,10 +54,9 @@ def _folder_source_to_response(src: FolderSource) -> FolderSourceResponse:
 
 @router.get("", response_model=List[FolderSourceResponse])
 def list_folder_sources(
-    project_id: str = Query(..., description="Project ID"),
+    service: SourceService = Depends(get_source_service_dep),
 ) -> List[FolderSourceResponse]:
     """List folder sources for a project."""
-    service = get_source_service(project_id)
     sources = service.list_folder_sources()
     return [_folder_source_to_response(s) for s in sources]
 
@@ -97,10 +64,9 @@ def list_folder_sources(
 @router.post("", response_model=FolderSourceResponse)
 def create_folder_source(
     request: CreateFolderSourceRequest,
-    project_id: str = Query(..., description="Project ID"),
+    service: SourceService = Depends(get_source_service_dep),
 ) -> FolderSourceResponse:
     """Create (or update) a folder source for a project."""
-    service = get_source_service(project_id)
     try:
         src = service.create_folder_source(
             name=request.name,
@@ -116,10 +82,9 @@ def create_folder_source(
 @router.delete("/{folder_id}")
 def delete_folder_source(
     folder_id: str,
-    project_id: str = Query(..., description="Project ID"),
+    service: SourceService = Depends(get_source_service_dep),
 ) -> Dict[str, Any]:
     """Delete a folder source."""
-    service = get_source_service(project_id)
     ok = service.delete_folder_source(folder_id)
     if not ok:
         raise HTTPException(status_code=404, detail=f"Folder source '{folder_id}' not found")
@@ -130,10 +95,9 @@ def delete_folder_source(
 def list_folder_files(
     folder_id: str,
     limit: int = Query(500, ge=1, le=5000),
-    project_id: str = Query(..., description="Project ID"),
+    service: SourceService = Depends(get_source_service_dep),
 ) -> List[FolderFileResponse]:
     """List files inside a folder source (non-recursive)."""
-    service = get_source_service(project_id)
     try:
         files = service.list_folder_files(folder_id, limit=limit)
         return [
@@ -155,10 +119,9 @@ def list_folder_files(
 @router.post("/{folder_id}/scan", response_model=FolderScanResponse)
 def scan_folder_source(
     folder_id: str,
-    project_id: str = Query(..., description="Project ID"),
+    service: SourceService = Depends(get_source_service_dep),
 ) -> FolderScanResponse:
     """Scan folder source, compare with last snapshot, and persist new snapshot."""
-    service = get_source_service(project_id)
     try:
         res = service.scan_folder_source(folder_id)
         return FolderScanResponse(

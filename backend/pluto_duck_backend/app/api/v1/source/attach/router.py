@@ -3,17 +3,30 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import Dict, List
 
-from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException
 
-from pluto_duck_backend.app.api.v1.source.cache.router import CachedTableResponse
+from pluto_duck_backend.app.api.deps import get_project_id_query_required
+from pluto_duck_backend.app.api.v1.source.attach.schemas import (
+    AttachDuckdbRequest,
+    AttachMysqlRequest,
+    AttachPostgresRequest,
+    AttachSqliteRequest,
+    CreateSourceRequest,
+    SizeEstimateResponse,
+    SourceDetailResponse,
+    SourceResponse,
+    SourceTableResponse,
+    UpdateSourceRequest,
+)
+from pluto_duck_backend.app.api.v1.source.cache.schemas import CachedTableResponse
 from pluto_duck_backend.app.services.source import (
     AttachError,
     AttachedSource,
     SourceNotFoundError,
     SourceType,
+    SourceService,
     get_source_service,
 )
 
@@ -22,115 +35,14 @@ router = APIRouter()
 
 
 # =============================================================================
-# Request/Response Models
-# =============================================================================
-
-
-class AttachPostgresRequest(BaseModel):
-    """Request to attach a PostgreSQL database."""
-
-    name: str = Field(..., description="Alias for this connection")
-    host: str = Field(..., description="PostgreSQL host")
-    port: int = Field(5432, description="PostgreSQL port")
-    database: str = Field(..., description="Database name")
-    user: str = Field(..., description="Username")
-    password: str = Field(..., description="Password")
-    schema_name: str = Field("public", alias="schema", description="Schema to use")
-    read_only: bool = Field(True, description="Attach in read-only mode")
-
-
-class AttachSqliteRequest(BaseModel):
-    """Request to attach a SQLite database."""
-
-    name: str = Field(..., description="Alias for this connection")
-    path: str = Field(..., description="Path to SQLite file")
-    read_only: bool = Field(True, description="Attach in read-only mode")
-
-
-class AttachMysqlRequest(BaseModel):
-    """Request to attach a MySQL database."""
-
-    name: str = Field(..., description="Alias for this connection")
-    host: str = Field(..., description="MySQL host")
-    port: int = Field(3306, description="MySQL port")
-    database: str = Field(..., description="Database name")
-    user: str = Field(..., description="Username")
-    password: str = Field(..., description="Password")
-    read_only: bool = Field(True, description="Attach in read-only mode")
-
-
-class AttachDuckdbRequest(BaseModel):
-    """Request to attach another DuckDB file."""
-
-    name: str = Field(..., description="Alias for this connection")
-    path: str = Field(..., description="Path to DuckDB file")
-    read_only: bool = Field(True, description="Attach in read-only mode")
-
-
-class SourceResponse(BaseModel):
-    """Response for a single source."""
-
-    id: str
-    name: str
-    source_type: str
-    status: str
-    attached_at: datetime
-    error_message: Optional[str] = None
-    # UI-friendly fields (merged from data_sources)
-    project_id: Optional[str] = None
-    description: Optional[str] = None
-    table_count: int = 0
-    connection_config: Optional[Dict[str, Any]] = None
-
-
-class SourceDetailResponse(SourceResponse):
-    """Detailed response including cached tables."""
-
-    cached_tables: List[CachedTableResponse] = []
-
-
-class CreateSourceRequest(BaseModel):
-    """Generic request to create/attach a source."""
-
-    name: str = Field(..., description="Alias for this connection")
-    source_type: Literal["postgres", "sqlite", "mysql", "duckdb"] = Field(
-        ..., description="Database type"
-    )
-    source_config: Dict[str, Any] = Field(..., description="Connection configuration")
-    description: Optional[str] = Field(None, description="Human-readable description")
-
-
-class UpdateSourceRequest(BaseModel):
-    """Request to update source metadata."""
-
-    description: Optional[str] = None
-
-
-class SourceTableResponse(BaseModel):
-    """Response for a source table."""
-
-    source_name: str
-    schema_name: str
-    table_name: str
-    mode: str  # "live" or "cached"
-    local_table: Optional[str] = None
-
-
-class SizeEstimateResponse(BaseModel):
-    """Response for table size estimation."""
-
-    source_name: str
-    table_name: str
-    estimated_rows: Optional[int] = None
-    recommend_cache: bool
-    recommend_filter: bool = False
-    suggestion: str
-    error: Optional[str] = None
-
-
-# =============================================================================
 # Helper Functions
 # =============================================================================
+
+def get_source_service_dep(
+    project_id: str = Depends(get_project_id_query_required),
+) -> SourceService:
+    """Provide a SourceService scoped to the project."""
+    return get_source_service(project_id)
 
 
 def _source_to_response(source: AttachedSource) -> SourceResponse:
@@ -154,13 +66,12 @@ def _source_to_response(source: AttachedSource) -> SourceResponse:
 # =============================================================================
 
 
-@router.post("", response_model=SourceResponse, status_code=201)
+@router.post("/", response_model=SourceResponse, status_code=201)
 def create_source(
     request: CreateSourceRequest,
-    project_id: str = Query(..., description="Project ID for isolation"),
+    service: SourceService = Depends(get_source_service_dep),
 ) -> SourceResponse:
     """Create/attach a new source within a project."""
-    service = get_source_service(project_id)
     try:
         source = service.attach_source(
             name=request.name,
@@ -177,10 +88,9 @@ def create_source(
 @router.post("/attach/postgres", response_model=SourceResponse)
 def attach_postgres(
     request: AttachPostgresRequest,
-    project_id: str = Query(..., description="Project ID for isolation"),
+    service: SourceService = Depends(get_source_service_dep),
 ) -> SourceResponse:
     """Attach a PostgreSQL database."""
-    service = get_source_service(project_id)
     try:
         source = service.attach_source(
             name=request.name,
@@ -203,10 +113,9 @@ def attach_postgres(
 @router.post("/attach/sqlite", response_model=SourceResponse)
 def attach_sqlite(
     request: AttachSqliteRequest,
-    project_id: str = Query(..., description="Project ID for isolation"),
+    service: SourceService = Depends(get_source_service_dep),
 ) -> SourceResponse:
     """Attach a SQLite database."""
-    service = get_source_service(project_id)
     try:
         source = service.attach_source(
             name=request.name,
@@ -222,10 +131,9 @@ def attach_sqlite(
 @router.post("/attach/mysql", response_model=SourceResponse)
 def attach_mysql(
     request: AttachMysqlRequest,
-    project_id: str = Query(..., description="Project ID for isolation"),
+    service: SourceService = Depends(get_source_service_dep),
 ) -> SourceResponse:
     """Attach a MySQL database."""
-    service = get_source_service(project_id)
     try:
         source = service.attach_source(
             name=request.name,
@@ -247,10 +155,9 @@ def attach_mysql(
 @router.post("/attach/duckdb", response_model=SourceResponse)
 def attach_duckdb(
     request: AttachDuckdbRequest,
-    project_id: str = Query(..., description="Project ID for isolation"),
+    service: SourceService = Depends(get_source_service_dep),
 ) -> SourceResponse:
     """Attach another DuckDB file."""
-    service = get_source_service(project_id)
     try:
         source = service.attach_source(
             name=request.name,
@@ -263,12 +170,11 @@ def attach_duckdb(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("", response_model=List[SourceResponse])
+@router.get("/", response_model=List[SourceResponse])
 def list_sources(
-    project_id: str = Query(..., description="Project ID"),
+    service: SourceService = Depends(get_source_service_dep),
 ) -> List[SourceResponse]:
     """List all attached sources for a project."""
-    service = get_source_service(project_id)
     sources = service.list_sources()
     return [_source_to_response(s) for s in sources]
 
@@ -276,10 +182,9 @@ def list_sources(
 @router.get("/{source_name}", response_model=SourceDetailResponse)
 def get_source_detail(
     source_name: str,
-    project_id: str = Query(..., description="Project ID"),
+    service: SourceService = Depends(get_source_service_dep),
 ) -> SourceDetailResponse:
     """Get a specific source by name with cached tables."""
-    service = get_source_service(project_id)
     source = service.get_source(source_name)
     if not source:
         raise HTTPException(status_code=404, detail=f"Source '{source_name}' not found")
@@ -317,10 +222,9 @@ def get_source_detail(
 def update_source(
     source_name: str,
     request: UpdateSourceRequest,
-    project_id: str = Query(..., description="Project ID"),
+    service: SourceService = Depends(get_source_service_dep),
 ) -> SourceResponse:
     """Update source metadata (description)."""
-    service = get_source_service(project_id)
     source = service.update_source(
         source_name,
         description=request.description,
@@ -333,10 +237,9 @@ def update_source(
 @router.delete("/{source_name}")
 def detach_source(
     source_name: str,
-    project_id: str = Query(..., description="Project ID"),
+    service: SourceService = Depends(get_source_service_dep),
 ) -> Dict[str, str]:
     """Detach a source."""
-    service = get_source_service(project_id)
     if service.detach_source(source_name):
         return {"status": "detached", "name": source_name}
     raise HTTPException(status_code=404, detail=f"Source '{source_name}' not found")
@@ -345,10 +248,9 @@ def detach_source(
 @router.get("/{source_name}/tables", response_model=List[SourceTableResponse])
 def list_source_tables(
     source_name: str,
-    project_id: str = Query(..., description="Project ID"),
+    service: SourceService = Depends(get_source_service_dep),
 ) -> List[SourceTableResponse]:
     """List tables available from a source."""
-    service = get_source_service(project_id)
     try:
         tables = service.list_source_tables(source_name)
         return [
@@ -372,10 +274,9 @@ def list_source_tables(
 def estimate_table_size(
     source_name: str,
     table_name: str,
-    project_id: str = Query(..., description="Project ID"),
+    service: SourceService = Depends(get_source_service_dep),
 ) -> SizeEstimateResponse:
     """Estimate table size and get caching recommendation."""
-    service = get_source_service(project_id)
     try:
         estimate = service.estimate_table_size(source_name, table_name)
         return SizeEstimateResponse(**estimate)

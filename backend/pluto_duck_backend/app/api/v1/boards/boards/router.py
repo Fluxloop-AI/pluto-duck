@@ -7,9 +7,14 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from pydantic import BaseModel
 
-from pluto_duck_backend.app.api.v1.boards.items.router import BoardItemResponse
+from pluto_duck_backend.app.api.v1.boards.boards.schemas import (
+    BoardDetailResponse,
+    BoardResponse,
+    CreateBoardRequest,
+    UpdateBoardRequest,
+)
+from pluto_duck_backend.app.api.v1.boards.items.schemas import BoardItemResponse
 from pluto_duck_backend.app.services.boards import BoardsRepository, get_boards_repository
 
 
@@ -24,44 +29,6 @@ def _settings_size(settings: Optional[Dict[str, Any]]) -> int:
         return len(json.dumps(settings))
     except Exception:
         return -1
-
-
-# ========== Request/Response Models ==========
-
-
-class CreateBoardRequest(BaseModel):
-    """Request to create a board."""
-
-    name: str
-    description: Optional[str] = None
-    settings: Optional[Dict[str, Any]] = None
-
-
-class UpdateBoardRequest(BaseModel):
-    """Request to update a board."""
-
-    name: Optional[str] = None
-    description: Optional[str] = None
-    settings: Optional[Dict[str, Any]] = None
-
-
-class BoardResponse(BaseModel):
-    """Board response."""
-
-    id: str
-    project_id: str
-    name: str
-    description: Optional[str]
-    position: int
-    created_at: str
-    updated_at: str
-    settings: Optional[Dict[str, Any]] = None
-
-
-class BoardDetailResponse(BoardResponse):
-    """Board detail with items."""
-
-    items: List[BoardItemResponse]
 
 
 # ========== Helper Functions ==========

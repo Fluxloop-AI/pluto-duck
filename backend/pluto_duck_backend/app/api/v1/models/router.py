@@ -18,7 +18,7 @@ from pluto_duck_backend.app.services.chat import get_chat_repository
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/models", tags=["models"])
+router = APIRouter(tags=["models"])
 
 
 class LocalModelInfo(BaseModel):
@@ -294,5 +294,4 @@ def delete_local_model(model_id: str) -> Dict[str, str]:
     filtered = [item for item in models if item.get("id") != model_id]
     _persist_models(filtered)
     return {"status": "deleted", "model_id": model_id}
-
 

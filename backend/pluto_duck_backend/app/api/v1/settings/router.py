@@ -14,7 +14,7 @@ from pluto_duck_backend.app.services.chat import get_chat_repository
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/settings", tags=["settings"])
+router = APIRouter(tags=["settings"])
 
 
 class UpdateSettingsRequest(BaseModel):
@@ -170,4 +170,3 @@ def reset_database() -> ResetDatabaseResponse:
             status_code=500,
             detail=f"Failed to reset database: {str(e)}",
         )
-

@@ -5,17 +5,14 @@ from __future__ import annotations
 from contextlib import contextmanager
 from pathlib import Path
 import tempfile
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 import duckdb
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 
-from pluto_duck_backend.app.core.config import get_settings
-from pluto_duck_backend.app.services.duckdb_utils import connect_warehouse
-from pluto_duck_backend.app.services.asset import AssetNotFoundError, get_asset_service
-from pluto_duck_backend.app.services.asset.errors import AssetValidationError
-from pluto_duck_backend.app.api.v1.asset.router import (
+from pluto_duck_backend.app.api.deps import get_project_id_query
+from pluto_duck_backend.app.api.v1.asset.analyses.schemas import (
     AnalysisDataResponse,
     AnalysisResponse,
     CompileRequest,
@@ -33,6 +30,10 @@ from pluto_duck_backend.app.api.v1.asset.router import (
     StepResultResponse,
     UpdateAnalysisRequest,
 )
+from pluto_duck_backend.app.core.config import get_settings
+from pluto_duck_backend.app.services.duckdb_utils import connect_warehouse
+from pluto_duck_backend.app.services.asset import AssetNotFoundError, AssetService, get_asset_service
+from pluto_duck_backend.app.services.asset.errors import AssetValidationError
 
 
 router = APIRouter()
@@ -88,14 +89,19 @@ def _cleanup_temp_file(path: Path) -> None:
 # CRUD Endpoints
 # =============================================================================
 
+def get_asset_service_dep(
+    project_id: Optional[str] = Depends(get_project_id_query),
+) -> AssetService:
+    """Provide an AssetService scoped to the project."""
+    return get_asset_service(project_id)
+
 
 @router.post("", response_model=AnalysisResponse)
 def create_analysis(
     request: CreateAnalysisRequest,
-    project_id: Optional[str] = Query(None),
+    service: AssetService = Depends(get_asset_service_dep),
 ) -> AnalysisResponse:
     """Create a new Analysis."""
-    service = get_asset_service(project_id)
 
     try:
         analysis = service.create_analysis(
@@ -115,10 +121,9 @@ def create_analysis(
 @router.get("", response_model=List[AnalysisResponse])
 def list_analyses(
     tags: Optional[List[str]] = Query(None),
-    project_id: Optional[str] = Query(None),
+    service: AssetService = Depends(get_asset_service_dep),
 ) -> List[AnalysisResponse]:
     """List all analyses."""
-    service = get_asset_service(project_id)
     analyses = service.list_analyses(tags)
     return [_analysis_to_response(a) for a in analyses]
 
@@ -126,10 +131,9 @@ def list_analyses(
 @router.get("/{analysis_id}", response_model=AnalysisResponse)
 def get_analysis(
     analysis_id: str,
-    project_id: Optional[str] = Query(None),
+    service: AssetService = Depends(get_asset_service_dep),
 ) -> AnalysisResponse:
     """Get an Analysis by ID."""
-    service = get_asset_service(project_id)
     analysis = service.get_analysis(analysis_id)
 
     if not analysis:
@@ -142,10 +146,9 @@ def get_analysis(
 def update_analysis(
     analysis_id: str,
     request: UpdateAnalysisRequest,
-    project_id: Optional[str] = Query(None),
+    service: AssetService = Depends(get_asset_service_dep),
 ) -> AnalysisResponse:
     """Update an existing Analysis."""
-    service = get_asset_service(project_id)
 
     try:
         analysis = service.update_analysis(
@@ -165,10 +168,9 @@ def update_analysis(
 @router.delete("/{analysis_id}")
 def delete_analysis(
     analysis_id: str,
-    project_id: Optional[str] = Query(None),
+    service: AssetService = Depends(get_asset_service_dep),
 ) -> Dict[str, str]:
     """Delete an Analysis."""
-    service = get_asset_service(project_id)
 
     if not service.delete_analysis(analysis_id):
         raise HTTPException(status_code=404, detail=f"Analysis '{analysis_id}' not found")
@@ -185,10 +187,9 @@ def delete_analysis(
 def compile_analysis(
     analysis_id: str,
     request: CompileRequest,
-    project_id: Optional[str] = Query(None),
+    service: AssetService = Depends(get_asset_service_dep),
 ) -> ExecutionPlanResponse:
     """Compile an execution plan for review."""
-    service = get_asset_service(project_id)
 
     with _get_connection() as conn:
         try:
@@ -221,10 +222,9 @@ def compile_analysis(
 def execute_analysis(
     analysis_id: str,
     request: ExecuteRequest,
-    project_id: Optional[str] = Query(None),
+    service: AssetService = Depends(get_asset_service_dep),
 ) -> ExecutionResultResponse:
     """Compile and execute an analysis."""
-    service = get_asset_service(project_id)
 
     with _get_connection() as conn:
         try:
@@ -260,7 +260,7 @@ def execute_analysis(
 @router.get("/{analysis_id}/data", response_model=AnalysisDataResponse)
 def get_analysis_data(
     analysis_id: str,
-    project_id: Optional[str] = Query(None),
+    service: AssetService = Depends(get_asset_service_dep),
     limit: int = Query(1000, ge=1, le=10000),
     offset: int = Query(0, ge=0),
 ) -> AnalysisDataResponse:
@@ -269,7 +269,6 @@ def get_analysis_data(
     Returns the materialized data (table/view) for the analysis.
     Use after executing the analysis to fetch its output.
     """
-    service = get_asset_service(project_id)
     analysis = service.get_analysis(analysis_id)
 
     if not analysis:
@@ -306,10 +305,9 @@ def get_analysis_data(
 def export_analysis_csv(
     analysis_id: str,
     request: ExportAnalysisRequest,
-    project_id: Optional[str] = Query(None),
+    service: AssetService = Depends(get_asset_service_dep),
 ) -> ExportAnalysisResponse:
     """Execute an analysis and export results to a CSV file path."""
-    service = get_asset_service(project_id)
     analysis = service.get_analysis(analysis_id)
 
     if not analysis:
@@ -355,11 +353,10 @@ def export_analysis_csv(
 def download_analysis_csv(
     analysis_id: str,
     background_tasks: BackgroundTasks,
-    project_id: Optional[str] = Query(None),
+    service: AssetService = Depends(get_asset_service_dep),
     force: bool = Query(False, description="Force execution even if fresh"),
 ) -> FileResponse:
     """Execute an analysis and download results as CSV."""
-    service = get_asset_service(project_id)
     analysis = service.get_analysis(analysis_id)
 
     if not analysis:
@@ -411,10 +408,9 @@ def download_analysis_csv(
 @router.get("/{analysis_id}/freshness", response_model=FreshnessResponse)
 def get_freshness(
     analysis_id: str,
-    project_id: Optional[str] = Query(None),
+    service: AssetService = Depends(get_asset_service_dep),
 ) -> FreshnessResponse:
     """Get freshness status for an analysis."""
-    service = get_asset_service(project_id)
 
     with _get_connection() as conn:
         try:
@@ -433,10 +429,9 @@ def get_freshness(
 @router.get("/{analysis_id}/lineage", response_model=LineageResponse)
 def get_lineage(
     analysis_id: str,
-    project_id: Optional[str] = Query(None),
+    service: AssetService = Depends(get_asset_service_dep),
 ) -> LineageResponse:
     """Get lineage information for an analysis."""
-    service = get_asset_service(project_id)
 
     try:
         lineage = service.get_lineage(analysis_id)
@@ -468,10 +463,9 @@ def get_lineage(
 def get_run_history(
     analysis_id: str,
     limit: int = Query(10, ge=1, le=100),
-    project_id: Optional[str] = Query(None),
+    service: AssetService = Depends(get_asset_service_dep),
 ) -> List[RunHistoryResponse]:
     """Get run history for an analysis."""
-    service = get_asset_service(project_id)
 
     with _get_connection() as conn:
         history = service.get_run_history(analysis_id, conn, limit=limit)

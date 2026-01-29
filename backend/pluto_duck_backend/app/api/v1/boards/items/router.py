@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import List
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
 
+from pluto_duck_backend.app.api.deps import get_project_id_header
+from pluto_duck_backend.app.api.v1.boards.items.schemas import (
+    AssetUploadResponse,
+    BoardItemResponse,
+    CreateItemRequest,
+    UpdateItemPositionRequest,
+    UpdateItemRequest,
+)
 from pluto_duck_backend.app.services.boards import (
     BoardsRepository,
     BoardsService,
@@ -17,66 +24,6 @@ from pluto_duck_backend.app.services.boards import (
 
 
 router = APIRouter()
-
-
-# ========== Request/Response Models ==========
-
-
-class CreateItemRequest(BaseModel):
-    """Request to create a board item."""
-
-    item_type: str = Field(..., description="Item type: markdown, chart, table, metric, image")
-    title: Optional[str] = None
-    payload: Dict[str, Any]
-    render_config: Optional[Dict[str, Any]] = None
-    position_x: int = 0
-    position_y: int = 0
-    width: int = 1
-    height: int = 1
-
-
-class UpdateItemRequest(BaseModel):
-    """Request to update a board item."""
-
-    title: Optional[str] = None
-    payload: Optional[Dict[str, Any]] = None
-    render_config: Optional[Dict[str, Any]] = None
-
-
-class UpdateItemPositionRequest(BaseModel):
-    """Request to update item position."""
-
-    position_x: int
-    position_y: int
-    width: int
-    height: int
-
-
-class BoardItemResponse(BaseModel):
-    """Board item response."""
-
-    id: str
-    board_id: str
-    item_type: str
-    title: Optional[str]
-    position_x: int
-    position_y: int
-    width: int
-    height: int
-    payload: Dict[str, Any]
-    render_config: Optional[Dict[str, Any]]
-    created_at: str
-    updated_at: str
-
-
-class AssetUploadResponse(BaseModel):
-    """Asset upload response."""
-
-    asset_id: str
-    file_name: str
-    file_size: int
-    mime_type: str
-    url: str
 
 
 # ========== Helper Functions ==========
@@ -263,7 +210,7 @@ def update_item_position(
 async def upload_asset(
     item_id: str,
     file: UploadFile = File(...),
-    project_id: str = Header(..., alias="X-Project-ID"),
+    project_id: str = Depends(get_project_id_header),
     service: BoardsService = Depends(get_service),
 ) -> AssetUploadResponse:
     """Upload an asset (image) for a board item."""

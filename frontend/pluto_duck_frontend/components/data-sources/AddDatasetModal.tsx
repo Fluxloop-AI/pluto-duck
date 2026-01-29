@@ -8,7 +8,7 @@ import type { UnlistenFn } from '@tauri-apps/api/event';
 import { Dialog, DialogContent } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { isTauriRuntime } from '../../lib/tauriRuntime';
-import { importFile, diagnoseFiles, countDuplicateRows, type FileType, type FileDiagnosis, type DiagnoseFileRequest, type DuplicateCountResponse, type MergedAnalysis } from '../../lib/fileAssetApi';
+import { importFile, diagnoseFiles, countDuplicateRows, type FileType, type FileDiagnosis, type DiagnoseFileRequest, type DuplicateCountResponse, type MergedAnalysis, type FileAsset } from '../../lib/fileAssetApi';
 import { DiagnosisResultView } from './DiagnosisResultView';
 import { DatasetAnalyzingView } from './DatasetAnalyzingView';
 
@@ -96,7 +96,7 @@ interface AddDatasetModalProps {
   projectId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onImportSuccess?: () => void;
+  onImportSuccess?: (createdAsset?: FileAsset) => void;
   onOpenPostgresModal?: () => void;
 }
 
@@ -570,7 +570,6 @@ export function AddDatasetModal({
 
       // Check if schemas are identical for merge option
       const schemasIdentical = areSchemasIdentical(fastResponse.diagnoses);
-      console.log('[AddDatasetModal] Schemas identical:', schemasIdentical, 'files:', fastResponse.diagnoses.length);
       setSchemasMatch(schemasIdentical);
       setMergeFiles(false); // Reset merge checkbox when re-scanning
       setDuplicateInfo(null); // Reset duplicate info
@@ -578,17 +577,13 @@ export function AddDatasetModal({
       // If schemas match, count duplicates first to include in LLM merge context
       let dupResponse: DuplicateCountResponse | null = null;
       if (schemasIdentical) {
-        console.log('[AddDatasetModal] Calling countDuplicateRows API...');
         try {
           dupResponse = await countDuplicateRows(projectId, filesToDiagnose);
           setDuplicateInfo(dupResponse);
-          console.log('[AddDatasetModal] Duplicate count result:', dupResponse);
         } catch (dupError) {
           // Duplicate count failure is not critical
           console.warn('Duplicate count failed:', dupError);
         }
-      } else {
-        console.log('[AddDatasetModal] Skipping duplicate count - schemas do not match');
       }
 
       // Second API call: with LLM analysis (slower)
@@ -615,7 +610,6 @@ export function AddDatasetModal({
         // Store merged analysis if present
         if (llmResponse.merged_analysis) {
           setMergedAnalysis(llmResponse.merged_analysis);
-          console.log('[AddDatasetModal] Merged analysis received:', llmResponse.merged_analysis);
         }
       } catch (llmError) {
         // LLM failure is not critical - we already have the fast diagnosis
@@ -665,15 +659,20 @@ export function AddDatasetModal({
       // Use edited name if provided, otherwise use merged analysis suggestion or default
       const tableName = datasetNames[0] || mergedAnalysis?.suggested_name || generateTableName(firstFile.name);
 
+      // Get the first diagnosis for diagnosis_id
+      const firstDiagnosis = diagnosisResults?.[0];
+
       // First file: create table with replace mode
+      let createdAsset: FileAsset | undefined;
       try {
-        await importFile(projectId, {
+        createdAsset = await importFile(projectId, {
           file_path: firstFile.path,
           file_type: fileType,
           table_name: tableName,
-          name: firstFile.name,
+          name: tableName,
           overwrite: true,
           mode: 'replace',
+          diagnosis_id: firstDiagnosis?.diagnosis_id,
         });
         successCount++;
       } catch (error) {
@@ -721,7 +720,7 @@ export function AddDatasetModal({
       }
 
       setIsImporting(false);
-      onImportSuccess?.();
+      onImportSuccess?.(createdAsset);
 
       if (errors.length > 0) {
         console.warn('Some files failed during merge:', errors);
@@ -733,6 +732,7 @@ export function AddDatasetModal({
     // Standard import: each file becomes its own table
     // Keep track of used table names to avoid duplicates
     const usedTableNames = new Set<string>();
+    let lastCreatedAsset: FileAsset | undefined;
 
     // Import files sequentially to avoid DB conflicts
     for (let i = 0; i < selectedFiles.length; i++) {
@@ -764,12 +764,13 @@ export function AddDatasetModal({
       usedTableNames.add(tableName);
 
       try {
-        await importFile(projectId, {
+        lastCreatedAsset = await importFile(projectId, {
           file_path: file.path,
           file_type: fileType,
           table_name: tableName,
-          name: file.name,
+          name: tableName,
           overwrite: true,
+          diagnosis_id: diagnosis?.diagnosis_id,
         });
         successCount++;
       } catch (error) {
@@ -782,7 +783,7 @@ export function AddDatasetModal({
     setIsImporting(false);
 
     if (successCount > 0) {
-      onImportSuccess?.();
+      onImportSuccess?.(lastCreatedAsset);
     }
 
     if (failCount === 0) {

@@ -10,7 +10,10 @@ These bypass the Raw Zone (ATTACH) and go directly to Asset Zone.
 from __future__ import annotations
 
 import json
+import logging
 import re
+
+logger = logging.getLogger(__name__)
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -57,6 +60,7 @@ class FileAsset:
     row_count: Optional[int] = None
     column_count: Optional[int] = None
     file_size_bytes: Optional[int] = None
+    diagnosis_id: Optional[str] = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
@@ -72,6 +76,7 @@ class FileAsset:
             "row_count": self.row_count,
             "column_count": self.column_count,
             "file_size_bytes": self.file_size_bytes,
+            "diagnosis_id": self.diagnosis_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -97,6 +102,7 @@ class FileAsset:
             row_count=data.get("row_count"),
             column_count=data.get("column_count"),
             file_size_bytes=data.get("file_size_bytes"),
+            diagnosis_id=data.get("diagnosis_id"),
             created_at=created_at or datetime.now(UTC),
             updated_at=updated_at or datetime.now(UTC),
         )
@@ -190,10 +196,20 @@ class FileAssetService:
                     row_count BIGINT,
                     column_count INTEGER,
                     file_size_bytes BIGINT,
+                    diagnosis_id TEXT,
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            # Add diagnosis_id column if it doesn't exist (for existing tables)
+            try:
+                conn.execute(f"""
+                    ALTER TABLE {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
+                    ADD COLUMN IF NOT EXISTS diagnosis_id TEXT
+                """)
+            except Exception:
+                # Column might already exist or ALTER not supported
+                pass
 
     # =========================================================================
     # CRUD Operations
@@ -212,6 +228,7 @@ class FileAssetService:
         target_table: Optional[str] = None,
         merge_keys: Optional[List[str]] = None,
         deduplicate: bool = False,
+        diagnosis_id: Optional[str] = None,
     ) -> FileAsset:
         """Import a file into DuckDB as a table.
 
@@ -234,6 +251,7 @@ class FileAssetService:
             AssetValidationError: If validation fails
             AssetError: If import fails
         """
+        logger.info(f"[FileAssetService.import_file] Called with table_name={table_name}, diagnosis_id={diagnosis_id}")
         # Validate file exists
         path = Path(file_path)
         if not path.exists():
@@ -382,18 +400,19 @@ class FileAssetService:
             
             # For replace mode or if no existing metadata, create new
             asset_id = _generate_id()
-            
+            logger.info(f"[FileAssetService.import_file] Creating new asset: asset_id={asset_id}, diagnosis_id={diagnosis_id}")
+
             # Remove old metadata if exists (for replace mode)
             conn.execute(f"""
                 DELETE FROM {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
                 WHERE table_name = ? AND project_id = ?
             """, [safe_table, self.project_id])
-            
+
             conn.execute(f"""
                 INSERT INTO {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
                 (id, project_id, name, file_path, file_type, table_name, description,
-                 row_count, column_count, file_size_bytes, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 row_count, column_count, file_size_bytes, diagnosis_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, [
                 asset_id,
                 self.project_id,
@@ -405,9 +424,11 @@ class FileAssetService:
                 row_count,
                 column_count,
                 file_size_bytes,
+                diagnosis_id,
                 now,
                 now,
             ])
+            logger.info(f"[FileAssetService.import_file] Asset saved to DB with diagnosis_id={diagnosis_id}")
 
         return FileAsset(
             id=asset_id,
@@ -419,6 +440,7 @@ class FileAssetService:
             row_count=row_count,
             column_count=column_count,
             file_size_bytes=file_size_bytes,
+            diagnosis_id=diagnosis_id,
             created_at=now,
             updated_at=now,
         )
@@ -435,7 +457,7 @@ class FileAssetService:
         with self._get_connection() as conn:
             result = conn.execute(f"""
                 SELECT id, name, file_path, file_type, table_name, description,
-                       row_count, column_count, file_size_bytes, created_at, updated_at
+                       row_count, column_count, file_size_bytes, diagnosis_id, created_at, updated_at
                 FROM {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
                 WHERE id = ? AND project_id = ?
             """, [file_id, self.project_id]).fetchone()
@@ -453,8 +475,9 @@ class FileAssetService:
                 row_count=result[6],
                 column_count=result[7],
                 file_size_bytes=result[8],
-                created_at=result[9],
-                updated_at=result[10],
+                diagnosis_id=result[9],
+                created_at=result[10],
+                updated_at=result[11],
             )
 
     def list_files(self) -> List[FileAsset]:
@@ -466,7 +489,7 @@ class FileAssetService:
         with self._get_connection() as conn:
             results = conn.execute(f"""
                 SELECT id, name, file_path, file_type, table_name, description,
-                       row_count, column_count, file_size_bytes, created_at, updated_at
+                       row_count, column_count, file_size_bytes, diagnosis_id, created_at, updated_at
                 FROM {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
                 WHERE project_id = ?
                 ORDER BY created_at DESC
@@ -483,8 +506,9 @@ class FileAssetService:
                     row_count=r[6],
                     column_count=r[7],
                     file_size_bytes=r[8],
-                    created_at=r[9],
-                    updated_at=r[10],
+                    diagnosis_id=r[9],
+                    created_at=r[10],
+                    updated_at=r[11],
                 )
                 for r in results
             ]

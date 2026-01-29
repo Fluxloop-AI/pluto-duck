@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AssetTableView } from '../editor/components/AssetTableView';
-import { previewFileData, type FileAsset, type FilePreview } from '../../lib/fileAssetApi';
+import { previewFileData, getFileDiagnosis, type FileAsset, type FilePreview, type FileDiagnosis } from '../../lib/fileAssetApi';
 import { fetchCachedTablePreview, type CachedTable, type CachedTablePreview } from '../../lib/sourceApi';
 import { DatasetHeader } from './DatasetHeader';
 
@@ -27,6 +27,7 @@ type DatasetTab = 'summary' | 'diagnosis' | 'table';
 interface DatasetDetailViewProps {
   projectId: string;
   dataset: Dataset;
+  onDelete?: () => void;
 }
 
 // =============================================================================
@@ -91,17 +92,40 @@ interface HistoryItem {
 export function DatasetDetailView({
   projectId,
   dataset,
+  onDelete,
 }: DatasetDetailViewProps) {
   const [activeTab, setActiveTab] = useState<DatasetTab>('summary');
   const [preview, setPreview] = useState<FilePreview | CachedTablePreview | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [diagnosis, setDiagnosis] = useState<FileDiagnosis | null>(null);
+  const [diagnosisLoading, setDiagnosisLoading] = useState(false);
 
-  // Reset preview when dataset changes
+  // Reset preview and diagnosis when dataset changes
   useEffect(() => {
     setPreview(null);
     setError(null);
+    setDiagnosis(null);
   }, [dataset]);
+
+  // Load diagnosis data for FileAsset
+  useEffect(() => {
+    if (!isFileAsset(dataset)) return;
+
+    const loadDiagnosis = async () => {
+      setDiagnosisLoading(true);
+      try {
+        const data = await getFileDiagnosis(projectId, dataset.id);
+        setDiagnosis(data);
+      } catch (err) {
+        console.error('Failed to load diagnosis:', err);
+      } finally {
+        setDiagnosisLoading(false);
+      }
+    };
+
+    void loadDiagnosis();
+  }, [projectId, dataset]);
 
   // Load table preview data when dataset changes or tab becomes 'table' or 'summary'
   useEffect(() => {
@@ -165,7 +189,7 @@ export function DatasetDetailView({
       <div className="flex-1 overflow-y-auto py-6 px-8">
         <div className="max-w-4xl space-y-12">
           {/* Shared Header */}
-          <DatasetHeader dataset={dataset} />
+          <DatasetHeader dataset={dataset} onDelete={onDelete} />
 
           {/* Tab Content */}
           {activeTab === 'table' && (
@@ -181,6 +205,8 @@ export function DatasetDetailView({
               preview={preview}
               previewLoading={loading}
               setActiveTab={setActiveTab}
+              diagnosis={diagnosis}
+              diagnosisLoading={diagnosisLoading}
             />
           )}
           {activeTab === 'diagnosis' && (
@@ -197,6 +223,8 @@ interface SummaryTabContentProps {
   preview: FilePreview | CachedTablePreview | null;
   previewLoading: boolean;
   setActiveTab: (tab: DatasetTab) => void;
+  diagnosis: FileDiagnosis | null;
+  diagnosisLoading: boolean;
 }
 
 function SummaryTabContent({
@@ -204,19 +232,19 @@ function SummaryTabContent({
   preview,
   previewLoading,
   setActiveTab,
+  diagnosis,
+  diagnosisLoading,
 }: SummaryTabContentProps) {
   const [memo, setMemo] = useState('');
   const [memoSaveTimeout, setMemoSaveTimeout] = useState<NodeJS.Timeout | null>(null);
 
   // Get dataset ID for localStorage key
-  const datasetId = isFileAsset(dataset) ? dataset.id : dataset.id;
+  const datasetId = dataset.id;
 
-  // Load memo from localStorage on mount
+  // Load memo from localStorage on mount (or reset if no saved memo)
   useEffect(() => {
     const savedMemo = localStorage.getItem(`dataset-memo-${datasetId}`);
-    if (savedMemo) {
-      setMemo(savedMemo);
-    }
+    setMemo(savedMemo || '');
   }, [datasetId]);
 
   // Debounced save to localStorage
@@ -247,18 +275,19 @@ function SummaryTabContent({
   const createdAt = isFileAsset(dataset) ? dataset.created_at : dataset.cached_at;
   const originalFileName = isFileAsset(dataset) ? dataset.name : dataset.source_table;
 
-  // Mock Agent Analysis (based on dataset characteristics)
-  const mockAnalysis = useMemo((): AgentAnalysis => {
+  // Agent Analysis from LLM diagnosis
+  const agentAnalysis = useMemo((): AgentAnalysis | null => {
+    const llmAnalysis = diagnosis?.llm_analysis;
+    if (!llmAnalysis) return null;
+
     return {
-      summary: `Meta Ads Manager에서 추출한 것으로 보이는 광고 성과 데이터입니다. 2개 캠페인(신규가입_프로모션, 리타겟팅_장바구니)의 10일간(1/22-31) 일별 퍼포먼스를 담고 있습니다.`,
-      bulletPoints: [
-        '캠페인별 효율(CPC, CTR, ROAS) 비교',
-        '일별 성과 추이 및 이상 탐지',
-        '비용 대비 전환 최적화 포인트 탐색',
-      ],
-      generatedAt: new Date().toISOString(),
+      summary: llmAnalysis.context || '',
+      bulletPoints: (llmAnalysis.potential || [])
+        .filter((item) => item?.question)
+        .map((item) => item.question),
+      generatedAt: llmAnalysis.analyzed_at || new Date().toISOString(),
     };
-  }, [dataset]);
+  }, [diagnosis]);
 
   // Source files (currently just the main file)
   const sourceFiles = useMemo((): SourceFile[] => {
@@ -309,35 +338,56 @@ function SummaryTabContent({
               <Bot className="h-4 w-4" />
               <span>Agent Analysis</span>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <Pencil className="h-3 w-3" />
-                <span>Edit</span>
-              </button>
-              <button
-                type="button"
-                className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <RefreshCw className="h-3 w-3" />
-                <span>Regenerate</span>
-              </button>
-            </div>
+            {agentAnalysis && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <Pencil className="h-3 w-3" />
+                  <span>Edit</span>
+                </button>
+                <button
+                  type="button"
+                  className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <RefreshCw className="h-3 w-3" />
+                  <span>Regenerate</span>
+                </button>
+              </div>
+            )}
           </div>
 
-          <div className="rounded-lg bg-muted/50 p-4">
-            <p className="text-sm leading-relaxed">{mockAnalysis.summary}</p>
-            <ul className="mt-3 space-y-1.5">
-              {mockAnalysis.bulletPoints.map((point, index) => (
-                <li key={index} className="flex items-start gap-2 text-sm text-muted-foreground">
-                  <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-muted-foreground/50 shrink-0" />
-                  <span>{point}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
+          {diagnosisLoading ? (
+            <div className="rounded-lg bg-muted/50 p-4 space-y-3">
+              <div className="h-4 w-3/4 bg-muted animate-pulse rounded" />
+              <div className="h-4 w-full bg-muted animate-pulse rounded" />
+              <div className="h-4 w-2/3 bg-muted animate-pulse rounded" />
+              <div className="mt-4 space-y-2">
+                <div className="h-3 w-1/2 bg-muted animate-pulse rounded" />
+                <div className="h-3 w-2/3 bg-muted animate-pulse rounded" />
+                <div className="h-3 w-1/2 bg-muted animate-pulse rounded" />
+              </div>
+            </div>
+          ) : agentAnalysis ? (
+            <div className="rounded-lg bg-muted/50 p-4">
+              <p className="text-sm leading-relaxed">{agentAnalysis.summary}</p>
+              {agentAnalysis.bulletPoints.length > 0 && (
+                <ul className="mt-3 space-y-1.5">
+                  {agentAnalysis.bulletPoints.map((point, index) => (
+                    <li key={index} className="flex items-start gap-2 text-sm text-muted-foreground">
+                      <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-muted-foreground/50 shrink-0" />
+                      <span>{point}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ) : (
+            <div className="rounded-lg bg-muted/50 p-4">
+              <p className="text-sm text-muted-foreground">분석 정보가 없습니다</p>
+            </div>
+          )}
         </div>
       </div>
 

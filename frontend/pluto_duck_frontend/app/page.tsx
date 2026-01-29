@@ -167,7 +167,6 @@ export default function WorkspacePage() {
         };
 
         setCurrentProject(mergedProject);
-        console.log('[Page] Loaded current project detail:', mergedProject.settings?.ui_state);
       } catch (error) {
         console.error('Failed to load project detail', error);
       }
@@ -368,9 +367,6 @@ export default function WorkspacePage() {
   }, []);
 
   const handleSelectProject = useCallback(async (project: ProjectListItem) => {
-    console.log('[Page] Switching to project', project.name, project.id);
-    console.log('[Page] Project saved state:', project.settings?.ui_state);
-    
     // Save current project state before switching
     if (defaultProjectId) {
       // Convert chat tabs to saveable format (only sessionId)
@@ -384,12 +380,7 @@ export default function WorkspacePage() {
       // Find the active tab's sessionId
       const activeTab = chatTabs.find(tab => tab.id === activeChatTabId);
       const activeSessionId = activeTab?.sessionId || null;
-      
-      console.log('[Page] Saving current project state:', {
-        chatTabs: tabsToSave,
-        activeChatTabId: activeSessionId,
-      });
-      
+
       await saveState({
         chatTabs: tabsToSave,
         activeChatTabId: activeSessionId,
@@ -399,9 +390,7 @@ export default function WorkspacePage() {
     
     // Switch to new project
     setDefaultProjectId(project.id);
-    
-    console.log('[Page] Project switched, will restore:', project.settings?.ui_state?.chat);
-    
+
     // The useBoards hook will reload boards for the new project and auto-select the first board
   }, [defaultProjectId, saveState, chatTabs, activeChatTabId, reloadProjects]);
 
@@ -420,9 +409,17 @@ export default function WorkspacePage() {
     void createBoard(newName);
   }, [boards, createBoard]);
 
-  const handleImportSuccess = useCallback(() => {
+  const handleImportSuccess = useCallback((newAsset?: FileAsset) => {
     // Trigger refresh of data sources list
     setDataSourcesRefresh(prev => prev + 1);
+
+    // If a new asset was created, auto-select it and navigate to datasets view
+    if (newAsset) {
+      setSelectedDataset(newAsset);
+      setMainView('datasets');
+      setSidebarTab('datasets');
+    }
+
     // Reload data sources for dropdown
     void (async () => {
       if (!defaultProjectId) return;
@@ -747,6 +744,24 @@ export default function WorkspacePage() {
                   <DatasetDetailView
                     projectId={defaultProjectId}
                     dataset={selectedDataset}
+                    onDelete={async () => {
+                      const datasetName = 'name' in selectedDataset ? selectedDataset.name : selectedDataset.local_table;
+                      if (!window.confirm(`"${datasetName}" 데이터셋을 삭제하시겠습니까?`)) {
+                        return;
+                      }
+                      try {
+                        if ('name' in selectedDataset) {
+                          await deleteFileAsset(defaultProjectId, selectedDataset.id);
+                        } else {
+                          await dropCache(defaultProjectId, selectedDataset.local_table);
+                        }
+                        setSelectedDataset(null);
+                        setDataSourcesRefresh(prev => prev + 1);
+                      } catch (error) {
+                        console.error('Failed to delete dataset', error);
+                        alert('데이터셋 삭제에 실패했습니다.');
+                      }
+                    }}
                   />
                 ) : (
                   <div className="flex h-full flex-col items-center justify-center gap-4">

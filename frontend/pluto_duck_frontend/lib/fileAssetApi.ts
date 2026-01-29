@@ -40,6 +40,7 @@ export interface ImportFileRequest {
   target_table?: string;
   merge_keys?: string[];
   deduplicate?: boolean;
+  diagnosis_id?: string;
 }
 
 export interface FileSchema {
@@ -53,9 +54,11 @@ export interface FileSchema {
   }>;
 }
 
+export type CellValue = string | number | boolean | null;
+
 export interface FilePreview {
   columns: string[];
-  rows: any[][];
+  rows: CellValue[][];
   total_rows: number | null;
 }
 
@@ -167,9 +170,11 @@ export interface FileDiagnosis {
   encoding?: EncodingInfo;
   parsing_integrity?: ParsingIntegrity;
   column_statistics?: ColumnStatistics[];
-  sample_rows?: any[][];
+  sample_rows?: CellValue[][];
   // LLM analysis (optional - only when includeLlm=true)
   llm_analysis?: LLMAnalysis;
+  // Diagnosis ID for linking to FileAsset
+  diagnosis_id?: string;
 }
 
 // Merge context for LLM analysis
@@ -239,19 +244,14 @@ export async function importFile(
   request: ImportFileRequest
 ): Promise<FileAsset> {
   const url = buildUrl('/files', projectId);
-  console.log('[fileAssetApi] importFile URL:', url);
-  console.log('[fileAssetApi] importFile request:', request);
-  
+
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
   });
-  
-  console.log('[fileAssetApi] importFile response status:', response.status);
-  const result = await handleResponse<FileAsset>(response);
-  console.log('[fileAssetApi] importFile result:', result);
-  return result;
+
+  return handleResponse<FileAsset>(response);
 }
 
 /**
@@ -259,14 +259,8 @@ export async function importFile(
  */
 export async function listFileAssets(projectId: string): Promise<FileAsset[]> {
   const url = buildUrl('/files', projectId);
-  console.log('[fileAssetApi] listFileAssets URL:', url);
-  
   const response = await fetch(url);
-  console.log('[fileAssetApi] listFileAssets response status:', response.status);
-  
-  const result = await handleResponse<FileAsset[]>(response);
-  console.log('[fileAssetApi] listFileAssets result:', result);
-  return result;
+  return handleResponse<FileAsset[]>(response);
 }
 
 /**
@@ -390,5 +384,27 @@ export async function countDuplicateRows(
   });
 
   return handleResponse<DuplicateCountResponse>(response);
+}
+
+/**
+ * Get diagnosis for an existing file asset.
+ * Returns null if no diagnosis exists (404).
+ *
+ * @param projectId - Project ID
+ * @param fileId - File asset ID
+ * @returns FileDiagnosis or null if not found
+ */
+export async function getFileDiagnosis(
+  projectId: string,
+  fileId: string
+): Promise<FileDiagnosis | null> {
+  const url = buildUrl(`/files/${encodeURIComponent(fileId)}/diagnosis`, projectId);
+  const response = await fetch(url);
+
+  if (response.status === 404) {
+    return null;
+  }
+
+  return handleResponse<FileDiagnosis>(response);
 }
 

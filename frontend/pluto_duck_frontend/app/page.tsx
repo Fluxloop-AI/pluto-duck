@@ -167,7 +167,6 @@ export default function WorkspacePage() {
         };
 
         setCurrentProject(mergedProject);
-        console.log('[Page] Loaded current project detail:', mergedProject.settings?.ui_state);
       } catch (error) {
         console.error('Failed to load project detail', error);
       }
@@ -368,9 +367,6 @@ export default function WorkspacePage() {
   }, []);
 
   const handleSelectProject = useCallback(async (project: ProjectListItem) => {
-    console.log('[Page] Switching to project', project.name, project.id);
-    console.log('[Page] Project saved state:', project.settings?.ui_state);
-    
     // Save current project state before switching
     if (defaultProjectId) {
       // Convert chat tabs to saveable format (only sessionId)
@@ -384,12 +380,7 @@ export default function WorkspacePage() {
       // Find the active tab's sessionId
       const activeTab = chatTabs.find(tab => tab.id === activeChatTabId);
       const activeSessionId = activeTab?.sessionId || null;
-      
-      console.log('[Page] Saving current project state:', {
-        chatTabs: tabsToSave,
-        activeChatTabId: activeSessionId,
-      });
-      
+
       await saveState({
         chatTabs: tabsToSave,
         activeChatTabId: activeSessionId,
@@ -399,9 +390,7 @@ export default function WorkspacePage() {
     
     // Switch to new project
     setDefaultProjectId(project.id);
-    
-    console.log('[Page] Project switched, will restore:', project.settings?.ui_state?.chat);
-    
+
     // The useBoards hook will reload boards for the new project and auto-select the first board
   }, [defaultProjectId, saveState, chatTabs, activeChatTabId, reloadProjects]);
 

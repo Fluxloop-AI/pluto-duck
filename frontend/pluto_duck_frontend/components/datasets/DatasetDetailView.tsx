@@ -110,9 +110,6 @@ export function DatasetDetailView({
 
   // Load diagnosis data for FileAsset
   useEffect(() => {
-    console.log('[DatasetDetailView] dataset:', dataset);
-    console.log('[DatasetDetailView] isFileAsset:', isFileAsset(dataset));
-    console.log('[DatasetDetailView] file_type in dataset:', 'file_type' in dataset);
     if (!isFileAsset(dataset)) return;
 
     const loadDiagnosis = async () => {
@@ -242,7 +239,7 @@ function SummaryTabContent({
   const [memoSaveTimeout, setMemoSaveTimeout] = useState<NodeJS.Timeout | null>(null);
 
   // Get dataset ID for localStorage key
-  const datasetId = isFileAsset(dataset) ? dataset.id : dataset.id;
+  const datasetId = dataset.id;
 
   // Load memo from localStorage on mount (or reset if no saved memo)
   useEffect(() => {

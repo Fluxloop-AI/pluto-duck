@@ -570,7 +570,6 @@ export function AddDatasetModal({
 
       // Check if schemas are identical for merge option
       const schemasIdentical = areSchemasIdentical(fastResponse.diagnoses);
-      console.log('[AddDatasetModal] Schemas identical:', schemasIdentical, 'files:', fastResponse.diagnoses.length);
       setSchemasMatch(schemasIdentical);
       setMergeFiles(false); // Reset merge checkbox when re-scanning
       setDuplicateInfo(null); // Reset duplicate info
@@ -578,17 +577,13 @@ export function AddDatasetModal({
       // If schemas match, count duplicates first to include in LLM merge context
       let dupResponse: DuplicateCountResponse | null = null;
       if (schemasIdentical) {
-        console.log('[AddDatasetModal] Calling countDuplicateRows API...');
         try {
           dupResponse = await countDuplicateRows(projectId, filesToDiagnose);
           setDuplicateInfo(dupResponse);
-          console.log('[AddDatasetModal] Duplicate count result:', dupResponse);
         } catch (dupError) {
           // Duplicate count failure is not critical
           console.warn('Duplicate count failed:', dupError);
         }
-      } else {
-        console.log('[AddDatasetModal] Skipping duplicate count - schemas do not match');
       }
 
       // Second API call: with LLM analysis (slower)
@@ -610,14 +605,11 @@ export function AddDatasetModal({
           includeMergeAnalysis,
           mergeContext
         );
-        console.log('[AddDatasetModal] LLM response diagnoses:', llmResponse.diagnoses);
-        console.log('[AddDatasetModal] First diagnosis_id:', llmResponse.diagnoses[0]?.diagnosis_id);
         setDiagnosisResults(llmResponse.diagnoses);
 
         // Store merged analysis if present
         if (llmResponse.merged_analysis) {
           setMergedAnalysis(llmResponse.merged_analysis);
-          console.log('[AddDatasetModal] Merged analysis received:', llmResponse.merged_analysis);
         }
       } catch (llmError) {
         // LLM failure is not critical - we already have the fast diagnosis

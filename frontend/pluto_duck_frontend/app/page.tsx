@@ -755,6 +755,24 @@ export default function WorkspacePage() {
                   <DatasetDetailView
                     projectId={defaultProjectId}
                     dataset={selectedDataset}
+                    onDelete={async () => {
+                      const datasetName = 'name' in selectedDataset ? selectedDataset.name : selectedDataset.local_table;
+                      if (!window.confirm(`"${datasetName}" 데이터셋을 삭제하시겠습니까?`)) {
+                        return;
+                      }
+                      try {
+                        if ('name' in selectedDataset) {
+                          await deleteFileAsset(defaultProjectId, selectedDataset.id);
+                        } else {
+                          await dropCache(defaultProjectId, selectedDataset.local_table);
+                        }
+                        setSelectedDataset(null);
+                        setDataSourcesRefresh(prev => prev + 1);
+                      } catch (error) {
+                        console.error('Failed to delete dataset', error);
+                        alert('데이터셋 삭제에 실패했습니다.');
+                      }
+                    }}
                   />
                 ) : (
                   <div className="flex h-full flex-col items-center justify-center gap-4">

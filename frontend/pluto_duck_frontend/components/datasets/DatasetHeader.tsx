@@ -5,7 +5,6 @@ import {
   FileSpreadsheet,
   Pencil,
   MoreHorizontal,
-  Download,
   Trash2,
 } from 'lucide-react';
 import {
@@ -25,8 +24,6 @@ import {
 
 interface DatasetHeaderProps {
   dataset: Dataset;
-  onRename?: () => void;
-  onExport?: () => void;
   onDelete?: () => void;
 }
 
@@ -39,8 +36,6 @@ interface SourceFile {
 
 export function DatasetHeader({
   dataset,
-  onRename,
-  onExport,
   onDelete,
 }: DatasetHeaderProps) {
   // Build metadata
@@ -65,14 +60,6 @@ export function DatasetHeader({
       <div className="flex items-center gap-2">
         <FileSpreadsheet className="h-5 w-5 text-muted-foreground" />
         <h2 className="text-xl font-semibold">{getDatasetName(dataset)}</h2>
-        <button
-          type="button"
-          className="p-1 text-muted-foreground hover:text-foreground transition-colors"
-          title="Rename dataset"
-          onClick={onRename}
-        >
-          <Pencil className="h-4 w-4" />
-        </button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
@@ -83,9 +70,9 @@ export function DatasetHeader({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
-            <DropdownMenuItem onClick={onExport}>
-              <Download className="h-4 w-4" />
-              <span>Export as CSV</span>
+            <DropdownMenuItem disabled className="opacity-50 cursor-not-allowed">
+              <Pencil className="h-4 w-4" />
+              <span>Rename</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem className="text-destructive" onClick={onDelete}>

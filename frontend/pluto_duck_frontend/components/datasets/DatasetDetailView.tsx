@@ -27,6 +27,7 @@ type DatasetTab = 'summary' | 'diagnosis' | 'table';
 interface DatasetDetailViewProps {
   projectId: string;
   dataset: Dataset;
+  onDelete?: () => void;
 }
 
 // =============================================================================
@@ -91,6 +92,7 @@ interface HistoryItem {
 export function DatasetDetailView({
   projectId,
   dataset,
+  onDelete,
 }: DatasetDetailViewProps) {
   const [activeTab, setActiveTab] = useState<DatasetTab>('summary');
   const [preview, setPreview] = useState<FilePreview | CachedTablePreview | null>(null);
@@ -190,7 +192,7 @@ export function DatasetDetailView({
       <div className="flex-1 overflow-y-auto py-6 px-8">
         <div className="max-w-4xl space-y-12">
           {/* Shared Header */}
-          <DatasetHeader dataset={dataset} />
+          <DatasetHeader dataset={dataset} onDelete={onDelete} />
 
           {/* Tab Content */}
           {activeTab === 'table' && (

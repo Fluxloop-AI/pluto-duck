@@ -4,7 +4,7 @@ from typing import Optional, Dict, Any, List
 
 from pluto_duck_backend.app.services.projects import ProjectRepository, get_project_repository
 
-router = APIRouter(prefix="/projects", tags=["projects"])
+router = APIRouter(tags=["projects"])
 
 
 class ProjectResponse(BaseModel):
@@ -110,4 +110,3 @@ def delete_project(
         return {"status": "success"}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-

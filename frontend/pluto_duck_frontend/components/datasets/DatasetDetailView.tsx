@@ -242,12 +242,10 @@ function SummaryTabContent({
   // Get dataset ID for localStorage key
   const datasetId = isFileAsset(dataset) ? dataset.id : dataset.id;
 
-  // Load memo from localStorage on mount
+  // Load memo from localStorage on mount (or reset if no saved memo)
   useEffect(() => {
     const savedMemo = localStorage.getItem(`dataset-memo-${datasetId}`);
-    if (savedMemo) {
-      setMemo(savedMemo);
-    }
+    setMemo(savedMemo || '');
   }, [datasetId]);
 
   // Debounced save to localStorage

@@ -5,7 +5,8 @@
  * They are permanent until explicitly deleted.
  */
 
-import { getBackendUrl } from './api';
+import { apiJson, apiVoid } from './apiClient';
+import type { ApiError } from './apiClient';
 
 // =============================================================================
 // Types
@@ -228,16 +229,18 @@ export interface DuplicateCountResponse {
 // Helper functions
 // =============================================================================
 
-async function handleResponse<T>(response: Response): Promise<T> {
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new Error(error.detail || `Request failed: ${response.status}`);
-  }
-  return response.json();
+function isApiErrorStatus(error: unknown, status: number): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as ApiError).name === 'ApiError' &&
+    (error as ApiError).status === status
+  );
 }
 
-function buildUrl(path: string, projectId: string): string {
-  return `${getBackendUrl()}/api/v1/asset${path}?project_id=${encodeURIComponent(projectId)}`;
+function buildAssetPath(path: string, params?: URLSearchParams): string {
+  const query = params?.toString();
+  return query && query.length > 0 ? `/api/v1/asset${path}?${query}` : `/api/v1/asset${path}`;
 }
 
 // =============================================================================
@@ -252,33 +255,26 @@ export async function importFile(
   projectId: string,
   request: ImportFileRequest
 ): Promise<FileAsset> {
-  const url = buildUrl('/files', projectId);
-
-  const response = await fetch(url, {
+  return apiJson<FileAsset>(buildAssetPath('/files'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
+    projectId,
   });
-
-  return handleResponse<FileAsset>(response);
 }
 
 /**
  * List all file assets for the project.
  */
 export async function listFileAssets(projectId: string): Promise<FileAsset[]> {
-  const url = buildUrl('/files', projectId);
-  const response = await fetch(url);
-  return handleResponse<FileAsset[]>(response);
+  return apiJson<FileAsset[]>(buildAssetPath('/files'), { projectId });
 }
 
 /**
  * Get a file asset by ID.
  */
 export async function getFileAsset(projectId: string, fileId: string): Promise<FileAsset> {
-  const url = buildUrl(`/files/${encodeURIComponent(fileId)}`, projectId);
-  const response = await fetch(url);
-  return handleResponse<FileAsset>(response);
+  return apiJson<FileAsset>(buildAssetPath(`/files/${encodeURIComponent(fileId)}`), { projectId });
 }
 
 /**
@@ -289,28 +285,30 @@ export async function deleteFileAsset(
   fileId: string,
   dropTable: boolean = true
 ): Promise<void> {
-  const baseUrl = buildUrl(`/files/${encodeURIComponent(fileId)}`, projectId);
-  const url = `${baseUrl}&drop_table=${dropTable}`;
-  const response = await fetch(url, { method: 'DELETE' });
-  await handleResponse<{ status: string }>(response);
+  const params = new URLSearchParams({ drop_table: String(dropTable) });
+  await apiVoid(buildAssetPath(`/files/${encodeURIComponent(fileId)}`, params), {
+    method: 'DELETE',
+    projectId,
+  });
 }
 
 /**
  * Refresh a file asset by re-importing from the source file.
  */
 export async function refreshFileAsset(projectId: string, fileId: string): Promise<FileAsset> {
-  const url = buildUrl(`/files/${encodeURIComponent(fileId)}/refresh`, projectId);
-  const response = await fetch(url, { method: 'POST' });
-  return handleResponse<FileAsset>(response);
+  return apiJson<FileAsset>(buildAssetPath(`/files/${encodeURIComponent(fileId)}/refresh`), {
+    method: 'POST',
+    projectId,
+  });
 }
 
 /**
  * Get the schema of the imported table.
  */
 export async function getFileSchema(projectId: string, fileId: string): Promise<FileSchema> {
-  const url = buildUrl(`/files/${encodeURIComponent(fileId)}/schema`, projectId);
-  const response = await fetch(url);
-  return handleResponse<FileSchema>(response);
+  return apiJson<FileSchema>(buildAssetPath(`/files/${encodeURIComponent(fileId)}/schema`), {
+    projectId,
+  });
 }
 
 /**
@@ -321,10 +319,10 @@ export async function previewFileData(
   fileId: string,
   limit: number = 100
 ): Promise<FilePreview> {
-  const baseUrl = buildUrl(`/files/${encodeURIComponent(fileId)}/preview`, projectId);
-  const url = `${baseUrl}&limit=${limit}`;
-  const response = await fetch(url);
-  return handleResponse<FilePreview>(response);
+  const params = new URLSearchParams({ limit: String(limit) });
+  return apiJson<FilePreview>(buildAssetPath(`/files/${encodeURIComponent(fileId)}/preview`, params), {
+    projectId,
+  });
 }
 
 /**
@@ -346,8 +344,6 @@ export async function diagnoseFiles(
   includeMergeAnalysis: boolean = false,
   mergeContext?: MergeContext
 ): Promise<DiagnoseFilesResponse> {
-  const url = buildUrl('/files/diagnose', projectId);
-
   const requestBody: DiagnoseFilesRequest = {
     files,
     use_cache: useCache,
@@ -361,15 +357,12 @@ export async function diagnoseFiles(
       requestBody.merge_context = mergeContext;
     }
   }
-
-  const response = await fetch(url, {
+  return apiJson<DiagnoseFilesResponse>(buildAssetPath('/files/diagnose'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(requestBody),
+    projectId,
   });
-
-  const result = await handleResponse<DiagnoseFilesResponse>(response);
-  return result;
 }
 
 /**
@@ -384,15 +377,12 @@ export async function countDuplicateRows(
   projectId: string,
   files: DiagnoseFileRequest[]
 ): Promise<DuplicateCountResponse> {
-  const url = buildUrl('/files/count-duplicates', projectId);
-
-  const response = await fetch(url, {
+  return apiJson<DuplicateCountResponse>(buildAssetPath('/files/count-duplicates'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ files }),
+    projectId,
   });
-
-  return handleResponse<DuplicateCountResponse>(response);
 }
 
 /**
@@ -407,12 +397,15 @@ export async function getFileDiagnosis(
   projectId: string,
   fileId: string
 ): Promise<FileDiagnosis | null> {
-  const url = buildUrl(`/files/${encodeURIComponent(fileId)}/diagnosis`, projectId);
-  const response = await fetch(url);
-
-  if (response.status === 404) {
-    return null;
+  try {
+    return await apiJson<FileDiagnosis>(
+      buildAssetPath(`/files/${encodeURIComponent(fileId)}/diagnosis`),
+      { projectId }
+    );
+  } catch (error) {
+    if (isApiErrorStatus(error, 404)) {
+      return null;
+    }
+    throw error;
   }
-
-  return handleResponse<FileDiagnosis>(response);
 }

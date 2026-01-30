@@ -5,7 +5,7 @@
  * All operations are project-scoped for proper data isolation.
  */
 
-import { getBackendUrl } from './api';
+import { apiJson, apiVoid } from './apiClient';
 
 // =============================================================================
 // Types
@@ -117,23 +117,12 @@ export interface FolderScanResult {
 // Helper Functions
 // =============================================================================
 
-async function handleResponse<T>(response: Response): Promise<T> {
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || `Request failed: ${response.status}`);
+function buildPath(path: string, params?: Record<string, string>): string {
+  if (!params || Object.keys(params).length === 0) {
+    return path;
   }
-  return response.json();
-}
-
-function buildUrl(path: string, projectId: string, params?: Record<string, string>): string {
-  const url = new URL(`${getBackendUrl()}${path}`);
-  url.searchParams.set('project_id', projectId);
-  if (params) {
-    Object.entries(params).forEach(([key, value]) => {
-      url.searchParams.set(key, value);
-    });
-  }
-  return url.toString();
+  const query = new URLSearchParams(params).toString();
+  return query.length > 0 ? `${path}?${query}` : path;
 }
 
 // =============================================================================
@@ -141,25 +130,20 @@ function buildUrl(path: string, projectId: string, params?: Record<string, strin
 // =============================================================================
 
 export async function fetchSources(projectId: string): Promise<Source[]> {
-  const url = buildUrl('/api/v1/source', projectId);
-  const response = await fetch(url);
-  return handleResponse(response);
+  return apiJson<Source[]>('/api/v1/source', { projectId });
 }
 
 export async function fetchSourceDetail(projectId: string, sourceName: string): Promise<SourceDetail> {
-  const url = buildUrl(`/api/v1/source/${encodeURIComponent(sourceName)}`, projectId);
-  const response = await fetch(url);
-  return handleResponse(response);
+  return apiJson<SourceDetail>(`/api/v1/source/${encodeURIComponent(sourceName)}`, { projectId });
 }
 
 export async function createSource(projectId: string, request: CreateSourceRequest): Promise<Source> {
-  const url = buildUrl('/api/v1/source', projectId);
-  const response = await fetch(url, {
+  return apiJson<Source>('/api/v1/source', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
+    projectId,
   });
-  return handleResponse(response);
 }
 
 export async function updateSource(
@@ -167,30 +151,25 @@ export async function updateSource(
   sourceName: string,
   request: UpdateSourceRequest
 ): Promise<Source> {
-  const url = buildUrl(`/api/v1/source/${encodeURIComponent(sourceName)}`, projectId);
-  const response = await fetch(url, {
+  return apiJson<Source>(`/api/v1/source/${encodeURIComponent(sourceName)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
+    projectId,
   });
-  return handleResponse(response);
 }
 
 export async function deleteSource(projectId: string, sourceName: string): Promise<void> {
-  const url = buildUrl(`/api/v1/source/${encodeURIComponent(sourceName)}`, projectId);
-  const response = await fetch(url, {
+  await apiVoid(`/api/v1/source/${encodeURIComponent(sourceName)}`, {
     method: 'DELETE',
+    projectId,
   });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || `Failed to delete source: ${response.status}`);
-  }
 }
 
 export async function fetchSourceTables(projectId: string, sourceName: string): Promise<SourceTable[]> {
-  const url = buildUrl(`/api/v1/source/${encodeURIComponent(sourceName)}/tables`, projectId);
-  const response = await fetch(url);
-  return handleResponse(response);
+  return apiJson<SourceTable[]>(`/api/v1/source/${encodeURIComponent(sourceName)}/tables`, {
+    projectId,
+  });
 }
 
 export async function estimateTableSize(
@@ -198,12 +177,10 @@ export async function estimateTableSize(
   sourceName: string,
   tableName: string
 ): Promise<SizeEstimate> {
-  const url = buildUrl(
+  return apiJson<SizeEstimate>(
     `/api/v1/source/${encodeURIComponent(sourceName)}/tables/${encodeURIComponent(tableName)}/estimate`,
-    projectId
+    { projectId }
   );
-  const response = await fetch(url);
-  return handleResponse(response);
 }
 
 // =============================================================================
@@ -211,50 +188,44 @@ export async function estimateTableSize(
 // =============================================================================
 
 export async function cacheTable(projectId: string, request: CacheTableRequest): Promise<CachedTable> {
-  const url = buildUrl('/api/v1/source/cache', projectId);
-  const response = await fetch(url, {
+  return apiJson<CachedTable>('/api/v1/source/cache', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
+    projectId,
   });
-  return handleResponse(response);
 }
 
 export async function fetchCachedTables(projectId: string, sourceName?: string): Promise<CachedTable[]> {
-  const url = buildUrl(
-    '/api/v1/source/cache/',
-    projectId,
-    sourceName ? { source_name: sourceName } : undefined
-  );
-  const response = await fetch(url);
-  return handleResponse(response);
+  const path = buildPath('/api/v1/source/cache/', sourceName ? { source_name: sourceName } : undefined);
+  return apiJson<CachedTable[]>(path, { projectId });
 }
 
 export async function fetchCachedTable(projectId: string, localTable: string): Promise<CachedTable> {
-  const url = buildUrl(`/api/v1/source/cache/${encodeURIComponent(localTable)}`, projectId);
-  const response = await fetch(url);
-  return handleResponse(response);
+  return apiJson<CachedTable>(`/api/v1/source/cache/${encodeURIComponent(localTable)}`, {
+    projectId,
+  });
 }
 
 export async function refreshCache(projectId: string, localTable: string): Promise<CachedTable> {
-  const url = buildUrl(`/api/v1/source/cache/${encodeURIComponent(localTable)}/refresh`, projectId);
-  const response = await fetch(url, { method: 'POST' });
-  return handleResponse(response);
+  return apiJson<CachedTable>(`/api/v1/source/cache/${encodeURIComponent(localTable)}/refresh`, {
+    method: 'POST',
+    projectId,
+  });
 }
 
 export async function dropCache(projectId: string, localTable: string): Promise<void> {
-  const url = buildUrl(`/api/v1/source/cache/${encodeURIComponent(localTable)}`, projectId);
-  const response = await fetch(url, { method: 'DELETE' });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || `Failed to drop cache: ${response.status}`);
-  }
+  await apiVoid(`/api/v1/source/cache/${encodeURIComponent(localTable)}`, {
+    method: 'DELETE',
+    projectId,
+  });
 }
 
 export async function cleanupExpiredCaches(projectId: string): Promise<{ cleaned_count: number }> {
-  const url = buildUrl('/api/v1/source/cache/cleanup', projectId);
-  const response = await fetch(url, { method: 'POST' });
-  return handleResponse(response);
+  return apiJson<{ cleaned_count: number }>('/api/v1/source/cache/cleanup', {
+    method: 'POST',
+    projectId,
+  });
 }
 
 export interface CachedTablePreview {
@@ -268,13 +239,10 @@ export async function fetchCachedTablePreview(
   localTable: string,
   limit: number = 100
 ): Promise<CachedTablePreview> {
-  const url = buildUrl(
-    `/api/v1/source/cache/${encodeURIComponent(localTable)}/preview`,
-    projectId,
-    { limit: String(limit) }
-  );
-  const response = await fetch(url);
-  return handleResponse(response);
+  const path = buildPath(`/api/v1/source/cache/${encodeURIComponent(localTable)}/preview`, {
+    limit: String(limit),
+  });
+  return apiJson<CachedTablePreview>(path, { projectId });
 }
 
 // =============================================================================
@@ -282,31 +250,26 @@ export async function fetchCachedTablePreview(
 // =============================================================================
 
 export async function listFolderSources(projectId: string): Promise<FolderSource[]> {
-  const url = buildUrl('/api/v1/source/folders', projectId);
-  const response = await fetch(url);
-  return handleResponse(response);
+  return apiJson<FolderSource[]>('/api/v1/source/folders', { projectId });
 }
 
 export async function createFolderSource(
   projectId: string,
   request: CreateFolderSourceRequest
 ): Promise<FolderSource> {
-  const url = buildUrl('/api/v1/source/folders', projectId);
-  const response = await fetch(url, {
+  return apiJson<FolderSource>('/api/v1/source/folders', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
+    projectId,
   });
-  return handleResponse(response);
 }
 
 export async function deleteFolderSource(projectId: string, folderId: string): Promise<void> {
-  const url = buildUrl(`/api/v1/source/folders/${encodeURIComponent(folderId)}`, projectId);
-  const response = await fetch(url, { method: 'DELETE' });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || `Failed to delete folder source: ${response.status}`);
-  }
+  await apiVoid(`/api/v1/source/folders/${encodeURIComponent(folderId)}`, {
+    method: 'DELETE',
+    projectId,
+  });
 }
 
 export async function listFolderFiles(
@@ -314,17 +277,17 @@ export async function listFolderFiles(
   folderId: string,
   limit: number = 500
 ): Promise<FolderFile[]> {
-  const url = buildUrl(`/api/v1/source/folders/${encodeURIComponent(folderId)}/files`, projectId, {
+  const path = buildPath(`/api/v1/source/folders/${encodeURIComponent(folderId)}/files`, {
     limit: String(limit),
   });
-  const response = await fetch(url);
-  return handleResponse(response);
+  return apiJson<FolderFile[]>(path, { projectId });
 }
 
 export async function scanFolderSource(projectId: string, folderId: string): Promise<FolderScanResult> {
-  const url = buildUrl(`/api/v1/source/folders/${encodeURIComponent(folderId)}/scan`, projectId);
-  const response = await fetch(url, { method: 'POST' });
-  return handleResponse(response);
+  return apiJson<FolderScanResult>(`/api/v1/source/folders/${encodeURIComponent(folderId)}/scan`, {
+    method: 'POST',
+    projectId,
+  });
 }
 
 // =============================================================================

@@ -1,4 +1,5 @@
 import { getBackendUrl } from './api';
+import { apiJson, apiVoid } from './apiClient';
 
 // ========== Types ==========
 
@@ -57,19 +58,11 @@ export interface QueryResult {
 // ========== Board CRUD ==========
 
 export async function fetchBoards(projectId: string): Promise<Board[]> {
-  const response = await fetch(`${getBackendUrl()}/api/v1/boards/projects/${projectId}/boards`);
-  if (!response.ok) {
-    throw new Error('Failed to fetch boards');
-  }
-  return response.json();
+  return apiJson<Board[]>(`/api/v1/boards/projects/${projectId}/boards`);
 }
 
 export async function fetchBoardDetail(boardId: string): Promise<BoardDetail> {
-  const response = await fetch(`${getBackendUrl()}/api/v1/boards/${boardId}`);
-  if (!response.ok) {
-    throw new Error('Failed to fetch board detail');
-  }
-  return response.json();
+  return apiJson<BoardDetail>(`/api/v1/boards/${boardId}`);
 }
 
 export async function createBoard(projectId: string, data: {
@@ -77,15 +70,11 @@ export async function createBoard(projectId: string, data: {
   description?: string;
   settings?: Record<string, any>;
 }): Promise<Board> {
-  const response = await fetch(`${getBackendUrl()}/api/v1/boards/projects/${projectId}/boards`, {
+  return apiJson<Board>(`/api/v1/boards/projects/${projectId}/boards`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (!response.ok) {
-    throw new Error('Failed to create board');
-  }
-  return response.json();
 }
 
 export async function updateBoard(boardId: string, data: {
@@ -93,34 +82,21 @@ export async function updateBoard(boardId: string, data: {
   description?: string;
   settings?: Record<string, any>;
 }): Promise<Board> {
-  const response = await fetch(`${getBackendUrl()}/api/v1/boards/${boardId}`, {
+  return apiJson<Board>(`/api/v1/boards/${boardId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (!response.ok) {
-    throw new Error('Failed to update board');
-  }
-  return response.json();
 }
 
 export async function deleteBoard(boardId: string): Promise<void> {
-  const response = await fetch(`${getBackendUrl()}/api/v1/boards/${boardId}`, {
-    method: 'DELETE',
-  });
-  if (!response.ok) {
-    throw new Error('Failed to delete board');
-  }
+  await apiVoid(`/api/v1/boards/${boardId}`, { method: 'DELETE' });
 }
 
 // ========== Board Item CRUD ==========
 
 export async function fetchBoardItems(boardId: string): Promise<BoardItem[]> {
-  const response = await fetch(`${getBackendUrl()}/api/v1/boards/${boardId}/items`);
-  if (!response.ok) {
-    throw new Error('Failed to fetch board items');
-  }
-  return response.json();
+  return apiJson<BoardItem[]>(`/api/v1/boards/${boardId}/items`);
 }
 
 export async function createBoardItem(boardId: string, data: {
@@ -133,15 +109,11 @@ export async function createBoardItem(boardId: string, data: {
   width?: number;
   height?: number;
 }): Promise<BoardItem> {
-  const response = await fetch(`${getBackendUrl()}/api/v1/boards/${boardId}/items`, {
+  return apiJson<BoardItem>(`/api/v1/boards/${boardId}/items`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (!response.ok) {
-    throw new Error('Failed to create board item');
-  }
-  return response.json();
 }
 
 export async function updateBoardItem(itemId: string, data: {
@@ -149,24 +121,15 @@ export async function updateBoardItem(itemId: string, data: {
   payload?: Record<string, any>;
   render_config?: Record<string, any>;
 }): Promise<BoardItem> {
-  const response = await fetch(`${getBackendUrl()}/api/v1/boards/items/${itemId}`, {
+  return apiJson<BoardItem>(`/api/v1/boards/items/${itemId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (!response.ok) {
-    throw new Error('Failed to update board item');
-  }
-  return response.json();
 }
 
 export async function deleteBoardItem(itemId: string): Promise<void> {
-  const response = await fetch(`${getBackendUrl()}/api/v1/boards/items/${itemId}`, {
-    method: 'DELETE',
-  });
-  if (!response.ok) {
-    throw new Error('Failed to delete board item');
-  }
+  await apiVoid(`/api/v1/boards/items/${itemId}`, { method: 'DELETE' });
 }
 
 export async function updateBoardItemPosition(itemId: string, data: {
@@ -175,15 +138,11 @@ export async function updateBoardItemPosition(itemId: string, data: {
   width: number;
   height: number;
 }): Promise<BoardItem> {
-  const response = await fetch(`${getBackendUrl()}/api/v1/boards/items/${itemId}/position`, {
+  return apiJson<BoardItem>(`/api/v1/boards/items/${itemId}/position`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (!response.ok) {
-    throw new Error('Failed to update item position');
-  }
-  return response.json();
 }
 
 // ========== Query Operations ==========
@@ -194,36 +153,23 @@ export async function createQuery(itemId: string, data: {
   refresh_mode?: string;
   refresh_interval_seconds?: number;
 }): Promise<{ query_id: string }> {
-  const response = await fetch(`${getBackendUrl()}/api/v1/boards/items/${itemId}/query`, {
+  return apiJson<{ query_id: string }>(`/api/v1/boards/items/${itemId}/query`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (!response.ok) {
-    throw new Error('Failed to create query');
-  }
-  return response.json();
 }
 
 export async function executeQuery(itemId: string, projectId: string): Promise<QueryResult> {
-  const response = await fetch(`${getBackendUrl()}/api/v1/boards/items/${itemId}/query/execute`, {
+  return apiJson<QueryResult>(`/api/v1/boards/items/${itemId}/query/execute`, {
     method: 'POST',
-    headers: {
-      'X-Project-ID': projectId,
-    },
+    projectId,
+    projectIdLocation: 'header',
   });
-  if (!response.ok) {
-    throw new Error('Failed to execute query');
-  }
-  return response.json();
 }
 
 export async function getCachedQueryResult(itemId: string): Promise<QueryResult> {
-  const response = await fetch(`${getBackendUrl()}/api/v1/boards/items/${itemId}/query/result`);
-  if (!response.ok) {
-    throw new Error('Failed to get cached result');
-  }
-  return response.json();
+  return apiJson<QueryResult>(`/api/v1/boards/items/${itemId}/query/result`);
 }
 
 // ========== Asset Operations ==========
@@ -237,18 +183,18 @@ export async function uploadAsset(itemId: string, file: File, projectId: string)
 }> {
   const formData = new FormData();
   formData.append('file', file);
-
-  const response = await fetch(`${getBackendUrl()}/api/v1/boards/items/${itemId}/assets/upload`, {
+  return apiJson<{
+    asset_id: string;
+    file_name: string;
+    file_size: number;
+    mime_type: string;
+    url: string;
+  }>(`/api/v1/boards/items/${itemId}/assets/upload`, {
     method: 'POST',
-    headers: {
-      'X-Project-ID': projectId,
-    },
     body: formData,
+    projectId,
+    projectIdLocation: 'header',
   });
-  if (!response.ok) {
-    throw new Error('Failed to upload asset');
-  }
-  return response.json();
 }
 
 export function getAssetDownloadUrl(assetId: string): string {
@@ -256,10 +202,5 @@ export function getAssetDownloadUrl(assetId: string): string {
 }
 
 export async function deleteAsset(assetId: string): Promise<void> {
-  const response = await fetch(`${getBackendUrl()}/api/v1/boards/assets/${assetId}`, {
-    method: 'DELETE',
-  });
-  if (!response.ok) {
-    throw new Error('Failed to delete asset');
-  }
+  await apiVoid(`/api/v1/boards/assets/${assetId}`, { method: 'DELETE' });
 }

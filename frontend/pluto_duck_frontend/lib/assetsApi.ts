@@ -8,6 +8,17 @@
  */
 
 import { getBackendUrl } from './api';
+import { apiJson, apiVoid } from './apiClient';
+import type { ApiError } from './apiClient';
+
+function isApiErrorStatus(error: unknown, status: number): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as ApiError).name === 'ApiError' &&
+    (error as ApiError).status === status
+  );
+}
 
 // ========== Types ==========
 
@@ -150,23 +161,12 @@ export async function createAnalysis(
   data: CreateAnalysisRequest,
   projectId?: string
 ): Promise<Analysis> {
-  const url = new URL(`${getBackendUrl()}/api/v1/asset/analyses`);
-  if (projectId) {
-    url.searchParams.set('project_id', projectId);
-  }
-
-  const response = await fetch(url.toString(), {
+  return apiJson<Analysis>('/api/v1/asset/analyses', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
+    projectId,
   });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || 'Failed to create analysis');
-  }
-
-  return response.json();
 }
 
 /**
@@ -175,22 +175,11 @@ export async function createAnalysis(
 export async function listAnalyses(
   options?: { tags?: string[]; projectId?: string }
 ): Promise<Analysis[]> {
-  const url = new URL(`${getBackendUrl()}/api/v1/asset/analyses`);
-
-  if (options?.tags) {
-    options.tags.forEach((tag) => url.searchParams.append('tags', tag));
-  }
-  if (options?.projectId) {
-    url.searchParams.set('project_id', options.projectId);
-  }
-
-  const response = await fetch(url.toString());
-
-  if (!response.ok) {
-    throw new Error('Failed to fetch analyses');
-  }
-
-  return response.json();
+  const params = new URLSearchParams();
+  options?.tags?.forEach((tag) => params.append('tags', tag));
+  const query = params.toString();
+  const path = query.length > 0 ? `/api/v1/asset/analyses?${query}` : '/api/v1/asset/analyses';
+  return apiJson<Analysis[]>(path, { projectId: options?.projectId });
 }
 
 /**
@@ -200,21 +189,14 @@ export async function getAnalysis(
   analysisId: string,
   projectId?: string
 ): Promise<Analysis> {
-  const url = new URL(`${getBackendUrl()}/api/v1/asset/analyses/${analysisId}`);
-  if (projectId) {
-    url.searchParams.set('project_id', projectId);
-  }
-
-  const response = await fetch(url.toString());
-
-  if (!response.ok) {
-    if (response.status === 404) {
+  try {
+    return await apiJson<Analysis>(`/api/v1/asset/analyses/${analysisId}`, { projectId });
+  } catch (error) {
+    if (isApiErrorStatus(error, 404)) {
       throw new Error(`Analysis '${analysisId}' not found`);
     }
-    throw new Error('Failed to fetch analysis');
+    throw error;
   }
-
-  return response.json();
 }
 
 /**
@@ -225,23 +207,12 @@ export async function updateAnalysis(
   data: UpdateAnalysisRequest,
   projectId?: string
 ): Promise<Analysis> {
-  const url = new URL(`${getBackendUrl()}/api/v1/asset/analyses/${analysisId}`);
-  if (projectId) {
-    url.searchParams.set('project_id', projectId);
-  }
-
-  const response = await fetch(url.toString(), {
+  return apiJson<Analysis>(`/api/v1/asset/analyses/${analysisId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
+    projectId,
   });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || 'Failed to update analysis');
-  }
-
-  return response.json();
 }
 
 /**
@@ -251,18 +222,10 @@ export async function deleteAnalysis(
   analysisId: string,
   projectId?: string
 ): Promise<void> {
-  const url = new URL(`${getBackendUrl()}/api/v1/asset/analyses/${analysisId}`);
-  if (projectId) {
-    url.searchParams.set('project_id', projectId);
-  }
-
-  const response = await fetch(url.toString(), {
+  await apiVoid(`/api/v1/asset/analyses/${analysisId}`, {
     method: 'DELETE',
+    projectId,
   });
-
-  if (!response.ok) {
-    throw new Error('Failed to delete analysis');
-  }
 }
 
 /**
@@ -272,26 +235,15 @@ export async function compileAnalysis(
   analysisId: string,
   options?: { params?: Record<string, unknown>; force?: boolean; projectId?: string }
 ): Promise<ExecutionPlan> {
-  const url = new URL(`${getBackendUrl()}/api/v1/asset/analyses/${analysisId}/compile`);
-  if (options?.projectId) {
-    url.searchParams.set('project_id', options.projectId);
-  }
-
-  const response = await fetch(url.toString(), {
+  return apiJson<ExecutionPlan>(`/api/v1/asset/analyses/${analysisId}/compile`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       params: options?.params,
       force: options?.force ?? false,
     }),
+    projectId: options?.projectId,
   });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || 'Failed to compile analysis');
-  }
-
-  return response.json();
 }
 
 /**
@@ -306,12 +258,7 @@ export async function executeAnalysis(
     projectId?: string;
   }
 ): Promise<ExecutionResult> {
-  const url = new URL(`${getBackendUrl()}/api/v1/asset/analyses/${analysisId}/execute`);
-  if (options?.projectId) {
-    url.searchParams.set('project_id', options.projectId);
-  }
-
-  const response = await fetch(url.toString(), {
+  return apiJson<ExecutionResult>(`/api/v1/asset/analyses/${analysisId}/execute`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -319,14 +266,8 @@ export async function executeAnalysis(
       force: options?.force ?? false,
       continue_on_failure: options?.continueOnFailure ?? false,
     }),
+    projectId: options?.projectId,
   });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || 'Failed to execute analysis');
-  }
-
-  return response.json();
 }
 
 /**
@@ -336,18 +277,7 @@ export async function getFreshness(
   analysisId: string,
   projectId?: string
 ): Promise<FreshnessStatus> {
-  const url = new URL(`${getBackendUrl()}/api/v1/asset/analyses/${analysisId}/freshness`);
-  if (projectId) {
-    url.searchParams.set('project_id', projectId);
-  }
-
-  const response = await fetch(url.toString());
-
-  if (!response.ok) {
-    throw new Error('Failed to fetch freshness status');
-  }
-
-  return response.json();
+  return apiJson<FreshnessStatus>(`/api/v1/asset/analyses/${analysisId}/freshness`, { projectId });
 }
 
 /**
@@ -357,18 +287,7 @@ export async function getLineage(
   analysisId: string,
   projectId?: string
 ): Promise<LineageInfo> {
-  const url = new URL(`${getBackendUrl()}/api/v1/asset/analyses/${analysisId}/lineage`);
-  if (projectId) {
-    url.searchParams.set('project_id', projectId);
-  }
-
-  const response = await fetch(url.toString());
-
-  if (!response.ok) {
-    throw new Error('Failed to fetch lineage');
-  }
-
-  return response.json();
+  return apiJson<LineageInfo>(`/api/v1/asset/analyses/${analysisId}/lineage`, { projectId });
 }
 
 /**
@@ -378,21 +297,15 @@ export async function getRunHistory(
   analysisId: string,
   options?: { limit?: number; projectId?: string }
 ): Promise<RunHistoryEntry[]> {
-  const url = new URL(`${getBackendUrl()}/api/v1/asset/analyses/${analysisId}/history`);
+  const params = new URLSearchParams();
   if (options?.limit) {
-    url.searchParams.set('limit', options.limit.toString());
+    params.set('limit', options.limit.toString());
   }
-  if (options?.projectId) {
-    url.searchParams.set('project_id', options.projectId);
-  }
-
-  const response = await fetch(url.toString());
-
-  if (!response.ok) {
-    throw new Error('Failed to fetch run history');
-  }
-
-  return response.json();
+  const query = params.toString();
+  const path = query.length > 0
+    ? `/api/v1/asset/analyses/${analysisId}/history?${query}`
+    : `/api/v1/asset/analyses/${analysisId}/history`;
+  return apiJson<RunHistoryEntry[]>(path, { projectId: options?.projectId });
 }
 
 /**
@@ -401,18 +314,7 @@ export async function getRunHistory(
 export async function getLineageGraph(
   projectId?: string
 ): Promise<LineageGraph> {
-  const url = new URL(`${getBackendUrl()}/api/v1/asset/lineage-graph`);
-  if (projectId) {
-    url.searchParams.set('project_id', projectId);
-  }
-
-  const response = await fetch(url.toString());
-
-  if (!response.ok) {
-    throw new Error('Failed to fetch lineage graph');
-  }
-
-  return response.json();
+  return apiJson<LineageGraph>('/api/v1/asset/lineage-graph', { projectId });
 }
 
 // ========== Data Fetching ==========
@@ -441,25 +343,18 @@ export async function getAnalysisData(
   analysisId: string,
   options?: { projectId?: string; limit?: number; offset?: number }
 ): Promise<AnalysisData> {
-  const url = new URL(`${getBackendUrl()}/api/v1/asset/analyses/${analysisId}/data`);
-  if (options?.projectId) {
-    url.searchParams.set('project_id', options.projectId);
-  }
+  const params = new URLSearchParams();
   if (options?.limit) {
-    url.searchParams.set('limit', options.limit.toString());
+    params.set('limit', options.limit.toString());
   }
   if (options?.offset) {
-    url.searchParams.set('offset', options.offset.toString());
+    params.set('offset', options.offset.toString());
   }
-
-  const response = await fetch(url.toString());
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || 'Failed to fetch analysis data');
-  }
-
-  return response.json();
+  const query = params.toString();
+  const path = query.length > 0
+    ? `/api/v1/asset/analyses/${analysisId}/data?${query}`
+    : `/api/v1/asset/analyses/${analysisId}/data`;
+  return apiJson<AnalysisData>(path, { projectId: options?.projectId });
 }
 
 /**
@@ -470,23 +365,12 @@ export async function exportAnalysisCsv(
   data: ExportAnalysisRequest,
   projectId?: string
 ): Promise<ExportAnalysisResponse> {
-  const url = new URL(`${getBackendUrl()}/api/v1/asset/analyses/${analysisId}/export`);
-  if (projectId) {
-    url.searchParams.set('project_id', projectId);
-  }
-
-  const response = await fetch(url.toString(), {
+  return apiJson<ExportAnalysisResponse>(`/api/v1/asset/analyses/${analysisId}/export`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
+    projectId,
   });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || 'Failed to export analysis CSV');
-  }
-
-  return response.json();
 }
 
 /**
@@ -553,4 +437,3 @@ export function getMaterializationIcon(materialization: string): string {
       return '📄';
   }
 }
-

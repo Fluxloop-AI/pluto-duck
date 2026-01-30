@@ -3,12 +3,20 @@
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { DatasetHeader } from './DatasetHeader';
-import { DiagnosisTabContent } from './detail/diagnosis/DiagnosisTabContent';
-import { useDatasetDiagnosis } from './detail/hooks/useDatasetDiagnosis';
-import { useDatasetPreview } from './detail/hooks/useDatasetPreview';
-import { SummaryTabContent } from './detail/summary/SummaryTabContent';
-import { TableTabContent } from './detail/table/TableTabContent';
-import type { Dataset, DatasetTab } from './detail/types';
+import {
+  DiagnosisTabContent,
+  SummaryTabContent,
+  TableTabContent,
+  useDatasetDiagnosis,
+  useDatasetPreview,
+} from './detail';
+import type { Dataset, DatasetTab } from './detail';
+
+const DATASET_DETAIL_TABS: { id: DatasetTab; label: string }[] = [
+  { id: 'summary', label: 'Summary' },
+  { id: 'diagnosis', label: 'Diagnosis' },
+  { id: 'table', label: 'Table' },
+];
 
 interface DatasetDetailViewProps {
   projectId: string;
@@ -24,12 +32,19 @@ export function DatasetDetailView({
   const [activeTab, setActiveTab] = useState<DatasetTab>('summary');
   const { diagnosis, diagnosisLoading } = useDatasetDiagnosis(projectId, dataset);
   const { preview, loading, error } = useDatasetPreview(projectId, dataset, activeTab);
-
-  const tabs: { id: DatasetTab; label: string }[] = [
-    { id: 'summary', label: 'Summary' },
-    { id: 'diagnosis', label: 'Diagnosis' },
-    { id: 'table', label: 'Table' },
-  ];
+  const summaryProps = {
+    dataset,
+    preview,
+    previewLoading: loading,
+    setActiveTab,
+    diagnosis,
+    diagnosisLoading,
+  };
+  const tableProps = {
+    preview,
+    loading,
+    error,
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -37,7 +52,7 @@ export function DatasetDetailView({
       <div className="flex items-center bg-background pt-2">
         <div className="w-full max-w-4xl pl-6">
           <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide">
-            {tabs.map((tab) => (
+            {DATASET_DETAIL_TABS.map((tab) => (
               <button
                 key={tab.id}
                 type="button"
@@ -64,21 +79,10 @@ export function DatasetDetailView({
 
           {/* Tab Content */}
           {activeTab === 'table' && (
-            <TableTabContent
-              preview={preview}
-              loading={loading}
-              error={error}
-            />
+            <TableTabContent {...tableProps} />
           )}
           {activeTab === 'summary' && (
-            <SummaryTabContent
-              dataset={dataset}
-              preview={preview}
-              previewLoading={loading}
-              setActiveTab={setActiveTab}
-              diagnosis={diagnosis}
-              diagnosisLoading={diagnosisLoading}
-            />
+            <SummaryTabContent {...summaryProps} />
           )}
           {activeTab === 'diagnosis' && (
             <DiagnosisTabContent />

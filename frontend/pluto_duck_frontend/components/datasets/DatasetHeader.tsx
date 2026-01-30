@@ -14,13 +14,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import type { Dataset } from './detail/types';
+import type { Dataset } from './detail';
 import {
   formatDate,
   formatFileSize,
   getDatasetName,
   isFileAsset,
-} from './detail/utils';
+} from './detail';
 
 interface DatasetHeaderProps {
   dataset: Dataset;

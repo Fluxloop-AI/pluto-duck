@@ -19,6 +19,20 @@ import { AssetTableView } from '../editor/components/AssetTableView';
 import { previewFileData, getFileDiagnosis, type FileAsset, type FilePreview, type FileDiagnosis } from '../../lib/fileAssetApi';
 import { fetchCachedTablePreview, type CachedTable, type CachedTablePreview } from '../../lib/sourceApi';
 import { DatasetHeader } from './DatasetHeader';
+import { initialMockIssues, mockQuickScanItems } from './detail/mocks';
+import type {
+  AgentAnalysis,
+  DatasetIssue,
+  HistoryItem,
+  IssueResponseInfo,
+  SourceFile,
+} from './detail/types';
+import {
+  buildSourceFiles,
+  formatDate,
+  formatFileSize,
+  isFileAsset,
+} from './detail/utils';
 
 export type Dataset = FileAsset | CachedTable;
 
@@ -28,106 +42,6 @@ interface DatasetDetailViewProps {
   projectId: string;
   dataset: Dataset;
   onDelete?: () => void;
-}
-
-// =============================================================================
-// Utility Functions
-// =============================================================================
-
-export function isFileAsset(dataset: Dataset): dataset is FileAsset {
-  return 'file_type' in dataset;
-}
-
-export function getDatasetName(dataset: Dataset): string {
-  if (isFileAsset(dataset)) {
-    return dataset.name || dataset.table_name;
-  }
-  return dataset.local_table;
-}
-
-function getBaseName(filePath: string | null | undefined): string | null {
-  if (!filePath) return null;
-  const parts = filePath.split(/[/\\\\]/);
-  return parts[parts.length - 1] || null;
-}
-
-function buildSourceFiles(dataset: Dataset): SourceFile[] {
-  if (!isFileAsset(dataset)) {
-    return [
-      {
-        name: dataset.source_table || dataset.local_table || 'Unknown',
-        rows: dataset.row_count,
-        columns: null,
-        size: null,
-      },
-    ];
-  }
-
-  const sources = dataset.sources && dataset.sources.length > 0 ? dataset.sources : null;
-  if (!sources) {
-    const fallbackName = getBaseName(dataset.file_path) || dataset.name || 'Unknown';
-    return [
-      {
-        name: fallbackName,
-        rows: dataset.row_count,
-        columns: dataset.column_count,
-        size: dataset.file_size_bytes,
-      },
-    ];
-  }
-
-  return sources.map((source) => ({
-    name: source.original_name || getBaseName(source.file_path) || dataset.name || 'Unknown',
-    rows: source.row_count ?? null,
-    columns: null,
-    size: source.file_size_bytes ?? null,
-    addedAt: source.added_at ?? null,
-  }));
-}
-
-export function formatFileSize(bytes: number | null): string {
-  if (bytes === null || bytes === undefined) return '-';
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}GB`;
-}
-
-export function formatDate(dateString: string | null): string {
-  if (!dateString) return '-';
-  const date = new Date(dateString);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  const hours = String(date.getHours()).padStart(2, '0');
-  const minutes = String(date.getMinutes()).padStart(2, '0');
-  return `${year}.${month}.${day} ${hours}:${minutes}`;
-}
-
-// =============================================================================
-// Types
-// =============================================================================
-
-interface AgentAnalysis {
-  summary: string;
-  bulletPoints: string[];
-  generatedAt: string;
-}
-
-interface SourceFile {
-  name: string;
-  rows: number | null;
-  columns: number | null;
-  size: number | null;
-  addedAt?: string | null;
-}
-
-interface HistoryItem {
-  id: string;
-  title: string;
-  timestamp: string;
-  isHighlighted: boolean;
-  badge?: string;
 }
 
 export function DatasetDetailView({
@@ -550,92 +464,6 @@ function SummaryTabContent({
 // Diagnosis Tab Types and Components
 // =============================================================================
 
-interface QuickScanItem {
-  id: string;
-  status: 'success' | 'warning';
-  title: string;
-  subtitle: string;
-}
-
-interface DatasetIssue {
-  id: string;
-  title: string;
-  columnName: string;
-  discoveredAt: string;
-  example: string;
-  description: string;
-  isNew?: boolean;
-  status: 'pending' | 'dismissed' | 'acknowledged';
-  dismissedReason?: string;
-  userNote?: string;
-}
-
-// Mock data for Quick Scan
-const mockQuickScanItems: QuickScanItem[] = [
-  {
-    id: '1',
-    status: 'success',
-    title: '결측치 2.4%',
-    subtitle: '양호',
-  },
-  {
-    id: '2',
-    status: 'success',
-    title: '컬럼 타입',
-    subtitle: '8개 중 7개 정상',
-  },
-  {
-    id: '3',
-    status: 'warning',
-    title: 'date 컬럼',
-    subtitle: 'string으로 저장됨',
-  },
-];
-
-// Mock data for Issues
-const initialMockIssues: DatasetIssue[] = [
-  {
-    id: '1',
-    title: '날짜 형식이 섞여 있어요',
-    columnName: 'date',
-    discoveredAt: '2025.01.25',
-    example: '"2025-01-22", "01/23/2025"',
-    description: 'YYYY-MM-DD와 MM/DD/YYYY 형식이 섞여 있어요.',
-    status: 'dismissed',
-    dismissedReason: '문제 아님',
-  },
-  {
-    id: '2',
-    title: '금액 표기가 섞여 있어요',
-    columnName: 'spend',
-    discoveredAt: '2025.01.25',
-    example: '"125000", "₩125,000"',
-    description: '숫자만 있는 것과 통화 기호가 포함된 것이 섞여 있어요.',
-    status: 'acknowledged',
-    userNote: '"미국 지사 데이터라 원래 이래요"',
-  },
-  {
-    id: '3',
-    title: '전화번호 형식이 섞여 있어요',
-    columnName: 'phone',
-    discoveredAt: '2025.01.26',
-    example: '"010-1234-5678", "01012345678"',
-    description: '하이픈이 있는 것과 없는 것이 섞여 있어요.',
-    isNew: true,
-    status: 'pending',
-  },
-  {
-    id: '4',
-    title: '결측치에 패턴이 있어요',
-    columnName: 'revenue',
-    discoveredAt: '2025.01.26',
-    example: 'conversions=0 일 때 revenue=null',
-    description: '전환이 없을 때 매출이 비어있어요. 의도된 건지 확인이 필요해요.',
-    isNew: true,
-    status: 'pending',
-  },
-];
-
 function QuickScanSection() {
   return (
     <div className="space-y-4">
@@ -887,14 +715,6 @@ function IssuesSection({
 // =============================================================================
 // Confirmed Issues Section
 // =============================================================================
-
-type IssueResponseType = 'yes' | 'no' | 'custom' | 'unsure';
-
-interface IssueResponseInfo {
-  type: IssueResponseType;
-  text: string;
-  color: string;
-}
 
 function getIssueResponseInfo(issue: DatasetIssue): IssueResponseInfo | null {
   if (issue.status === 'pending') {

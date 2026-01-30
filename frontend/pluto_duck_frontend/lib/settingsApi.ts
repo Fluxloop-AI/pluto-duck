@@ -1,4 +1,4 @@
-import { getBackendUrl } from './api';
+import { apiJson } from './apiClient';
 
 export interface UserSettings {
   llm_provider: string;
@@ -31,47 +31,26 @@ export interface ResetDatabaseResponse {
 }
 
 export async function fetchSettings(): Promise<UserSettings> {
-  const response = await fetch(`${getBackendUrl()}/api/v1/settings`);
-  
-  if (!response.ok) {
-    throw new Error(`Failed to fetch settings: ${response.status}`);
-  }
-  
-  return response.json();
+  return apiJson<UserSettings>('/api/v1/settings');
 }
 
 export async function updateSettings(
   settings: UpdateSettingsRequest
 ): Promise<UpdateSettingsResponse> {
-  const response = await fetch(`${getBackendUrl()}/api/v1/settings`, {
+  return apiJson<UpdateSettingsResponse>('/api/v1/settings', {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(settings),
   });
-  
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || `Failed to update settings: ${response.status}`);
-  }
-  
-  return response.json();
 }
 
 export async function resetDatabase(): Promise<ResetDatabaseResponse> {
-  const response = await fetch(`${getBackendUrl()}/api/v1/settings/reset-database`, {
+  return apiJson<ResetDatabaseResponse>('/api/v1/settings/reset-database', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
   });
-  
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || `Failed to reset database: ${response.status}`);
-  }
-  
-  return response.json();
 }
-

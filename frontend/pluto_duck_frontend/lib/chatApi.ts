@@ -1,4 +1,4 @@
-import { getBackendUrl } from './api';
+import { apiJson, apiVoid } from './apiClient';
 
 export interface ChatSessionSummary {
   id: string;
@@ -22,25 +22,14 @@ export interface ChatSessionDetail {
 }
 
 export async function fetchChatSessions(projectId?: string): Promise<ChatSessionSummary[]> {
-  const url = new URL(`${getBackendUrl()}/api/v1/chat/sessions`);
-  if (projectId) {
-    url.searchParams.set('project_id', projectId);
-  }
-  const response = await fetch(url.toString());
-  if (!response.ok) {
-    throw new Error(`Failed to fetch sessions: ${response.status}`);
-  }
-  return response.json();
+  return apiJson<ChatSessionSummary[]>('/api/v1/chat/sessions', { projectId });
 }
 
 export async function fetchChatSession(conversationId: string, includeEvents = false): Promise<ChatSessionDetail> {
-  const response = await fetch(
-    `${getBackendUrl()}/api/v1/chat/sessions/${conversationId}${includeEvents ? '?include_events=true' : ''}`,
-  );
-  if (!response.ok) {
-    throw new Error(`Failed to fetch session ${conversationId}: ${response.status}`);
-  }
-  return response.json();
+  const path = `/api/v1/chat/sessions/${conversationId}${
+    includeEvents ? '?include_events=true' : ''
+  }`;
+  return apiJson<ChatSessionDetail>(path);
 }
 
 export interface CreateConversationPayload {
@@ -58,16 +47,11 @@ export interface CreateConversationResponse {
 }
 
 export async function createConversation(payload: CreateConversationPayload): Promise<CreateConversationResponse> {
-  const response = await fetch(`${getBackendUrl()}/api/v1/chat/sessions`, {
+  return apiJson<CreateConversationResponse>('/api/v1/chat/sessions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Failed to create conversation: ${response.status} ${text}`);
-  }
-  return response.json();
 }
 
 export interface AppendMessageResponse {
@@ -89,30 +73,18 @@ export async function appendMessage(
   conversationId: string,
   payload: AppendMessagePayload,
 ): Promise<AppendMessageResponse> {
-  const response = await fetch(`${getBackendUrl()}/api/v1/chat/sessions/${conversationId}/messages`, {
+  return apiJson<AppendMessageResponse>(`/api/v1/chat/sessions/${conversationId}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Failed to append message: ${response.status} ${text}`);
-  }
-  return response.json();
 }
 
 export async function deleteConversation(conversationId: string, projectId?: string): Promise<void> {
-  const url = new URL(`${getBackendUrl()}/api/v1/chat/sessions/${conversationId}`);
-  if (projectId) {
-    url.searchParams.set('project_id', projectId);
-  }
-  const response = await fetch(url.toString(), {
+  await apiVoid(`/api/v1/chat/sessions/${conversationId}`, {
     method: 'DELETE',
+    projectId,
   });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Failed to delete conversation ${conversationId}: ${response.status} ${text}`);
-  }
 }
 
 export interface ChatSettings {
@@ -123,22 +95,13 @@ export interface ChatSettings {
 }
 
 export async function fetchChatSettings(): Promise<ChatSettings> {
-  const response = await fetch(`${getBackendUrl()}/api/v1/chat/settings`);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch settings: ${response.status}`);
-  }
-  return response.json();
+  return apiJson<ChatSettings>('/api/v1/chat/settings');
 }
 
 export async function updateChatSettings(payload: ChatSettings): Promise<ChatSettings> {
-  const response = await fetch(`${getBackendUrl()}/api/v1/chat/settings`, {
+  return apiJson<ChatSettings>('/api/v1/chat/settings', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Failed to update settings: ${response.status} ${text}`);
-  }
-  return response.json();
 }

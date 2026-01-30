@@ -13,6 +13,14 @@ import { getBackendUrl } from './api';
 
 export type FileType = 'csv' | 'parquet';
 
+export interface FileSource {
+  file_path: string;
+  original_name: string | null;
+  row_count: number | null;
+  file_size_bytes: number | null;
+  added_at: string | null;
+}
+
 export interface FileAsset {
   id: string;
   name: string;
@@ -25,6 +33,7 @@ export interface FileAsset {
   file_size_bytes: number | null;
   created_at: string | null;
   updated_at: string | null;
+  sources?: FileSource[] | null;
 }
 
 export type ImportMode = 'replace' | 'append' | 'merge';
@@ -407,4 +416,3 @@ export async function getFileDiagnosis(
 
   return handleResponse<FileDiagnosis>(response);
 }
-

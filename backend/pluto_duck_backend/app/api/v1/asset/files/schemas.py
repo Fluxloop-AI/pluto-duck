@@ -39,6 +39,18 @@ class ImportFileRequest(BaseModel):
     )
 
 
+class FileSourceResponse(BaseModel):
+    """Response for a file source."""
+
+    file_path: str
+    original_name: Optional[str] = None
+    row_count: Optional[int] = None
+    file_size_bytes: Optional[int] = None
+    added_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
 class FileAssetResponse(BaseModel):
     """Response for a file asset."""
 
@@ -54,6 +66,7 @@ class FileAssetResponse(BaseModel):
     diagnosis_id: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    sources: Optional[List[FileSourceResponse]] = None
 
     model_config = {"from_attributes": True}
 

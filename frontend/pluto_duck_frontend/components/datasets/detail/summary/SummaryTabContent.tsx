@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useMemo } from 'react';
 import {
   Pencil,
   RefreshCw,
@@ -21,6 +21,7 @@ import type {
   HistoryItem,
   SourceFile,
 } from '../types';
+import { useDatasetMemo } from '../hooks/useDatasetMemo';
 import {
   buildSourceFiles,
   formatDate,
@@ -45,38 +46,7 @@ export function SummaryTabContent({
   diagnosis,
   diagnosisLoading,
 }: SummaryTabContentProps) {
-  const [memo, setMemo] = useState('');
-  const [memoSaveTimeout, setMemoSaveTimeout] = useState<NodeJS.Timeout | null>(null);
-
-  // Get dataset ID for localStorage key
-  const datasetId = dataset.id;
-
-  // Load memo from localStorage on mount (or reset if no saved memo)
-  useEffect(() => {
-    const savedMemo = localStorage.getItem(`dataset-memo-${datasetId}`);
-    setMemo(savedMemo || '');
-  }, [datasetId]);
-
-  // Debounced save to localStorage
-  const handleMemoChange = useCallback((value: string) => {
-    setMemo(value);
-    if (memoSaveTimeout) {
-      clearTimeout(memoSaveTimeout);
-    }
-    const timeout = setTimeout(() => {
-      localStorage.setItem(`dataset-memo-${datasetId}`, value);
-    }, 500);
-    setMemoSaveTimeout(timeout);
-  }, [datasetId, memoSaveTimeout]);
-
-  // Cleanup timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (memoSaveTimeout) {
-        clearTimeout(memoSaveTimeout);
-      }
-    };
-  }, [memoSaveTimeout]);
+  const { memo, handleMemoChange } = useDatasetMemo(dataset.id);
 
   // Build metadata
   const createdAt = isFileAsset(dataset) ? dataset.created_at : dataset.cached_at;

@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 
+from pluto_duck_backend.app.api.deps import get_project_id_path
 from pluto_duck_backend.app.services.projects import ProjectRepository, get_project_repository
 
 router = APIRouter(tags=["projects"])
@@ -50,7 +51,7 @@ def list_projects(
 
 @router.get("/{project_id}", response_model=ProjectResponse)
 def get_project(
-    project_id: str,
+    project_id: str = Depends(get_project_id_path),
     repo: ProjectRepository = Depends(get_project_repository),
 ) -> ProjectResponse:
     """Get project details by ID."""
@@ -81,8 +82,8 @@ def create_project(
 
 @router.patch("/{project_id}/settings")
 def update_project_settings(
-    project_id: str,
     request: UpdateProjectSettingsRequest,
+    project_id: str = Depends(get_project_id_path),
     repo: ProjectRepository = Depends(get_project_repository),
 ) -> Dict[str, str]:
     """Update project settings."""
@@ -101,7 +102,7 @@ def update_project_settings(
 
 @router.delete("/{project_id}")
 def delete_project(
-    project_id: str,
+    project_id: str = Depends(get_project_id_path),
     repo: ProjectRepository = Depends(get_project_repository),
 ) -> Dict[str, str]:
     """Delete a project and all associated data."""

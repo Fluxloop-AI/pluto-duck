@@ -34,6 +34,12 @@ interface SourceFile {
   size: number | null;
 }
 
+function getBaseName(filePath: string | null | undefined): string | null {
+  if (!filePath) return null;
+  const parts = filePath.split(/[/\\\\]/);
+  return parts[parts.length - 1] || null;
+}
+
 export function DatasetHeader({
   dataset,
   onDelete,
@@ -41,19 +47,48 @@ export function DatasetHeader({
   // Build metadata
   const rowCount = isFileAsset(dataset) ? dataset.row_count : dataset.row_count;
   const columnCount = isFileAsset(dataset) ? dataset.column_count : null;
-  const fileSize = isFileAsset(dataset) ? dataset.file_size_bytes : null;
   const createdAt = isFileAsset(dataset) ? dataset.created_at : dataset.cached_at;
-  const originalFileName = isFileAsset(dataset) ? dataset.name : dataset.source_table;
 
-  // Source files (currently just the main file)
+  // Source files (multi-source aware with fallback)
   const sourceFiles = useMemo((): SourceFile[] => {
-    return [{
-      name: originalFileName || 'Unknown',
-      rows: rowCount,
-      columns: columnCount,
-      size: fileSize,
-    }];
-  }, [originalFileName, rowCount, columnCount, fileSize]);
+    if (!isFileAsset(dataset)) {
+      return [
+        {
+          name: dataset.source_table || dataset.local_table || 'Unknown',
+          rows: dataset.row_count,
+          columns: null,
+          size: null,
+        },
+      ];
+    }
+
+    const sources = dataset.sources && dataset.sources.length > 0 ? dataset.sources : null;
+    if (!sources) {
+      const fallbackName = getBaseName(dataset.file_path) || dataset.name || 'Unknown';
+      return [
+        {
+          name: fallbackName,
+          rows: dataset.row_count,
+          columns: dataset.column_count,
+          size: dataset.file_size_bytes,
+        },
+      ];
+    }
+
+    return sources.map((source) => ({
+      name: source.original_name || getBaseName(source.file_path) || dataset.name || 'Unknown',
+      rows: source.row_count ?? null,
+      columns: null,
+      size: source.file_size_bytes ?? null,
+    }));
+  }, [dataset]);
+
+  const fileSize = useMemo(() => {
+    if (sourceFiles.length === 0) return null;
+    const sizes = sourceFiles.map((file) => file.size).filter((size) => size !== null);
+    if (sizes.length === 0) return null;
+    return sizes.reduce((sum, size) => sum + (size ?? 0), 0);
+  }, [sourceFiles]);
 
   return (
     <div>

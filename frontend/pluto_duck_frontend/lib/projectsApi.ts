@@ -1,4 +1,4 @@
-import { getBackendUrl } from './api';
+import { apiJson, apiVoid } from './apiClient';
 
 export interface Project {
   id: string;
@@ -23,38 +23,24 @@ export interface ProjectUIState {
 }
 
 export async function fetchProjects(): Promise<ProjectListItem[]> {
-  const response = await fetch(`${getBackendUrl()}/api/v1/projects`);
-  if (!response.ok) {
-    throw new Error('Failed to fetch projects');
-  }
-  return response.json();
+  return apiJson<ProjectListItem[]>('/api/v1/projects');
 }
 
 export async function fetchProject(projectId: string): Promise<Project> {
-  const response = await fetch(`${getBackendUrl()}/api/v1/projects/${projectId}`);
-  if (!response.ok) {
-    throw new Error('Failed to fetch project');
-  }
-  return response.json();
+  return apiJson<Project>(`/api/v1/projects/${projectId}`);
 }
 
 export async function createProject(data: {
   name: string;
   description?: string;
 }): Promise<Project> {
-  const response = await fetch(`${getBackendUrl()}/api/v1/projects`, {
+  return apiJson<Project>('/api/v1/projects', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(data),
   });
-  
-  if (!response.ok) {
-    throw new Error('Failed to create project');
-  }
-  
-  return response.json();
 }
 
 export async function updateProjectSettings(
@@ -64,26 +50,17 @@ export async function updateProjectSettings(
     preferences?: Record<string, any>;
   }
 ): Promise<void> {
-  const response = await fetch(`${getBackendUrl()}/api/v1/projects/${projectId}/settings`, {
+  await apiVoid(`/api/v1/projects/${projectId}/settings`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(settings),
   });
-  
-  if (!response.ok) {
-    throw new Error('Failed to update project settings');
-  }
 }
 
 export async function deleteProject(projectId: string): Promise<void> {
-  const response = await fetch(`${getBackendUrl()}/api/v1/projects/${projectId}`, {
+  await apiVoid(`/api/v1/projects/${projectId}`, {
     method: 'DELETE',
   });
-  
-  if (!response.ok) {
-    throw new Error('Failed to delete project');
-  }
 }
-

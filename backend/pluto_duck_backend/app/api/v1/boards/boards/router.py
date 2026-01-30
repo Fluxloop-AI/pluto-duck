@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
+from pluto_duck_backend.app.api.deps import get_project_id_path
 from pluto_duck_backend.app.api.v1.boards.boards.schemas import (
     BoardDetailResponse,
     BoardResponse,
@@ -45,7 +46,7 @@ def get_repo() -> BoardsRepository:
 
 @router.get("/projects/{project_id}/boards", response_model=List[BoardResponse])
 def list_boards(
-    project_id: str,
+    project_id: str = Depends(get_project_id_path),
     repo: BoardsRepository = Depends(get_repo),
 ) -> List[BoardResponse]:
     """List all boards for a project."""
@@ -68,8 +69,8 @@ def list_boards(
 
 @router.post("/projects/{project_id}/boards", response_model=BoardResponse, status_code=status.HTTP_201_CREATED)
 def create_board(
-    project_id: str,
     payload: CreateBoardRequest,
+    project_id: str = Depends(get_project_id_path),
     repo: BoardsRepository = Depends(get_repo),
 ) -> BoardResponse:
     """Create a new board."""

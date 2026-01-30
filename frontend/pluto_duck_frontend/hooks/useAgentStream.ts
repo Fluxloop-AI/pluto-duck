@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { AgentEventAny } from '../types/agent';
-import { getBackendUrl } from '../lib/api';
+import { getBackendUrl } from '../lib/backendUrl';
 
 export interface UseAgentStreamOptions {
   runId?: string;

@@ -45,6 +45,46 @@ export function getDatasetName(dataset: Dataset): string {
   return dataset.local_table;
 }
 
+function getBaseName(filePath: string | null | undefined): string | null {
+  if (!filePath) return null;
+  const parts = filePath.split(/[/\\\\]/);
+  return parts[parts.length - 1] || null;
+}
+
+function buildSourceFiles(dataset: Dataset): SourceFile[] {
+  if (!isFileAsset(dataset)) {
+    return [
+      {
+        name: dataset.source_table || dataset.local_table || 'Unknown',
+        rows: dataset.row_count,
+        columns: null,
+        size: null,
+      },
+    ];
+  }
+
+  const sources = dataset.sources && dataset.sources.length > 0 ? dataset.sources : null;
+  if (!sources) {
+    const fallbackName = getBaseName(dataset.file_path) || dataset.name || 'Unknown';
+    return [
+      {
+        name: fallbackName,
+        rows: dataset.row_count,
+        columns: dataset.column_count,
+        size: dataset.file_size_bytes,
+      },
+    ];
+  }
+
+  return sources.map((source) => ({
+    name: source.original_name || getBaseName(source.file_path) || dataset.name || 'Unknown',
+    rows: source.row_count ?? null,
+    columns: null,
+    size: source.file_size_bytes ?? null,
+    addedAt: source.added_at ?? null,
+  }));
+}
+
 export function formatFileSize(bytes: number | null): string {
   if (bytes === null || bytes === undefined) return '-';
   if (bytes < 1024) return `${bytes}B`;
@@ -79,6 +119,7 @@ interface SourceFile {
   rows: number | null;
   columns: number | null;
   size: number | null;
+  addedAt?: string | null;
 }
 
 interface HistoryItem {
@@ -269,11 +310,7 @@ function SummaryTabContent({
   }, [memoSaveTimeout]);
 
   // Build metadata
-  const rowCount = isFileAsset(dataset) ? dataset.row_count : dataset.row_count;
-  const columnCount = isFileAsset(dataset) ? dataset.column_count : null;
-  const fileSize = isFileAsset(dataset) ? dataset.file_size_bytes : null;
   const createdAt = isFileAsset(dataset) ? dataset.created_at : dataset.cached_at;
-  const originalFileName = isFileAsset(dataset) ? dataset.name : dataset.source_table;
 
   // Agent Analysis from LLM diagnosis
   const agentAnalysis = useMemo((): AgentAnalysis | null => {
@@ -289,15 +326,8 @@ function SummaryTabContent({
     };
   }, [diagnosis]);
 
-  // Source files (currently just the main file)
-  const sourceFiles = useMemo((): SourceFile[] => {
-    return [{
-      name: originalFileName || 'Unknown',
-      rows: rowCount,
-      columns: columnCount,
-      size: fileSize,
-    }];
-  }, [originalFileName, rowCount, columnCount, fileSize]);
+  // Source files (multi-source aware with fallback)
+  const sourceFiles = useMemo((): SourceFile[] => buildSourceFiles(dataset), [dataset]);
 
   // Mock diagnosis data based on dataset creation date
   const historyItems = useMemo((): HistoryItem[] => {
@@ -1080,4 +1110,3 @@ function TableTabContent({ preview, loading, error }: TableTabContentProps) {
     </div>
   );
 }
-

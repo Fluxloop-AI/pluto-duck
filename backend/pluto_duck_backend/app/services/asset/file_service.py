@@ -34,6 +34,31 @@ from .errors import AssetError, AssetNotFoundError, AssetValidationError
 
 
 @dataclass
+class FileSource:
+    """Represents a source file for a FileAsset."""
+
+    id: Optional[str]
+    file_asset_id: Optional[str]
+    file_path: str
+    original_name: Optional[str] = None
+    row_count: Optional[int] = None
+    file_size_bytes: Optional[int] = None
+    added_at: Optional[datetime] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "id": self.id,
+            "file_asset_id": self.file_asset_id,
+            "file_path": self.file_path,
+            "original_name": self.original_name,
+            "row_count": self.row_count,
+            "file_size_bytes": self.file_size_bytes,
+            "added_at": self.added_at.isoformat() if self.added_at else None,
+        }
+
+
+@dataclass
 class FileAsset:
     """Represents an uploaded file asset.
 
@@ -63,10 +88,11 @@ class FileAsset:
     diagnosis_id: Optional[str] = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    sources: Optional[List[FileSource]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
-        return {
+        payload = {
             "id": self.id,
             "name": self.name,
             "file_path": self.file_path,
@@ -80,6 +106,9 @@ class FileAsset:
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
+        if self.sources is not None:
+            payload["sources"] = [s.to_dict() for s in self.sources]
+        return payload
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "FileAsset":
@@ -105,6 +134,20 @@ class FileAsset:
             diagnosis_id=data.get("diagnosis_id"),
             created_at=created_at or datetime.now(UTC),
             updated_at=updated_at or datetime.now(UTC),
+            sources=[
+                FileSource(
+                    id=s.get("id"),
+                    file_asset_id=s.get("file_asset_id"),
+                    file_path=s["file_path"],
+                    original_name=s.get("original_name"),
+                    row_count=s.get("row_count"),
+                    file_size_bytes=s.get("file_size_bytes"),
+                    added_at=datetime.fromisoformat(s["added_at"]) if s.get("added_at") else None,
+                )
+                for s in data.get("sources", [])
+            ]
+            if data.get("sources") is not None
+            else None,
         )
 
 
@@ -131,6 +174,12 @@ def _generate_id() -> str:
     """Generate a unique ID for a file asset."""
     import uuid
     return f"file_{uuid.uuid4().hex[:12]}"
+
+
+def _generate_file_source_id() -> str:
+    """Generate a unique ID for a file source."""
+    import uuid
+    return f"fsrc_{uuid.uuid4().hex[:12]}"
 
 
 class FileAssetService:
@@ -210,6 +259,135 @@ class FileAssetService:
             except Exception:
                 # Column might already exist or ALTER not supported
                 pass
+            conn.execute(f"""
+                CREATE TABLE IF NOT EXISTS {self.METADATA_SCHEMA}.file_sources (
+                    id TEXT PRIMARY KEY,
+                    file_asset_id TEXT NOT NULL,
+                    file_path TEXT NOT NULL,
+                    original_name TEXT,
+                    row_count BIGINT,
+                    file_size_bytes BIGINT,
+                    added_at TIMESTAMP WITH TIME ZONE
+                )
+            """)
+            self._backfill_file_sources(conn)
+
+    def _backfill_file_sources(self, conn: duckdb.DuckDBPyConnection) -> None:
+        """Backfill file_sources from legacy file assets (idempotent)."""
+        try:
+            existing = conn.execute(
+                f"SELECT DISTINCT file_asset_id FROM {self.METADATA_SCHEMA}.file_sources"
+            ).fetchall()
+        except Exception:
+            return
+
+        existing_ids = {row[0] for row in existing}
+        rows = conn.execute(f"""
+            SELECT id, file_path, row_count, file_size_bytes, created_at, updated_at
+            FROM {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
+        """).fetchall()
+
+        for file_id, file_path, row_count, file_size_bytes, created_at, updated_at in rows:
+            if file_id in existing_ids:
+                continue
+            added_at = created_at or updated_at or datetime.now(UTC)
+            original_name = Path(file_path).name if file_path else None
+            conn.execute(
+                f"""
+                INSERT INTO {self.METADATA_SCHEMA}.file_sources (
+                    id, file_asset_id, file_path, original_name,
+                    row_count, file_size_bytes, added_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    _generate_file_source_id(),
+                    file_id,
+                    file_path,
+                    original_name,
+                    row_count,
+                    file_size_bytes,
+                    added_at,
+                ],
+            )
+
+    def _insert_file_source(
+        self,
+        conn: duckdb.DuckDBPyConnection,
+        *,
+        file_asset_id: str,
+        file_path: str,
+        row_count: Optional[int],
+        file_size_bytes: Optional[int],
+        added_at: datetime,
+    ) -> None:
+        """Insert a single file source record."""
+        original_name = Path(file_path).name if file_path else None
+        conn.execute(
+            f"""
+            INSERT INTO {self.METADATA_SCHEMA}.file_sources (
+                id, file_asset_id, file_path, original_name,
+                row_count, file_size_bytes, added_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                _generate_file_source_id(),
+                file_asset_id,
+                file_path,
+                original_name,
+                row_count,
+                file_size_bytes,
+                added_at,
+            ],
+        )
+
+    def _fetch_sources(
+        self,
+        conn: duckdb.DuckDBPyConnection,
+        asset_ids: List[str],
+    ) -> Dict[str, List[FileSource]]:
+        """Fetch file sources for a set of asset IDs."""
+        if not asset_ids:
+            return {}
+        placeholders = ",".join(["?" for _ in asset_ids])
+        rows = conn.execute(
+            f"""
+            SELECT id, file_asset_id, file_path, original_name,
+                   row_count, file_size_bytes, added_at
+            FROM {self.METADATA_SCHEMA}.file_sources
+            WHERE file_asset_id IN ({placeholders})
+            ORDER BY added_at ASC
+            """,
+            asset_ids,
+        ).fetchall()
+
+        sources_by_asset: Dict[str, List[FileSource]] = {}
+        for row in rows:
+            source = FileSource(
+                id=row[0],
+                file_asset_id=row[1],
+                file_path=row[2],
+                original_name=row[3],
+                row_count=row[4],
+                file_size_bytes=row[5],
+                added_at=row[6],
+            )
+            sources_by_asset.setdefault(row[1], []).append(source)
+        return sources_by_asset
+
+    def _build_fallback_sources(self, asset: FileAsset) -> List[FileSource]:
+        """Build a fallback source list from legacy file fields."""
+        added_at = asset.created_at or asset.updated_at or datetime.now(UTC)
+        return [
+            FileSource(
+                id=None,
+                file_asset_id=asset.id,
+                file_path=asset.file_path,
+                original_name=Path(asset.file_path).name if asset.file_path else None,
+                row_count=asset.row_count,
+                file_size_bytes=asset.file_size_bytes,
+                added_at=added_at,
+            )
+        ]
 
     # =========================================================================
     # CRUD Operations
@@ -283,6 +461,22 @@ class FileAssetService:
 
         with self._get_connection() as conn:
             try:
+                if mode in ("append", "merge"):
+                    # Check table exists early for append/merge
+                    result = conn.execute(f"""
+                        SELECT COUNT(*) FROM information_schema.tables
+                        WHERE table_name = '{safe_table}'
+                    """).fetchone()
+                    if not result or result[0] == 0:
+                        raise AssetValidationError(
+                            f"Target table '{safe_table}' not found for {mode}"
+                        )
+
+                # Count rows in the source file for per-source stats
+                source_row_count = conn.execute(
+                    f"SELECT COUNT(*) FROM {read_expr}"
+                ).fetchone()[0]
+
                 if mode == "replace":
                     # Replace mode: drop and recreate
                     if overwrite:
@@ -299,14 +493,6 @@ class FileAssetService:
                     
                 elif mode == "append":
                     # Append mode: insert into existing table
-                    # Check table exists
-                    result = conn.execute(f"""
-                        SELECT COUNT(*) FROM information_schema.tables
-                        WHERE table_name = '{safe_table}'
-                    """).fetchone()
-                    if not result or result[0] == 0:
-                        raise AssetValidationError(f"Target table '{safe_table}' not found for append")
-
                     # Validate schema compatibility (simple: same column names/order)
                     try:
                         target_cols = [r[0] for r in conn.execute(f"DESCRIBE {safe_table}").fetchall()]
@@ -342,13 +528,6 @@ class FileAssetService:
                     
                 elif mode == "merge":
                     # Merge mode: UPSERT using merge keys
-                    result = conn.execute(f"""
-                        SELECT COUNT(*) FROM information_schema.tables
-                        WHERE table_name = '{safe_table}'
-                    """).fetchone()
-                    if not result or result[0] == 0:
-                        raise AssetValidationError(f"Target table '{safe_table}' not found for merge")
-                    
                     # Get columns from existing table
                     cols_result = conn.execute(f"DESCRIBE {safe_table}").fetchall()
                     all_columns = [r[0] for r in cols_result]
@@ -362,7 +541,7 @@ class FileAssetService:
                     
                     merge_sql = f"""
                         MERGE INTO {safe_table} AS target
-                        USING ({read_expr}) AS source
+                        USING (SELECT * FROM {read_expr}) AS source
                         ON {key_conditions}
                         WHEN MATCHED THEN UPDATE SET {update_set}
                         WHEN NOT MATCHED THEN INSERT ({insert_cols}) VALUES ({insert_vals})
@@ -392,6 +571,15 @@ class FileAssetService:
                         SET row_count = ?, updated_at = ?
                         WHERE id = ?
                     """, [row_count, now, asset_id])
+
+                    self._insert_file_source(
+                        conn,
+                        file_asset_id=asset_id,
+                        file_path=file_path,
+                        row_count=source_row_count,
+                        file_size_bytes=file_size_bytes,
+                        added_at=now,
+                    )
                     
                     # Return updated asset
                     asset = self.get_file(asset_id)
@@ -402,7 +590,24 @@ class FileAssetService:
             asset_id = _generate_id()
             logger.info(f"[FileAssetService.import_file] Creating new asset: asset_id={asset_id}, diagnosis_id={diagnosis_id}")
 
-            # Remove old metadata if exists (for replace mode)
+            # Remove old metadata and sources if exists (for replace mode)
+            old_ids = conn.execute(
+                f"""
+                SELECT id FROM {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
+                WHERE table_name = ? AND project_id = ?
+                """,
+                [safe_table, self.project_id],
+            ).fetchall()
+            if old_ids:
+                old_asset_ids = [row[0] for row in old_ids]
+                placeholders = ",".join(["?" for _ in old_asset_ids])
+                conn.execute(
+                    f"""
+                    DELETE FROM {self.METADATA_SCHEMA}.file_sources
+                    WHERE file_asset_id IN ({placeholders})
+                    """,
+                    old_asset_ids,
+                )
             conn.execute(f"""
                 DELETE FROM {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
                 WHERE table_name = ? AND project_id = ?
@@ -430,6 +635,15 @@ class FileAssetService:
             ])
             logger.info(f"[FileAssetService.import_file] Asset saved to DB with diagnosis_id={diagnosis_id}")
 
+            self._insert_file_source(
+                conn,
+                file_asset_id=asset_id,
+                file_path=file_path,
+                row_count=source_row_count,
+                file_size_bytes=file_size_bytes,
+                added_at=now,
+            )
+
         return FileAsset(
             id=asset_id,
             name=name or table_name,
@@ -443,6 +657,17 @@ class FileAssetService:
             diagnosis_id=diagnosis_id,
             created_at=now,
             updated_at=now,
+            sources=[
+                FileSource(
+                    id=None,
+                    file_asset_id=asset_id,
+                    file_path=file_path,
+                    original_name=Path(file_path).name if file_path else None,
+                    row_count=source_row_count,
+                    file_size_bytes=file_size_bytes,
+                    added_at=now,
+                )
+            ],
         )
 
     def get_file(self, file_id: str) -> Optional[FileAsset]:
@@ -465,7 +690,7 @@ class FileAssetService:
             if not result:
                 return None
 
-            return FileAsset(
+            asset = FileAsset(
                 id=result[0],
                 name=result[1],
                 file_path=result[2],
@@ -479,6 +704,9 @@ class FileAssetService:
                 created_at=result[10],
                 updated_at=result[11],
             )
+            sources = self._fetch_sources(conn, [asset.id]).get(asset.id)
+            asset.sources = sources if sources else self._build_fallback_sources(asset)
+            return asset
 
     def list_files(self) -> List[FileAsset]:
         """List all file assets for this project.
@@ -495,7 +723,7 @@ class FileAssetService:
                 ORDER BY created_at DESC
             """, [self.project_id]).fetchall()
 
-            return [
+            assets = [
                 FileAsset(
                     id=r[0],
                     name=r[1],
@@ -512,6 +740,12 @@ class FileAssetService:
                 )
                 for r in results
             ]
+
+            sources_by_asset = self._fetch_sources(conn, [a.id for a in assets])
+            for asset in assets:
+                sources = sources_by_asset.get(asset.id)
+                asset.sources = sources if sources else self._build_fallback_sources(asset)
+            return assets
 
     def delete_file(self, file_id: str, *, drop_table: bool = True) -> bool:
         """Delete a file asset.
@@ -547,6 +781,13 @@ class FileAssetService:
                 DELETE FROM {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
                 WHERE id = ? AND project_id = ?
             """, [file_id, self.project_id])
+            conn.execute(
+                f"""
+                DELETE FROM {self.METADATA_SCHEMA}.file_sources
+                WHERE file_asset_id = ?
+                """,
+                [file_id],
+            )
 
             return True
 
@@ -672,4 +913,3 @@ def get_file_asset_service(project_id: Optional[str] = None) -> FileAssetService
         )
 
     return _file_asset_services[project_id]
-

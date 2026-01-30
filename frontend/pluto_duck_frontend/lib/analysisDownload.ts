@@ -1,4 +1,5 @@
-import { exportAnalysisCsv, getAnalysisDownloadUrl } from './assetsApi';
+import { exportAnalysisCsv } from './assetsApi';
+import { apiBlob } from './apiClient';
 import { isTauriRuntime } from './tauriRuntime';
 
 export interface DownloadAnalysisCsvOptions {
@@ -40,18 +41,9 @@ export async function downloadAnalysisCsv(
     throw new Error('CSV download requires a browser environment');
   }
 
-  const url = getAnalysisDownloadUrl(analysisId, {
-    projectId: options.projectId,
-    force,
-  });
-
-  const response = await fetch(url);
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || 'Failed to download analysis CSV');
-  }
-
-  const blob = await response.blob();
+  const query = new URLSearchParams({ force: force ? 'true' : 'false' }).toString();
+  const path = `/api/v1/asset/analyses/${analysisId}/download?${query}`;
+  const blob = await apiBlob(path, { projectId: options.projectId });
   const blobUrl = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = blobUrl;

@@ -12,6 +12,7 @@ from pluto_duck_backend.app.api.v1.asset.files.schemas import (
     FileAssetResponse,
     FilePreviewResponse,
     FileSchemaResponse,
+    FileSourceResponse,
     ImportFileRequest,
 )
 from pluto_duck_backend.app.services.asset import (
@@ -28,6 +29,18 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 def _file_asset_to_response(asset: FileAsset) -> FileAssetResponse:
     """Convert FileAsset to response model."""
+    sources = None
+    if asset.sources is not None:
+        sources = [
+            FileSourceResponse(
+                file_path=s.file_path,
+                original_name=s.original_name,
+                row_count=s.row_count,
+                file_size_bytes=s.file_size_bytes,
+                added_at=s.added_at,
+            )
+            for s in asset.sources
+        ]
     return FileAssetResponse(
         id=asset.id,
         name=asset.name,
@@ -41,6 +54,7 @@ def _file_asset_to_response(asset: FileAsset) -> FileAssetResponse:
         diagnosis_id=asset.diagnosis_id,
         created_at=asset.created_at,
         updated_at=asset.updated_at,
+        sources=sources,
     )
 
 

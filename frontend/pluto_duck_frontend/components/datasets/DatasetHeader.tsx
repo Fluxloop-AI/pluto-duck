@@ -14,7 +14,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import type { Dataset } from './DatasetDetailView';
+import type { Dataset } from './detail/types';
 import {
   formatDate,
   formatFileSize,

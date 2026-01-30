@@ -1,3 +1,10 @@
+import type { FileAsset } from '../../../lib/fileAssetApi';
+import type { CachedTable } from '../../../lib/sourceApi';
+
+export type Dataset = FileAsset | CachedTable;
+
+export type DatasetTab = 'summary' | 'diagnosis' | 'table';
+
 export interface AgentAnalysis {
   summary: string;
   bulletPoints: string[];

@@ -245,7 +245,7 @@ export const BoardEditor = forwardRef<BoardEditorHandle, BoardEditorProps>(
                   }
                   placeholder={
                     <div className="absolute top-6 left-8 text-muted-foreground pointer-events-none">
-                      Type '/' to insert blocks...
+                      Type &apos;/&apos; to insert blocks...
                     </div>
                   }
                   ErrorBoundary={LexicalErrorBoundary}

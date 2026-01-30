@@ -4,8 +4,7 @@ import { useState, useEffect } from 'react';
 import { HardDrive, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { type CachedTable } from '@/lib/sourceApi';
-import { getBackendUrl } from '@/lib/api';
+import { type CachedTable, type CachedTablePreview, fetchCachedTablePreview } from '@/lib/sourceApi';
 
 interface CachedTablePreviewModalProps {
   open: boolean;
@@ -14,11 +13,7 @@ interface CachedTablePreviewModalProps {
   onClose: () => void;
 }
 
-interface PreviewData {
-  columns: string[];
-  rows: any[][];
-  total_rows: number;
-}
+type PreviewData = Omit<CachedTablePreview, 'total_rows'> & { total_rows: number };
 
 export function CachedTablePreviewModal({
   open,
@@ -31,6 +26,25 @@ export function CachedTablePreviewModal({
   const [error, setError] = useState<string | null>(null);
   const [limit, setLimit] = useState(100);
 
+  const resolveErrorMessage = (err: unknown): string => {
+    if (err && typeof err === 'object' && 'name' in err && (err as { name?: string }).name === 'ApiError') {
+      const apiError = err as { status?: number; detail?: unknown; message?: string };
+      if (typeof apiError.detail === 'string' && apiError.detail.trim().length > 0) {
+        return apiError.detail;
+      }
+      if (typeof apiError.status === 'number') {
+        return `Preview failed: ${apiError.status}`;
+      }
+      if (typeof apiError.message === 'string' && apiError.message.trim().length > 0) {
+        return apiError.message;
+      }
+    }
+    if (err instanceof Error && err.message) {
+      return err.message;
+    }
+    return 'Failed to load preview';
+  };
+
   // Load preview data using query API
   useEffect(() => {
     if (open) {
@@ -42,24 +56,14 @@ export function CachedTablePreviewModal({
     setIsLoading(true);
     setError(null);
     try {
-      // Use the source API's cached table preview endpoint
-      const url = `${getBackendUrl()}/api/v1/source/cache/${encodeURIComponent(cachedTable.local_table)}/preview?project_id=${encodeURIComponent(projectId)}&limit=${limit}`;
-      const response = await fetch(url);
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || `Preview failed: ${response.status}`);
-      }
-      
-      const result = await response.json();
-      
+      const result = await fetchCachedTablePreview(projectId, cachedTable.local_table, limit);
       setData({
         columns: result.columns || [],
         rows: result.rows || [],
         total_rows: result.total_rows ?? cachedTable.row_count ?? 0,
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load preview');
+      setError(resolveErrorMessage(err));
     } finally {
       setIsLoading(false);
     }
@@ -183,4 +187,3 @@ export function CachedTablePreviewModal({
     </Dialog>
   );
 }
-

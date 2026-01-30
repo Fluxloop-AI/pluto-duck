@@ -89,6 +89,10 @@ The frontend consumes these backend endpoints:
 - `GET /api/v1/chat/settings` — Fetch user settings
 - `PUT /api/v1/chat/settings` — Update user settings
 
+### API Client
+
+See `api-client.md` for `apiClient` usage, `project_id` rules, and `ApiError` handling.
+
 ## Troubleshooting
 
 **Backend unreachable**: Ensure the backend is running and `NEXT_PUBLIC_BACKEND_URL` is correct.
@@ -100,4 +104,3 @@ The frontend consumes these backend endpoints:
 ## Contributing
 
 See `docs/CONTRIBUTING.md` in the repo root for guidelines.
-

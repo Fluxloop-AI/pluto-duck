@@ -7,7 +7,7 @@
  * - Lineage and history queries
  */
 
-import { getBackendUrl } from './api';
+import { getBackendUrl } from './backendUrl';
 import { apiJson, apiVoid } from './apiClient';
 import type { ApiError } from './apiClient';
 

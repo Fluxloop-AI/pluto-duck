@@ -1,4 +1,4 @@
-import { getBackendUrl } from './api';
+import { getBackendUrl } from './backendUrl';
 
 // Usage: apiJson('/api/v1/projects'), apiVoid('/api/v1/boards', { method: 'DELETE' })
 export type ResponseType = 'json' | 'text' | 'blob' | 'none';

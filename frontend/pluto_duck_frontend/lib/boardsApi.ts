@@ -1,4 +1,4 @@
-import { getBackendUrl } from './api';
+import { getBackendUrl } from './backendUrl';
 import { apiJson, apiVoid } from './apiClient';
 
 // ========== Types ==========

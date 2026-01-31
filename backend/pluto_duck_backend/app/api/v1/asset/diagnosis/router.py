@@ -255,7 +255,9 @@ async def diagnose_files(
                     issues=[
                         IssueItemResponse(
                             issue=i.issue,
+                            issue_type=i.issue_type,
                             suggestion=i.suggestion,
+                            example=i.example,
                         )
                         for i in diagnosis.llm_analysis.issues
                     ],
@@ -423,13 +425,15 @@ def get_file_diagnosis(
                 )
                 for p in diagnosis.llm_analysis.potential
             ],
-            issues=[
-                IssueItemResponse(
-                    issue=i.issue,
-                    suggestion=i.suggestion,
-                )
-                for i in diagnosis.llm_analysis.issues
-            ],
+                    issues=[
+                        IssueItemResponse(
+                            issue=i.issue,
+                            issue_type=i.issue_type,
+                            suggestion=i.suggestion,
+                            example=i.example,
+                        )
+                        for i in diagnosis.llm_analysis.issues
+                    ],
             analyzed_at=diagnosis.llm_analysis.analyzed_at,
             model_used=diagnosis.llm_analysis.model_used,
         ) if diagnosis.llm_analysis else None,

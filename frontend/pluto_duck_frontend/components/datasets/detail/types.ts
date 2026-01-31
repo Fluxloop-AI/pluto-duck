@@ -40,7 +40,7 @@ export interface DatasetIssue {
   title: string;
   issueType: string;
   discoveredAt: string;
-  example: string;
+  example?: string;
   description: string;
   isNew?: boolean;
   status: 'pending' | 'dismissed' | 'acknowledged';

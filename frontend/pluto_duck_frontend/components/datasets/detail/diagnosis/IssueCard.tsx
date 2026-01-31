@@ -68,9 +68,11 @@ export function IssueCard({ issue, onRespond, onReset }: IssueCardProps) {
       <p className="text-sm text-muted-foreground">{issue.description}</p>
 
       {/* Example */}
-      <div className="rounded-lg bg-background px-4 py-3">
-        <code className="text-sm text-muted-foreground">Example: {issue.example}</code>
-      </div>
+      {issue.example && (
+        <div className="rounded-lg bg-background px-4 py-3">
+          <code className="text-sm text-muted-foreground">Example: {issue.example}</code>
+        </div>
+      )}
 
       {/* Actions or Status */}
       {issue.status === 'pending' && !showInput && (

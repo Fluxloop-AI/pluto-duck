@@ -178,7 +178,9 @@ class IssueItemResponse(BaseModel):
     """Response for a data quality issue."""
 
     issue: str
+    issue_type: str
     suggestion: str
+    example: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

@@ -137,7 +137,12 @@ def _schema_to_result(
         for p in file_schema.potential
     ]
     issues = [
-        IssueItem(issue=i.issue, suggestion=i.suggestion)
+        IssueItem(
+            issue=i.issue,
+            issue_type=i.issue_type or "general",
+            suggestion=i.suggestion,
+            example=i.example,
+        )
         for i in file_schema.issues
     ]
 

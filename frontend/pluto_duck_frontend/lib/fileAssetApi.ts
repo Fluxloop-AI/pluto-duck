@@ -155,7 +155,9 @@ export interface PotentialItem {
 
 export interface IssueItem {
   issue: string;
+  issue_type: string;
   suggestion: string;
+  example?: string;
 }
 
 export interface LLMAnalysis {

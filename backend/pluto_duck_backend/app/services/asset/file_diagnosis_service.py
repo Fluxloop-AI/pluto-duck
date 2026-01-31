@@ -301,18 +301,26 @@ class IssueItem:
 
     Attributes:
         issue: Description of the data quality issue
+        issue_type: Category of the issue (e.g., Validity, Completeness)
         suggestion: Suggested fix or improvement
+        example: Example values showing the issue (optional)
     """
 
     issue: str
+    issue_type: str
     suggestion: str
+    example: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
-        return {
+        result = {
             "issue": self.issue,
+            "issue_type": self.issue_type,
             "suggestion": self.suggestion,
         }
+        if self.example is not None:
+            result["example"] = self.example
+        return result
 
 
 @dataclass
@@ -1759,7 +1767,9 @@ class FileDiagnosisService:
                     issues=[
                         IssueItem(
                             issue=i.get("issue", ""),
+                            issue_type=i.get("issue_type", "general"),
                             suggestion=i.get("suggestion", ""),
+                            example=i.get("example"),
                         )
                         for i in llm_analysis_data.get("issues", [])
                     ],
@@ -1858,7 +1868,9 @@ class FileDiagnosisService:
                     issues=[
                         IssueItem(
                             issue=i.get("issue", ""),
+                            issue_type=i.get("issue_type", "general"),
                             suggestion=i.get("suggestion", ""),
+                            example=i.get("example"),
                         )
                         for i in llm_analysis_data.get("issues", [])
                     ],

@@ -70,6 +70,8 @@ export default function WorkspacePage() {
   const [sidebarTab, setSidebarTab] = useState<'boards' | 'datasets'>('boards');
   const [sidebarDatasets, setSidebarDatasets] = useState<(FileAsset | CachedTable)[]>([]);
   const [selectedDataset, setSelectedDataset] = useState<Dataset | null>(null);
+  const [workspaceResetCounter, setWorkspaceResetCounter] = useState(0);
+  const datasetLoadIdRef = useRef(0);
 
   // Ref for BoardsView to access insertMarkdown
   const boardsViewRef = useRef<BoardsViewHandle>(null);
@@ -139,6 +141,7 @@ export default function WorkspacePage() {
     updateBoard,
     deleteBoard,
     selectBoard,
+    loadBoards,
   } = useBoards({
     projectId: defaultProjectId || '',
     enabled: !!defaultProjectId && backendReady,
@@ -251,15 +254,28 @@ export default function WorkspacePage() {
   useEffect(() => {
     if (!backendReady || !defaultProjectId) return;
 
+    datasetLoadIdRef.current += 1;
+    const loadId = datasetLoadIdRef.current;
+
+    // Clear stale datasets immediately on project change to avoid cross-project bleed.
+    setSidebarDatasets([]);
+    setSelectedDataset(null);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(SELECTED_DATASET_ID_KEY);
+    }
+
     void (async () => {
       try {
         const [fileAssets, cachedTables] = await Promise.all([
           listFileAssets(defaultProjectId),
           fetchCachedTables(defaultProjectId),
         ]);
+        if (datasetLoadIdRef.current !== loadId) return;
         setSidebarDatasets([...fileAssets, ...cachedTables]);
       } catch (error) {
+        if (datasetLoadIdRef.current !== loadId) return;
         console.error('Failed to load sidebar datasets', error);
+        setSidebarDatasets([]);
       }
     })();
   }, [backendReady, defaultProjectId, dataSourcesRefresh]);
@@ -365,6 +381,20 @@ export default function WorkspacePage() {
         console.error('Unknown connector type:', connectorType);
     }
   }, []);
+
+  const handleWorkspaceReset = useCallback(() => {
+    setDataSourcesRefresh(prev => prev + 1);
+    setSidebarDatasets([]);
+    setSelectedDataset(null);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(SELECTED_DATASET_ID_KEY);
+    }
+    void selectBoard(null);
+    void loadBoards();
+    setChatTabs([]);
+    setActiveChatTabId(null);
+    setWorkspaceResetCounter(prev => prev + 1);
+  }, [loadBoards, selectBoard]);
 
   const handleSelectProject = useCallback(async (project: ProjectListItem) => {
     // Save current project state before switching
@@ -817,6 +847,7 @@ export default function WorkspacePage() {
               </div>
 
               <MultiTabChatPanel
+                key={`${defaultProjectId ?? 'none'}:${workspaceResetCounter}`}
                 selectedModel={selectedModel}
                 onModelChange={setSelectedModel}
                 selectedDataSource={selectedDataSource}
@@ -840,6 +871,8 @@ export default function WorkspacePage() {
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
         onSettingsSaved={(model) => setSelectedModel(model)}
+        projectId={defaultProjectId || null}
+        onWorkspaceReset={handleWorkspaceReset}
       />
       <DataSourcesModal
         projectId={defaultProjectId || ''}

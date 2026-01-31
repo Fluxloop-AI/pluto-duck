@@ -34,8 +34,6 @@ export function useBoards({ projectId, enabled = true }: UseBoardsOptions) {
       setBoards(sortedData);
 
       // Auto-select first board if available (most recently updated)
-      // Note: We always select first board here because activeBoard is reset
-      // to null when projectId changes (in the separate useEffect)
       if (sortedData.length > 0) {
         // Fetch detail for the first board (most recently updated)
         try {
@@ -45,6 +43,8 @@ export function useBoards({ projectId, enabled = true }: UseBoardsOptions) {
           console.error("Failed to load initial active board detail", e);
           setActiveBoard(sortedData[0]);
         }
+      } else {
+        setActiveBoard(null);
       }
       // If data.length === 0, activeBoard is already null from the reset effect
     } catch (err) {
@@ -146,4 +146,3 @@ export function useBoards({ projectId, enabled = true }: UseBoardsOptions) {
     selectBoard,
   };
 }
-

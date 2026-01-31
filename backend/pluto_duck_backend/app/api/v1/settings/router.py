@@ -6,11 +6,15 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from pluto_duck_backend.app.core.config import get_settings
+from pluto_duck_backend.app.api.deps import get_project_id_query_required
+from pluto_duck_backend.app.core.config import get_settings as get_app_settings
+from pluto_duck_backend.app.services.asset import get_file_asset_service, get_file_diagnosis_service
 from pluto_duck_backend.app.services.chat import get_chat_repository
+from pluto_duck_backend.app.services.source import get_source_service
+from pluto_duck_backend.app.services.workzone import get_work_zone_service
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +54,18 @@ class ResetDatabaseResponse(BaseModel):
 
     success: bool
     message: str
+
+
+class ResetWorkspaceDataResponse(BaseModel):
+    """Response for workspace data reset."""
+
+    success: bool
+    message: str
+
+
+def _quote_identifier(name: str) -> str:
+    """Quote a SQL identifier safely for DuckDB."""
+    return f"\"{name.replace('\"', '\"\"')}\""
 
 
 def mask_api_key(api_key: Optional[str]) -> Optional[str]:
@@ -128,7 +144,7 @@ def reset_database() -> ResetDatabaseResponse:
     WARNING: This will permanently delete all conversations, messages, projects, and data sources.
     """
     try:
-        settings = get_settings()
+        settings = get_app_settings()
         duckdb_path = settings.duckdb.path
         
         logger.warning(f"Database reset requested. Target: {duckdb_path}")
@@ -169,4 +185,204 @@ def reset_database() -> ResetDatabaseResponse:
         raise HTTPException(
             status_code=500,
             detail=f"Failed to reset database: {str(e)}",
+        )
+
+
+@router.post("/reset-workspace-data", response_model=ResetWorkspaceDataResponse)
+def reset_workspace_data(
+    project_id: str = Depends(get_project_id_query_required),
+) -> ResetWorkspaceDataResponse:
+    """Reset all workspace data without deleting the project."""
+    try:
+        logger.warning(
+            "Workspace data reset requested. Project: %s",
+            project_id,
+        )
+
+        settings = get_app_settings()
+        repo = get_chat_repository()
+
+        # Gather analysis IDs before deleting analysis files.
+        analyses_dir = settings.duckdb.path.parent / "analyses" / project_id
+        analysis_ids = []
+        if analyses_dir.exists():
+            analysis_ids = [path.stem for path in analyses_dir.glob("*.yaml")]
+
+        # Gather conversation IDs to clean up runtime work zones.
+        with repo._connect() as con:
+            conversation_ids = [
+                row[0]
+                for row in con.execute(
+                    "SELECT id FROM agent_conversations WHERE project_id = ?",
+                    [project_id],
+                ).fetchall()
+            ]
+
+        # Delete file assets (and their tables) for this project.
+        file_service = get_file_asset_service(project_id)
+        assets = file_service.list_files()
+        for asset in assets:
+            file_service.delete_file(asset.id, drop_table=True)
+
+        # Clear cached diagnoses for this project.
+        diagnosis_service = get_file_diagnosis_service(project_id)
+        diagnosis_service.delete_all()
+
+        # Drop cached tables in the project's warehouse.
+        source_service = get_source_service(project_id)
+        cached_tables = source_service.list_cached_tables()
+        for cached in cached_tables:
+            source_service.drop_cache(cached.local_table)
+
+        # Clear board data, chats, and project-scoped metadata from main warehouse.
+        with repo._write_connection() as con:
+            # Boards
+            con.execute(
+                """
+                DELETE FROM board_item_assets
+                WHERE board_item_id IN (
+                    SELECT id FROM board_items
+                    WHERE board_id IN (SELECT id FROM boards WHERE project_id = ?)
+                )
+                """,
+                [project_id],
+            )
+            con.execute(
+                """
+                DELETE FROM board_queries
+                WHERE board_item_id IN (
+                    SELECT id FROM board_items
+                    WHERE board_id IN (SELECT id FROM boards WHERE project_id = ?)
+                )
+                """,
+                [project_id],
+            )
+            con.execute(
+                """
+                DELETE FROM board_items
+                WHERE board_id IN (SELECT id FROM boards WHERE project_id = ?)
+                """,
+                [project_id],
+            )
+            con.execute("DELETE FROM boards WHERE project_id = ?", [project_id])
+
+            # Conversations + related artifacts
+            con.execute(
+                """
+                DELETE FROM agent_tool_approvals
+                WHERE conversation_id IN (
+                    SELECT id FROM agent_conversations WHERE project_id = ?
+                )
+                """,
+                [project_id],
+            )
+            con.execute(
+                """
+                DELETE FROM agent_checkpoints
+                WHERE run_id IN (
+                    SELECT run_id
+                    FROM agent_messages
+                    WHERE conversation_id IN (
+                        SELECT id FROM agent_conversations WHERE project_id = ?
+                    )
+                    AND run_id IS NOT NULL
+                    UNION
+                    SELECT run_id
+                    FROM agent_conversations
+                    WHERE project_id = ?
+                    AND run_id IS NOT NULL
+                )
+                """,
+                [project_id, project_id],
+            )
+            con.execute(
+                """
+                DELETE FROM agent_events
+                WHERE conversation_id IN (
+                    SELECT id FROM agent_conversations WHERE project_id = ?
+                )
+                """,
+                [project_id],
+            )
+            con.execute(
+                """
+                DELETE FROM agent_messages
+                WHERE conversation_id IN (
+                    SELECT id FROM agent_conversations WHERE project_id = ?
+                )
+                """,
+                [project_id],
+            )
+            con.execute("DELETE FROM agent_conversations WHERE project_id = ?", [project_id])
+
+            # Data sources metadata
+            con.execute(
+                """
+                DELETE FROM data_source_tables
+                WHERE data_source_id IN (
+                    SELECT id FROM data_sources WHERE project_id = ?
+                )
+                """,
+                [project_id],
+            )
+            con.execute("DELETE FROM data_sources WHERE project_id = ?", [project_id])
+
+            # Duckpipe run history/state for this project's analyses
+            if analysis_ids:
+                placeholders = ", ".join(["?"] * len(analysis_ids))
+                con.execute(
+                    f"DELETE FROM _duckpipe.run_history WHERE analysis_id IN ({placeholders})",
+                    analysis_ids,
+                )
+                con.execute(
+                    f"DELETE FROM _duckpipe.run_state WHERE analysis_id IN ({placeholders})",
+                    analysis_ids,
+                )
+                for analysis_id in analysis_ids:
+                    safe_id = _quote_identifier(analysis_id)
+                    try:
+                        con.execute(f"DROP VIEW IF EXISTS analysis.{safe_id}")
+                    except Exception:
+                        pass
+                    try:
+                        con.execute(f"DROP TABLE IF EXISTS analysis.{safe_id}")
+                    except Exception:
+                        pass
+
+            # Reset project settings metadata
+            con.execute(
+                "UPDATE projects SET settings = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                [project_id],
+            )
+
+        # Remove per-conversation work zones.
+        if conversation_ids:
+            workzone_service = get_work_zone_service()
+            for conv_id in conversation_ids:
+                workzone_service.delete(conv_id)
+
+        # Remove project-specific warehouse file (cached tables, attached sources, etc.).
+        project_dir = settings.data_dir.root / "data" / "projects" / project_id
+        if project_dir.exists():
+            shutil.rmtree(project_dir)
+
+        # Clear cached SourceService instances so future requests reinitialize safely.
+        try:
+            get_source_service.cache_clear()
+        except Exception:
+            pass
+
+        # Remove analysis definitions for this project.
+        if analyses_dir.exists():
+            shutil.rmtree(analyses_dir)
+
+        return ResetWorkspaceDataResponse(
+            success=True,
+            message="Workspace reset successfully. All project data and metadata have been cleared.",
+        )
+    except Exception as e:
+        logger.error(f"Failed to reset workspace data: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to reset workspace data: {str(e)}",
         )

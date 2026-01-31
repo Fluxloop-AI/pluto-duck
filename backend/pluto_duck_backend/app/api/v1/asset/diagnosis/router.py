@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Optional
 
@@ -139,21 +140,138 @@ async def diagnose_files(
 
     # Run diagnosis (with or without LLM analysis based on include_llm flag)
     merged_analysis_response: Optional[MergedAnalysisResponse] = None
+    llm_pending = False
+
+    async def run_llm_background(
+        diagnoses,
+        new_diagnoses,
+        llm_cache_key: str,
+        merge_context: Optional[dict],
+    ) -> None:
+        try:
+            from pluto_duck_backend.app.services.asset.file_diagnosis_service import MergedAnalysis
+            from pluto_duck_backend.app.services.asset.llm_analysis_service import (
+                MergeContext as LLMMergeContext,
+                analyze_datasets_with_llm,
+            )
+
+            llm_merge_context = None
+            if merge_context is not None:
+                llm_merge_context = LLMMergeContext(
+                    schemas_identical=True,  # API only sends merge_context when schemas match
+                    total_files=len(file_requests),
+                    total_rows=merge_context.get("total_rows", 0),
+                    duplicate_rows=merge_context.get("duplicate_rows", 0),
+                    estimated_rows_after_dedup=merge_context.get("estimated_rows", 0),
+                    skipped=merge_context.get("skipped", False),
+                )
+
+            diagnoses_for_llm = diagnoses if llm_merge_context is not None else new_diagnoses
+            if not diagnoses_for_llm:
+                return
+
+            batch_result = await analyze_datasets_with_llm(
+                diagnoses_for_llm,
+                merge_context=llm_merge_context,
+            )
+
+            # Save LLM results for newly analyzed files (or cache without LLM on failure)
+            for diagnosis in new_diagnoses:
+                if diagnosis.file_path in batch_result.file_results:
+                    diagnosis.llm_analysis = batch_result.file_results[diagnosis.file_path]
+                service.save_diagnosis(diagnosis)
+
+            # Cache merged analysis if present
+            if llm_merge_context is not None and batch_result.merged_result is not None:
+                service.set_cached_merged_analysis(
+                    llm_cache_key,
+                    MergedAnalysis(
+                        suggested_name=batch_result.merged_result.suggested_name,
+                        context=batch_result.merged_result.context,
+                    ),
+                )
+        except Exception as e:
+            logger.error(f"LLM background analysis failed: {e}", exc_info=True)
+        finally:
+            service.clear_llm_inflight(llm_cache_key)
+
     try:
         if request.include_llm:
-            # Include LLM analysis (slower)
-            diagnosis_result = await service.diagnose_files_with_llm(
-                files=file_requests,
-                use_cache=request.use_cache,
-                merge_context=merge_context_dict,
-            )
-            all_diagnoses = diagnosis_result.diagnoses
-            # Extract merged analysis if present
-            if diagnosis_result.merged_analysis:
-                merged_analysis_response = MergedAnalysisResponse(
-                    suggested_name=diagnosis_result.merged_analysis.suggested_name,
-                    context=diagnosis_result.merged_analysis.context,
+            llm_mode = request.llm_mode
+            if llm_mode == "sync":
+                # Include LLM analysis (slower)
+                diagnosis_result = await service.diagnose_files_with_llm(
+                    files=file_requests,
+                    use_cache=request.use_cache,
+                    merge_context=merge_context_dict,
                 )
+                all_diagnoses = diagnosis_result.diagnoses
+                # Extract merged analysis if present
+                if diagnosis_result.merged_analysis:
+                    merged_analysis_response = MergedAnalysisResponse(
+                        suggested_name=diagnosis_result.merged_analysis.suggested_name,
+                        context=diagnosis_result.merged_analysis.context,
+                    )
+            else:
+                all_diagnoses = []
+                new_diagnoses = []
+                for file_req in file_requests:
+                    diagnosis = None
+                    cached = None
+                    if request.use_cache:
+                        cached = service.get_cached_diagnosis(file_req.file_path)
+                        if llm_mode == "cache_only" and cached:
+                            diagnosis = cached
+
+                    if diagnosis is None:
+                        diagnosis = service.diagnose_file(file_req.file_path, file_req.file_type)
+
+                    # Attach cached LLM analysis when available
+                    if cached and cached.llm_analysis:
+                        diagnosis.llm_analysis = cached.llm_analysis
+                        diagnosis.diagnosis_id = cached.diagnosis_id
+
+                    if diagnosis.llm_analysis is None:
+                        new_diagnoses.append(diagnosis)
+                    all_diagnoses.append(diagnosis)
+
+                llm_cache_key: Optional[str] = None
+                if request.include_merge_analysis and merge_context_dict is not None:
+                    llm_cache_key = service.build_llm_cache_key(
+                        file_requests,
+                        merge_context_dict,
+                    )
+                    cached_merged = service.get_cached_merged_analysis(llm_cache_key)
+                    if cached_merged:
+                        merged_analysis_response = MergedAnalysisResponse(
+                            suggested_name=cached_merged.suggested_name,
+                            context=cached_merged.context,
+                        )
+
+                llm_pending = (
+                    len(new_diagnoses) > 0
+                    or (
+                        request.include_merge_analysis
+                        and merge_context_dict is not None
+                        and merged_analysis_response is None
+                    )
+                )
+
+                if llm_mode == "defer" and llm_pending:
+                    if llm_cache_key is None:
+                        llm_cache_key = service.build_llm_cache_key(
+                            file_requests,
+                            merge_context_dict,
+                        )
+                    if service.mark_llm_inflight(llm_cache_key):
+                        asyncio.create_task(
+                            run_llm_background(
+                                all_diagnoses,
+                                new_diagnoses,
+                                llm_cache_key,
+                                merge_context_dict,
+                            )
+                        )
         else:
             # Technical diagnosis only (fast)
             all_diagnoses = service.diagnose_files(files=file_requests)
@@ -268,7 +386,31 @@ async def diagnose_files(
             )
         )
 
-    return DiagnoseFilesResponse(diagnoses=diagnoses, merged_analysis=merged_analysis_response)
+    if request.include_llm and request.llm_mode == "cache_only":
+        llm_pending = (
+            any(diagnosis.llm_analysis is None for diagnosis in all_diagnoses)
+            or (
+                request.include_merge_analysis
+                and merge_context_dict is not None
+                and merged_analysis_response is None
+            )
+        )
+    elif request.include_llm and request.llm_mode == "defer":
+        llm_pending = (
+            llm_pending
+            or any(diagnosis.llm_analysis is None for diagnosis in all_diagnoses)
+            or (
+                request.include_merge_analysis
+                and merge_context_dict is not None
+                and merged_analysis_response is None
+            )
+        )
+
+    return DiagnoseFilesResponse(
+        diagnoses=diagnoses,
+        merged_analysis=merged_analysis_response,
+        llm_pending=llm_pending,
+    )
 
 
 @router.get("/{file_id}/diagnosis", response_model=FileDiagnosisResponse)

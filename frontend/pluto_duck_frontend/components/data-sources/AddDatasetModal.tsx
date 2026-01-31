@@ -80,6 +80,25 @@ function areSchemasIdentical(diagnoses: FileDiagnosis[]): boolean {
   return true;
 }
 
+function mergeDiagnosisResults(
+  current: FileDiagnosis[] | null,
+  incoming: FileDiagnosis[]
+): FileDiagnosis[] {
+  if (!current) return incoming;
+
+  const currentByPath = new Map(current.map(d => [d.file_path, d]));
+
+  return incoming.map((next) => {
+    const prev = currentByPath.get(next.file_path);
+    if (!prev) return next;
+    return {
+      ...prev,
+      llm_analysis: next.llm_analysis ?? prev.llm_analysis,
+      diagnosis_id: next.diagnosis_id ?? prev.diagnosis_id,
+    };
+  });
+}
+
 // Helper to generate a valid table name from filename
 function generateTableName(filename: string): string {
   // Remove extension
@@ -597,19 +616,57 @@ export function AddDatasetModal({
           skipped: dupResponse.skipped,
         } : undefined;
 
+        const llmMode = isTauriRuntime() ? 'defer' : 'sync';
         const llmResponse = await diagnoseFiles(
           projectId,
           filesToDiagnose,
           true,
           true,
           includeMergeAnalysis,
-          mergeContext
+          mergeContext,
+          llmMode
         );
-        setDiagnosisResults(llmResponse.diagnoses);
+        setDiagnosisResults((current) => mergeDiagnosisResults(current, llmResponse.diagnoses));
 
         // Store merged analysis if present
         if (llmResponse.merged_analysis) {
           setMergedAnalysis(llmResponse.merged_analysis);
+        }
+
+        const llmPending = llmResponse.llm_pending ?? llmResponse.diagnoses.some(d => !d.llm_analysis);
+
+        if (llmMode === 'defer' && llmPending) {
+          const pollIntervalMs = 3000;
+          const pollTimeoutMs = 180000;
+          const pollStartedAt = Date.now();
+
+          while (Date.now() - pollStartedAt < pollTimeoutMs) {
+            await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+            try {
+              const pollResponse = await diagnoseFiles(
+                projectId,
+                filesToDiagnose,
+                true,
+                true,
+                includeMergeAnalysis,
+                mergeContext,
+                'cache_only'
+              );
+
+              setDiagnosisResults((current) => mergeDiagnosisResults(current, pollResponse.diagnoses));
+              if (pollResponse.merged_analysis) {
+                setMergedAnalysis(pollResponse.merged_analysis);
+              }
+
+              const stillPending = pollResponse.llm_pending ?? pollResponse.diagnoses.some(d => !d.llm_analysis);
+              if (!stillPending) {
+                break;
+              }
+            } catch (pollError) {
+              console.warn('LLM analysis polling failed:', pollError);
+              break;
+            }
+          }
         }
       } catch (llmError) {
         // LLM failure is not critical - we already have the fast diagnosis

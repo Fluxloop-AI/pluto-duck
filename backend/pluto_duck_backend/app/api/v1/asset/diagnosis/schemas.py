@@ -54,6 +54,10 @@ class DiagnoseFilesRequest(BaseModel):
     files: List[DiagnoseFileRequestModel] = Field(..., description="List of files to diagnose")
     use_cache: bool = Field(True, description="Use cached results if available")
     include_llm: bool = Field(False, description="Include LLM analysis (slower, provides insights)")
+    llm_mode: Literal["sync", "defer", "cache_only"] = Field(
+        "sync",
+        description="LLM execution mode: sync waits for results, defer runs in background, cache_only returns cached LLM only",
+    )
     include_merge_analysis: bool = Field(
         False,
         description="Include merged dataset analysis (requires include_llm=true)",
@@ -235,6 +239,10 @@ class DiagnoseFilesResponse(BaseModel):
     merged_analysis: Optional[MergedAnalysisResponse] = Field(
         None,
         description="Merged dataset analysis (when include_merge_analysis=true)",
+    )
+    llm_pending: bool = Field(
+        False,
+        description="Whether LLM analysis is still running (defer/cache_only modes)",
     )
 
     model_config = {"from_attributes": True}

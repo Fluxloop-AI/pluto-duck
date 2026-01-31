@@ -10,9 +10,11 @@ This service analyzes CSV/Parquet files before import to provide:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
+import threading
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -508,6 +510,9 @@ class FileDiagnosisService:
         """
         self.project_id = project_id
         self.warehouse_path = warehouse_path
+        self._llm_state_lock = threading.Lock()
+        self._llm_inflight_keys: set[str] = set()
+        self._llm_merged_cache: Dict[str, MergedAnalysis] = {}
         self._ensure_metadata_tables()
 
     def _ensure_metadata_tables(self) -> None:
@@ -1912,6 +1917,56 @@ class FileDiagnosisService:
                 WHERE file_path = ? AND project_id = ?
             """, [file_path, self.project_id]).fetchone()
             return check[0] == 0
+
+    # =========================================================================
+    # LLM background coordination helpers
+    # =========================================================================
+
+    def build_llm_cache_key(
+        self,
+        files: List[DiagnoseFileRequest],
+        merge_context: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Build a stable key for LLM analysis caching/in-flight tracking."""
+        payload = {
+            "files": [
+                {"path": f.file_path, "type": f.file_type} for f in files
+            ],
+            "merge_context": merge_context or {},
+        }
+        encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    def is_llm_inflight(self, key: str) -> bool:
+        """Return True if an LLM job is already running for this key."""
+        with self._llm_state_lock:
+            return key in self._llm_inflight_keys
+
+    def mark_llm_inflight(self, key: str) -> bool:
+        """Mark an LLM job as inflight. Returns True if newly marked."""
+        with self._llm_state_lock:
+            if key in self._llm_inflight_keys:
+                return False
+            self._llm_inflight_keys.add(key)
+            return True
+
+    def clear_llm_inflight(self, key: str) -> None:
+        """Clear inflight marker for an LLM job."""
+        with self._llm_state_lock:
+            self._llm_inflight_keys.discard(key)
+
+    def get_cached_merged_analysis(self, key: str) -> Optional[MergedAnalysis]:
+        """Get cached merged analysis for an LLM job key."""
+        with self._llm_state_lock:
+            return self._llm_merged_cache.get(key)
+
+    def set_cached_merged_analysis(self, key: str, merged: Optional[MergedAnalysis]) -> None:
+        """Cache merged analysis for an LLM job key."""
+        with self._llm_state_lock:
+            if merged is None:
+                self._llm_merged_cache.pop(key, None)
+            else:
+                self._llm_merged_cache[key] = merged
 
     def delete_all(self) -> int:
         """Delete all cached diagnoses for this project.

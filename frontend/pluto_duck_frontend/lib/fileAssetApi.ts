@@ -207,6 +207,7 @@ export interface DiagnoseFilesRequest {
   files: DiagnoseFileRequest[];
   use_cache?: boolean;
   include_llm?: boolean;
+  llm_mode?: 'sync' | 'defer' | 'cache_only';
   include_merge_analysis?: boolean;
   merge_context?: MergeContext;
 }
@@ -214,6 +215,7 @@ export interface DiagnoseFilesRequest {
 export interface DiagnoseFilesResponse {
   diagnoses: FileDiagnosis[];
   merged_analysis?: MergedAnalysis;
+  llm_pending?: boolean;
 }
 
 // =============================================================================
@@ -344,13 +346,18 @@ export async function diagnoseFiles(
   useCache: boolean = true,
   includeLlm: boolean = false,
   includeMergeAnalysis: boolean = false,
-  mergeContext?: MergeContext
+  mergeContext?: MergeContext,
+  llmMode: 'sync' | 'defer' | 'cache_only' = 'sync'
 ): Promise<DiagnoseFilesResponse> {
   const requestBody: DiagnoseFilesRequest = {
     files,
     use_cache: useCache,
     include_llm: includeLlm,
   };
+
+  if (includeLlm) {
+    requestBody.llm_mode = llmMode;
+  }
 
   // Only include merge analysis fields when requested
   if (includeMergeAnalysis) {

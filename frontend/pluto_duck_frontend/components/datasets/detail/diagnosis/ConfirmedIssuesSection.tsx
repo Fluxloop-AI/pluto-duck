@@ -61,10 +61,6 @@ interface ConfirmedIssuesSectionProps {
 export function ConfirmedIssuesSection({ issues }: ConfirmedIssuesSectionProps) {
   const confirmedIssues = issues.filter((issue) => issue.status !== 'open');
 
-  if (confirmedIssues.length === 0) {
-    return null;
-  }
-
   return (
     <div className="space-y-4">
       <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -72,34 +68,40 @@ export function ConfirmedIssuesSection({ issues }: ConfirmedIssuesSectionProps) 
       </h3>
 
       <div className="rounded-xl bg-muted/50 p-4">
-        {confirmedIssues.map((issue, index) => {
-          const responseInfo = getIssueResponseInfo(issue);
-          const isLast = index === confirmedIssues.length - 1;
+        {confirmedIssues.length === 0 ? (
+          <div className="text-sm text-muted-foreground">
+            No confirmed issues yet.
+          </div>
+        ) : (
+          confirmedIssues.map((issue, index) => {
+            const responseInfo = getIssueResponseInfo(issue);
+            const isLast = index === confirmedIssues.length - 1;
 
-          return (
-            <div
-              key={issue.id}
-              className={cn(
-                'flex items-center gap-2.5 py-2',
-                !isLast && 'border-b border-[#f0efed]'
-              )}
-            >
-              <Check
-                size={14}
-                className="shrink-0 text-[#292524]"
-                strokeWidth={2.5}
-              />
-              <span className="flex-1 text-[13px] text-[#57534e]">
-                {issue.issue}
-              </span>
-              {responseInfo && (
-                <span className={cn('text-xs', responseInfo.color)}>
-                  {responseInfo.text}
+            return (
+              <div
+                key={issue.id}
+                className={cn(
+                  'flex items-center gap-2.5 py-2',
+                  !isLast && 'border-b border-[#f0efed]'
+                )}
+              >
+                <Check
+                  size={14}
+                  className="shrink-0 text-[#292524]"
+                  strokeWidth={2.5}
+                />
+                <span className="flex-1 text-[13px] text-[#57534e]">
+                  {issue.issue}
                 </span>
-              )}
-            </div>
-          );
-        })}
+                {responseInfo && (
+                  <span className={cn('text-xs', responseInfo.color)}>
+                    {responseInfo.text}
+                  </span>
+                )}
+              </div>
+            );
+          })
+        )}
       </div>
 
       <div className="flex justify-end">

@@ -60,8 +60,11 @@ export function IssueCard({ issue, onRespond, onReset }: IssueCardProps) {
           <span>{formatDate(issue.created_at ?? null)} detected</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="px-2 py-0.5 text-xs bg-background border border-border rounded-md font-medium text-muted-foreground">{issue.issue_type}</span>
+          <span className="px-2 py-0.5 text-xs bg-black text-white rounded-md font-medium">{issue.issue_type}</span>
           <h4 className="text-base font-medium">{issue.issue}</h4>
+          {issue.status === 'open' && (
+            <span className="text-[10px] font-semibold text-red-500">NEW</span>
+          )}
         </div>
       </div>
 

@@ -253,8 +253,18 @@ export function DatasetAnalyzingView({
     const addNextMessage = () => {
       if (!isActive) return;
 
+      if (currentIndex >= LLM_WAITING_MESSAGES.length) {
+        console.warn('[LLM WAIT] index out of range', {
+          currentIndex,
+          length: LLM_WAITING_MESSAGES.length,
+        });
+        setCurrentLlmMessageIndex(-1);
+        return;
+      }
+
       // 현재 메시지를 완료 상태로 (배열에 추가)
-      setLlmWaitingMessages((prev) => [...prev, LLM_WAITING_MESSAGES[currentIndex]]);
+      const message = LLM_WAITING_MESSAGES[currentIndex];
+      setLlmWaitingMessages((prev) => [...prev, message]);
       currentIndex++;
 
       // 다음 메시지가 있으면 진행
@@ -489,7 +499,7 @@ export function DatasetAnalyzingView({
                       <Check className="w-2.5 h-2.5 text-background" strokeWidth={3} />
                     </div>
                     <span className="text-sm text-muted-foreground">
-                      {message.replace('...', '')}
+                      {(message ?? '').replace('...', '')}
                     </span>
                   </div>
                 </div>

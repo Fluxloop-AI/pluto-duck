@@ -169,6 +169,43 @@ export interface LLMAnalysis {
   model_used: string;
 }
 
+export type DiagnosisIssueStatus = 'open' | 'confirmed' | 'dismissed' | 'resolved';
+
+export interface DiagnosisIssue {
+  id: string;
+  diagnosis_id: string;
+  file_asset_id: string;
+  issue: string;
+  issue_type: string;
+  suggestion?: string | null;
+  example?: string | null;
+  status: DiagnosisIssueStatus;
+  user_response?: string | null;
+  confirmed_at?: string | null;
+  resolved_at?: string | null;
+  resolved_by?: string | null;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+  delete_reason?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface DiagnosisIssueListResponse {
+  issues: DiagnosisIssue[];
+}
+
+export interface DiagnosisIssueUpdateRequest {
+  status?: DiagnosisIssueStatus;
+  user_response?: string;
+  resolved_by?: string;
+}
+
+export interface DiagnosisIssueDeleteRequest {
+  deleted_by?: string;
+  delete_reason?: string;
+}
+
 export interface FileDiagnosis {
   file_path: string;
   file_type: string;
@@ -423,4 +460,93 @@ export async function getFileDiagnosis(
     }
     throw error;
   }
+}
+
+export async function regenerateSummary(
+  projectId: string,
+  fileId: string
+): Promise<FileDiagnosis> {
+  return apiJson<FileDiagnosis>(
+    buildAssetPath(`/files/${encodeURIComponent(fileId)}/summary/regenerate`),
+    {
+      method: 'POST',
+      projectId,
+    }
+  );
+}
+
+export async function rescanQuickScan(
+  projectId: string,
+  fileId: string
+): Promise<FileDiagnosis> {
+  return apiJson<FileDiagnosis>(
+    buildAssetPath(`/files/${encodeURIComponent(fileId)}/diagnosis/rescan`),
+    {
+      method: 'POST',
+      projectId,
+    }
+  );
+}
+
+export async function listDiagnosisIssues(
+  projectId: string,
+  fileId: string,
+  options?: { status?: DiagnosisIssueStatus; includeDeleted?: boolean }
+): Promise<DiagnosisIssueListResponse> {
+  const params = new URLSearchParams();
+  if (options?.status) {
+    params.set('status', options.status);
+  }
+  if (options?.includeDeleted) {
+    params.set('include_deleted', 'true');
+  }
+  return apiJson<DiagnosisIssueListResponse>(
+    buildAssetPath(`/files/${encodeURIComponent(fileId)}/issues`, params),
+    { projectId }
+  );
+}
+
+export async function findDiagnosisIssues(
+  projectId: string,
+  fileId: string
+): Promise<DiagnosisIssueListResponse> {
+  return apiJson<DiagnosisIssueListResponse>(
+    buildAssetPath(`/files/${encodeURIComponent(fileId)}/issues/find`),
+    {
+      method: 'POST',
+      projectId,
+    }
+  );
+}
+
+export async function updateDiagnosisIssue(
+  projectId: string,
+  issueId: string,
+  request: DiagnosisIssueUpdateRequest
+): Promise<DiagnosisIssue> {
+  return apiJson<DiagnosisIssue>(
+    buildAssetPath(`/files/issues/${encodeURIComponent(issueId)}`),
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+      projectId,
+    }
+  );
+}
+
+export async function deleteDiagnosisIssue(
+  projectId: string,
+  issueId: string,
+  request: DiagnosisIssueDeleteRequest = {}
+): Promise<DiagnosisIssue> {
+  return apiJson<DiagnosisIssue>(
+    buildAssetPath(`/files/issues/${encodeURIComponent(issueId)}`),
+    {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+      projectId,
+    }
+  );
 }

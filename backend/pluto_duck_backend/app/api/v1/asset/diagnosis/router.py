@@ -6,7 +6,7 @@ import asyncio
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from pluto_duck_backend.app.api.deps import get_project_id_query
 from pluto_duck_backend.app.api.v1.asset.diagnosis.schemas import (
@@ -15,6 +15,10 @@ from pluto_duck_backend.app.api.v1.asset.diagnosis.schemas import (
     ColumnStatisticsResponse,
     CountDuplicatesRequest,
     CountDuplicatesResponse,
+    DiagnosisIssueDeleteRequest,
+    DiagnosisIssueListResponse,
+    DiagnosisIssueResponse,
+    DiagnosisIssueUpdateRequest,
     DateStatsResponse,
     DiagnoseFilesRequest,
     DiagnoseFilesResponse,
@@ -30,8 +34,11 @@ from pluto_duck_backend.app.api.v1.asset.diagnosis.schemas import (
     ValueFrequencyResponse,
 )
 from pluto_duck_backend.app.services.asset import (
+    DiagnosisIssue,
+    DiagnosisIssueService,
     FileAssetService,
     FileDiagnosisService,
+    get_diagnosis_issue_service,
     get_file_asset_service,
     get_file_diagnosis_service,
 )
@@ -41,6 +48,127 @@ logger = logging.getLogger(__name__)
 
 
 router = APIRouter()
+
+
+def _issue_to_response(issue: DiagnosisIssue) -> DiagnosisIssueResponse:
+    return DiagnosisIssueResponse(
+        id=issue.id,
+        diagnosis_id=issue.diagnosis_id,
+        file_asset_id=issue.file_asset_id,
+        issue=issue.issue,
+        issue_type=issue.issue_type,
+        suggestion=issue.suggestion,
+        example=issue.example,
+        status=issue.status,
+        user_response=issue.user_response,
+        confirmed_at=issue.confirmed_at,
+        resolved_at=issue.resolved_at,
+        resolved_by=issue.resolved_by,
+        deleted_at=issue.deleted_at,
+        deleted_by=issue.deleted_by,
+        delete_reason=issue.delete_reason,
+        created_at=issue.created_at,
+        updated_at=issue.updated_at,
+    )
+
+
+def _diagnosis_to_response(diagnosis) -> FileDiagnosisResponse:
+    return FileDiagnosisResponse(
+        file_path=diagnosis.file_path,
+        file_type=diagnosis.file_type,
+        columns=[
+            ColumnSchemaResponse(
+                name=col.name,
+                type=col.type,
+                nullable=col.nullable,
+            )
+            for col in diagnosis.schema
+        ],
+        missing_values=diagnosis.missing_values,
+        row_count=diagnosis.row_count,
+        file_size_bytes=diagnosis.file_size_bytes,
+        type_suggestions=[
+            TypeSuggestionResponse(
+                column_name=ts.column_name,
+                current_type=ts.current_type,
+                suggested_type=ts.suggested_type,
+                confidence=ts.confidence,
+                sample_values=ts.sample_values,
+            )
+            for ts in diagnosis.type_suggestions
+        ],
+        diagnosed_at=diagnosis.diagnosed_at,
+        encoding=EncodingInfoResponse(
+            detected=diagnosis.encoding.detected,
+            confidence=diagnosis.encoding.confidence,
+        ) if diagnosis.encoding else None,
+        parsing_integrity=ParsingIntegrityResponse(
+            total_lines=diagnosis.parsing_integrity.total_lines,
+            parsed_rows=diagnosis.parsing_integrity.parsed_rows,
+            malformed_rows=diagnosis.parsing_integrity.malformed_rows,
+            has_errors=diagnosis.parsing_integrity.has_errors,
+            error_message=diagnosis.parsing_integrity.error_message,
+        ) if diagnosis.parsing_integrity else None,
+        column_statistics=[
+            ColumnStatisticsResponse(
+                column_name=cs.column_name,
+                column_type=cs.column_type,
+                semantic_type=cs.semantic_type,
+                null_count=cs.null_count,
+                null_percentage=cs.null_percentage,
+                numeric_stats=NumericStatsResponse(
+                    min=cs.numeric_stats.min,
+                    max=cs.numeric_stats.max,
+                    median=cs.numeric_stats.median,
+                    mean=cs.numeric_stats.mean,
+                    stddev=cs.numeric_stats.stddev,
+                    distinct_count=cs.numeric_stats.distinct_count,
+                ) if cs.numeric_stats else None,
+                categorical_stats=CategoricalStatsResponse(
+                    unique_count=cs.categorical_stats.unique_count,
+                    top_values=[
+                        ValueFrequencyResponse(
+                            value=vf.value,
+                            frequency=vf.frequency,
+                        )
+                        for vf in cs.categorical_stats.top_values
+                    ],
+                    avg_length=cs.categorical_stats.avg_length,
+                ) if cs.categorical_stats else None,
+                date_stats=DateStatsResponse(
+                    min_date=cs.date_stats.min_date,
+                    max_date=cs.date_stats.max_date,
+                    span_days=cs.date_stats.span_days,
+                    distinct_days=cs.date_stats.distinct_days,
+                ) if cs.date_stats else None,
+            )
+            for cs in diagnosis.column_statistics
+        ],
+        sample_rows=diagnosis.sample_rows,
+        llm_analysis=LLMAnalysisResponse(
+            suggested_name=diagnosis.llm_analysis.suggested_name,
+            context=diagnosis.llm_analysis.context,
+            potential=[
+                PotentialItemResponse(
+                    question=p.question,
+                    analysis=p.analysis,
+                )
+                for p in diagnosis.llm_analysis.potential
+            ],
+            issues=[
+                IssueItemResponse(
+                    issue=i.issue,
+                    issue_type=i.issue_type,
+                    suggestion=i.suggestion,
+                    example=i.example,
+                )
+                for i in diagnosis.llm_analysis.issues
+            ],
+            analyzed_at=diagnosis.llm_analysis.analyzed_at,
+            model_used=diagnosis.llm_analysis.model_used,
+        ) if diagnosis.llm_analysis else None,
+        diagnosis_id=diagnosis.diagnosis_id,
+    )
 
 
 # =============================================================================
@@ -60,6 +188,13 @@ def get_file_asset_service_dep(
 ) -> FileAssetService:
     """Provide a FileAssetService scoped to the project."""
     return get_file_asset_service(project_id)
+
+
+def get_diagnosis_issue_service_dep(
+    project_id: Optional[str] = Depends(get_project_id_query),
+) -> DiagnosisIssueService:
+    """Provide a DiagnosisIssueService scoped to the project."""
+    return get_diagnosis_issue_service(project_id)
 
 
 # =============================================================================
@@ -581,3 +716,177 @@ def get_file_diagnosis(
         ) if diagnosis.llm_analysis else None,
         diagnosis_id=diagnosis.diagnosis_id,
     )
+
+
+@router.post("/{file_id}/summary/regenerate", response_model=FileDiagnosisResponse)
+async def regenerate_summary(
+    file_id: str,
+    file_service: FileAssetService = Depends(get_file_asset_service_dep),
+    diagnosis_service: FileDiagnosisService = Depends(get_file_diagnosis_service_dep),
+) -> FileDiagnosisResponse:
+    """Regenerate LLM summary (agent analysis) without touching issues."""
+    from pluto_duck_backend.app.services.asset.llm_analysis_service import analyze_datasets_with_llm
+
+    asset = file_service.get_file(file_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail=f"File asset '{file_id}' not found")
+
+    diagnosis = None
+    if asset.diagnosis_id:
+        diagnosis = diagnosis_service.get_diagnosis_by_id(asset.diagnosis_id)
+    if diagnosis is None:
+        diagnosis = diagnosis_service.get_cached_diagnosis(asset.file_path)
+    if diagnosis is None:
+        diagnosis = diagnosis_service.diagnose_file(asset.file_path, asset.file_type)
+        saved_id = diagnosis_service.save_diagnosis(diagnosis)
+        diagnosis.diagnosis_id = saved_id
+        file_service.update_diagnosis_id(asset.id, saved_id)
+
+    batch_result = await analyze_datasets_with_llm([diagnosis])
+    llm_result = batch_result.file_results.get(diagnosis.file_path)
+    if not llm_result:
+        raise HTTPException(status_code=500, detail="Failed to regenerate LLM summary")
+
+    diagnosis.llm_analysis = llm_result
+    if diagnosis.diagnosis_id:
+        diagnosis_service.update_llm_analysis(diagnosis.diagnosis_id, llm_result)
+    else:
+        saved_id = diagnosis_service.save_diagnosis(diagnosis)
+        diagnosis.diagnosis_id = saved_id
+        file_service.update_diagnosis_id(asset.id, saved_id)
+
+    return _diagnosis_to_response(diagnosis)
+
+
+@router.post("/{file_id}/diagnosis/rescan", response_model=FileDiagnosisResponse)
+def rescan_quick_scan(
+    file_id: str,
+    file_service: FileAssetService = Depends(get_file_asset_service_dep),
+    diagnosis_service: FileDiagnosisService = Depends(get_file_diagnosis_service_dep),
+) -> FileDiagnosisResponse:
+    """Re-run technical diagnosis (quick scan) without touching issues."""
+    asset = file_service.get_file(file_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail=f"File asset '{file_id}' not found")
+
+    existing = None
+    if asset.diagnosis_id:
+        existing = diagnosis_service.get_diagnosis_by_id(asset.diagnosis_id)
+    if existing is None:
+        existing = diagnosis_service.get_cached_diagnosis(asset.file_path)
+
+    diagnosis = diagnosis_service.diagnose_file(asset.file_path, asset.file_type)
+    if existing and existing.llm_analysis:
+        diagnosis.llm_analysis = existing.llm_analysis
+
+    if asset.diagnosis_id and diagnosis_service.update_quick_scan(asset.diagnosis_id, diagnosis):
+        diagnosis.diagnosis_id = asset.diagnosis_id
+    else:
+        saved_id = diagnosis_service.save_diagnosis(diagnosis)
+        diagnosis.diagnosis_id = saved_id
+        file_service.update_diagnosis_id(asset.id, saved_id)
+
+    return _diagnosis_to_response(diagnosis)
+
+
+@router.get("/{file_id}/issues", response_model=DiagnosisIssueListResponse)
+def list_issues(
+    file_id: str,
+    status: Optional[str] = Query(None),
+    include_deleted: bool = Query(False),
+    file_service: FileAssetService = Depends(get_file_asset_service_dep),
+    issue_service: DiagnosisIssueService = Depends(get_diagnosis_issue_service_dep),
+) -> DiagnosisIssueListResponse:
+    asset = file_service.get_file(file_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail=f"File asset '{file_id}' not found")
+
+    issues = issue_service.list_issues(
+        file_asset_id=asset.id,
+        include_deleted=include_deleted,
+        status=status,
+    )
+    return DiagnosisIssueListResponse(issues=[_issue_to_response(i) for i in issues])
+
+
+@router.post("/{file_id}/issues/find", response_model=DiagnosisIssueListResponse)
+async def find_issues(
+    file_id: str,
+    file_service: FileAssetService = Depends(get_file_asset_service_dep),
+    diagnosis_service: FileDiagnosisService = Depends(get_file_diagnosis_service_dep),
+    issue_service: DiagnosisIssueService = Depends(get_diagnosis_issue_service_dep),
+) -> DiagnosisIssueListResponse:
+    """Run LLM diagnosis to find issues and append them to history."""
+    from pluto_duck_backend.app.services.asset.llm_analysis_service import analyze_datasets_with_llm
+
+    asset = file_service.get_file(file_id)
+    if not asset:
+        raise HTTPException(status_code=404, detail=f"File asset '{file_id}' not found")
+
+    diagnosis = None
+    if asset.diagnosis_id:
+        diagnosis = diagnosis_service.get_diagnosis_by_id(asset.diagnosis_id)
+    if diagnosis is None:
+        diagnosis = diagnosis_service.get_cached_diagnosis(asset.file_path)
+    if diagnosis is None:
+        diagnosis = diagnosis_service.diagnose_file(asset.file_path, asset.file_type)
+        saved_id = diagnosis_service.save_diagnosis(diagnosis)
+        diagnosis.diagnosis_id = saved_id
+        file_service.update_diagnosis_id(asset.id, saved_id)
+
+    batch_result = await analyze_datasets_with_llm([diagnosis])
+    llm_result = batch_result.file_results.get(diagnosis.file_path)
+    if not llm_result:
+        raise HTTPException(status_code=500, detail="Failed to generate issues")
+
+    if diagnosis.diagnosis_id is None and asset.diagnosis_id is not None:
+        diagnosis.diagnosis_id = asset.diagnosis_id
+
+    if diagnosis.diagnosis_id is None:
+        saved_id = diagnosis_service.save_diagnosis(diagnosis)
+        diagnosis.diagnosis_id = saved_id
+        file_service.update_diagnosis_id(asset.id, saved_id)
+
+    issue_payloads = [issue.to_dict() for issue in llm_result.issues]
+    if issue_payloads:
+        issue_service.create_issues(
+            diagnosis_id=diagnosis.diagnosis_id,
+            file_asset_id=asset.id,
+            issues=issue_payloads,
+        )
+
+    issues = issue_service.list_issues(file_asset_id=asset.id)
+    return DiagnosisIssueListResponse(issues=[_issue_to_response(i) for i in issues])
+
+
+@router.patch("/issues/{issue_id}", response_model=DiagnosisIssueResponse)
+def update_issue(
+    issue_id: str,
+    request: DiagnosisIssueUpdateRequest,
+    issue_service: DiagnosisIssueService = Depends(get_diagnosis_issue_service_dep),
+) -> DiagnosisIssueResponse:
+    updated = issue_service.update_issue(
+        issue_id=issue_id,
+        status=request.status,
+        user_response=request.user_response,
+        resolved_by=request.resolved_by,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail=f"Issue '{issue_id}' not found")
+    return _issue_to_response(updated)
+
+
+@router.delete("/issues/{issue_id}", response_model=DiagnosisIssueResponse)
+def delete_issue(
+    issue_id: str,
+    request: DiagnosisIssueDeleteRequest,
+    issue_service: DiagnosisIssueService = Depends(get_diagnosis_issue_service_dep),
+) -> DiagnosisIssueResponse:
+    deleted = issue_service.soft_delete_issue(
+        issue_id=issue_id,
+        deleted_by=request.deleted_by,
+        delete_reason=request.delete_reason,
+    )
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Issue '{issue_id}' not found")
+    return _issue_to_response(deleted)

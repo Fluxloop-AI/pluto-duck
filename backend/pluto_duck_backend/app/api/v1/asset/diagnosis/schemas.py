@@ -246,3 +246,53 @@ class DiagnoseFilesResponse(BaseModel):
     )
 
     model_config = {"from_attributes": True}
+
+
+DiagnosisIssueStatus = Literal["open", "confirmed", "dismissed", "resolved"]
+
+
+class DiagnosisIssueResponse(BaseModel):
+    """Response for a stored diagnosis issue."""
+
+    id: str
+    diagnosis_id: str
+    file_asset_id: str
+    issue: str
+    issue_type: str
+    suggestion: Optional[str] = None
+    example: Optional[str] = None
+    status: DiagnosisIssueStatus
+    user_response: Optional[str] = None
+    confirmed_at: Optional[datetime] = None
+    resolved_at: Optional[datetime] = None
+    resolved_by: Optional[str] = None
+    deleted_at: Optional[datetime] = None
+    deleted_by: Optional[str] = None
+    delete_reason: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class DiagnosisIssueListResponse(BaseModel):
+    """Response for listing issues for a file asset."""
+
+    issues: List[DiagnosisIssueResponse]
+
+    model_config = {"from_attributes": True}
+
+
+class DiagnosisIssueUpdateRequest(BaseModel):
+    """Request to update an issue status/response."""
+
+    status: Optional[DiagnosisIssueStatus] = None
+    user_response: Optional[str] = None
+    resolved_by: Optional[str] = None
+
+
+class DiagnosisIssueDeleteRequest(BaseModel):
+    """Request to soft delete an issue."""
+
+    deleted_by: Optional[str] = None
+    delete_reason: Optional[str] = None

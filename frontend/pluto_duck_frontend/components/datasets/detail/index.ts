@@ -3,6 +3,7 @@ export { SummaryTabContent } from './summary/SummaryTabContent';
 export { TableTabContent } from './table/TableTabContent';
 
 export { useDatasetDiagnosis } from './hooks/useDatasetDiagnosis';
+export { useDatasetIssues } from './hooks/useDatasetIssues';
 export { useDatasetMemo } from './hooks/useDatasetMemo';
 export { useDatasetPreview } from './hooks/useDatasetPreview';
 
@@ -26,4 +27,4 @@ export type {
   SourceFile,
 } from './types';
 
-export { initialMockIssues, mockQuickScanItems } from './mocks';
+export { mockQuickScanItems } from './mocks';

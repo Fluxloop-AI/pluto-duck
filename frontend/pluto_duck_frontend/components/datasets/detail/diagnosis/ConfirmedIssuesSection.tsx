@@ -5,20 +5,28 @@ import { cn } from '@/lib/utils';
 import type { DatasetIssue, IssueResponseInfo } from '../types';
 
 function getIssueResponseInfo(issue: DatasetIssue): IssueResponseInfo | null {
-  if (issue.status === 'pending') {
+  if (issue.status === 'open') {
     return null;
   }
 
   if (issue.status === 'dismissed') {
     return {
       type: 'no',
-      text: 'Not an issue',
+      text: issue.user_response || 'Not an issue',
       color: 'text-[#a8a29e]',
     };
   }
 
-  // status === 'acknowledged'
-  if (!issue.userNote) {
+  if (issue.status === 'resolved') {
+    return {
+      type: 'resolved',
+      text: 'Resolved',
+      color: 'text-emerald-600',
+    };
+  }
+
+  // status === 'confirmed'
+  if (!issue.user_response) {
     return {
       type: 'yes',
       text: 'Issue confirmed',
@@ -26,7 +34,7 @@ function getIssueResponseInfo(issue: DatasetIssue): IssueResponseInfo | null {
     };
   }
 
-  if (issue.userNote === 'Needs review') {
+  if (issue.user_response === 'Needs review') {
     return {
       type: 'unsure',
       text: 'Needs review',
@@ -35,9 +43,9 @@ function getIssueResponseInfo(issue: DatasetIssue): IssueResponseInfo | null {
   }
 
   // Custom user note
-  const displayText = issue.userNote.length > 25
-    ? `${issue.userNote.slice(0, 25)}...`
-    : issue.userNote;
+  const displayText = issue.user_response.length > 25
+    ? `${issue.user_response.slice(0, 25)}...`
+    : issue.user_response;
 
   return {
     type: 'custom',
@@ -51,7 +59,7 @@ interface ConfirmedIssuesSectionProps {
 }
 
 export function ConfirmedIssuesSection({ issues }: ConfirmedIssuesSectionProps) {
-  const confirmedIssues = issues.filter((issue) => issue.status !== 'pending');
+  const confirmedIssues = issues.filter((issue) => issue.status !== 'open');
 
   if (confirmedIssues.length === 0) {
     return null;
@@ -82,7 +90,7 @@ export function ConfirmedIssuesSection({ issues }: ConfirmedIssuesSectionProps) 
                 strokeWidth={2.5}
               />
               <span className="flex-1 text-[13px] text-[#57534e]">
-                {issue.title}
+                {issue.issue}
               </span>
               {responseInfo && (
                 <span className={cn('text-xs', responseInfo.color)}>

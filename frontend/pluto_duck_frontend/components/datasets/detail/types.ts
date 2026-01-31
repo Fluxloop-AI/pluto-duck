@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { FileAsset } from '../../../lib/fileAssetApi';
+import type { DiagnosisIssue, FileAsset } from '../../../lib/fileAssetApi';
 import type { CachedTable } from '../../../lib/sourceApi';
 
 export type Dataset = FileAsset | CachedTable;
@@ -35,20 +35,9 @@ export interface QuickScanItem {
   subtitle: ReactNode;
 }
 
-export interface DatasetIssue {
-  id: string;
-  title: string;
-  issueType: string;
-  discoveredAt: string;
-  example?: string;
-  description: string;
-  isNew?: boolean;
-  status: 'pending' | 'dismissed' | 'acknowledged';
-  dismissedReason?: string;
-  userNote?: string;
-}
+export type DatasetIssue = DiagnosisIssue;
 
-export type IssueResponseType = 'yes' | 'no' | 'custom' | 'unsure';
+export type IssueResponseType = 'yes' | 'no' | 'custom' | 'unsure' | 'resolved';
 
 export interface IssueResponseInfo {
   type: IssueResponseType;

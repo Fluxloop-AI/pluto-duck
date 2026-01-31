@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import type { DatasetIssue } from '../types';
+import { formatDate } from '../utils';
 
 interface IssueCardProps {
   issue: DatasetIssue;
@@ -24,26 +25,29 @@ export function IssueCard({ issue, onRespond, onReset }: IssueCardProps) {
 
   const getStatusText = () => {
     if (issue.status === 'dismissed') {
-      return issue.dismissedReason || 'Not an issue';
+      return issue.user_response || 'Not an issue';
     }
-    if (issue.status === 'acknowledged') {
-      if (issue.userNote) {
-        return issue.userNote;
-      }
-      return 'Issue confirmed';
+    if (issue.status === 'resolved') {
+      return 'Resolved';
+    }
+    if (issue.status === 'confirmed') {
+      return issue.user_response || 'Issue confirmed';
     }
     return '';
   };
 
   const getStatusColor = () => {
-    if (issue.status === 'acknowledged') {
-      if (issue.userNote === 'Needs review') {
-        return 'text-[#d97706]'; // warning color
+    if (issue.status === 'confirmed') {
+      if (issue.user_response === 'Needs review') {
+        return 'text-[#d97706]';
       }
-      if (issue.userNote) {
+      if (issue.user_response) {
         return 'text-muted-foreground';
       }
-      return 'text-red-500'; // Issue confirmed
+      return 'text-red-500';
+    }
+    if (issue.status === 'resolved') {
+      return 'text-emerald-600';
     }
     return 'text-muted-foreground';
   };
@@ -53,19 +57,18 @@ export function IssueCard({ issue, onRespond, onReset }: IssueCardProps) {
       {/* Header */}
       <div className="space-y-1.5">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>{issue.discoveredAt} detected</span>
+          <span>{formatDate(issue.created_at ?? null)} detected</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="px-2 py-0.5 text-xs bg-background border border-border rounded-md font-medium text-muted-foreground">{issue.issueType}</span>
-          <h4 className="text-base font-medium">{issue.title}</h4>
-          {issue.isNew && (
-            <span className="text-[10px] font-semibold text-red-500">NEW</span>
-          )}
+          <span className="px-2 py-0.5 text-xs bg-background border border-border rounded-md font-medium text-muted-foreground">{issue.issue_type}</span>
+          <h4 className="text-base font-medium">{issue.issue}</h4>
         </div>
       </div>
 
       {/* Description */}
-      <p className="text-sm text-muted-foreground">{issue.description}</p>
+      {issue.suggestion && (
+        <p className="text-sm text-muted-foreground">{issue.suggestion}</p>
+      )}
 
       {/* Example */}
       {issue.example && (
@@ -75,7 +78,7 @@ export function IssueCard({ issue, onRespond, onReset }: IssueCardProps) {
       )}
 
       {/* Actions or Status */}
-      {issue.status === 'pending' && !showInput && (
+      {issue.status === 'open' && !showInput && (
         <div className="flex flex-wrap items-center gap-2 pt-1">
           <button
             type="button"
@@ -109,7 +112,7 @@ export function IssueCard({ issue, onRespond, onReset }: IssueCardProps) {
       )}
 
       {/* Custom Input Mode */}
-      {issue.status === 'pending' && showInput && (
+      {issue.status === 'open' && showInput && (
         <div className="space-y-3 pt-1">
           <textarea
             value={userInput}
@@ -140,7 +143,7 @@ export function IssueCard({ issue, onRespond, onReset }: IssueCardProps) {
       )}
 
       {/* Resolved Status */}
-      {issue.status !== 'pending' && (
+      {issue.status !== 'open' && (
         <div className="flex items-center justify-between pt-1">
           <span className={cn('text-sm', getStatusColor())}>
             {getStatusText()}

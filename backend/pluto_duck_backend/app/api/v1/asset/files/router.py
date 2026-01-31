@@ -17,9 +17,13 @@ from pluto_duck_backend.app.api.v1.asset.files.schemas import (
 )
 from pluto_duck_backend.app.services.asset import (
     AssetNotFoundError,
+    DiagnosisIssueService,
     FileAsset,
     FileAssetService,
+    FileDiagnosisService,
     get_file_asset_service,
+    get_diagnosis_issue_service,
+    get_file_diagnosis_service,
 )
 from pluto_duck_backend.app.services.asset.errors import AssetError, AssetValidationError
 
@@ -69,10 +73,26 @@ def get_file_asset_service_dep(
     return get_file_asset_service(project_id)
 
 
+def get_file_diagnosis_service_dep(
+    project_id: Optional[str] = Depends(get_project_id_query),
+) -> FileDiagnosisService:
+    """Provide a FileDiagnosisService scoped to the project."""
+    return get_file_diagnosis_service(project_id)
+
+
+def get_diagnosis_issue_service_dep(
+    project_id: Optional[str] = Depends(get_project_id_query),
+) -> DiagnosisIssueService:
+    """Provide a DiagnosisIssueService scoped to the project."""
+    return get_diagnosis_issue_service(project_id)
+
+
 @router.post("", response_model=FileAssetResponse)
 def import_file(
     request: ImportFileRequest,
     service: FileAssetService = Depends(get_file_asset_service_dep),
+    diagnosis_service: FileDiagnosisService = Depends(get_file_diagnosis_service_dep),
+    issue_service: DiagnosisIssueService = Depends(get_diagnosis_issue_service_dep),
 ) -> FileAssetResponse:
     """Import a CSV or Parquet file into DuckDB.
 
@@ -108,6 +128,17 @@ def import_file(
             asset.id,
             asset.diagnosis_id,
         )
+        if request.diagnosis_id:
+            try:
+                diagnosis = diagnosis_service.get_diagnosis_by_id(request.diagnosis_id)
+                if diagnosis and diagnosis.llm_analysis and diagnosis.llm_analysis.issues:
+                    issue_service.create_issues(
+                        diagnosis_id=request.diagnosis_id,
+                        file_asset_id=asset.id,
+                        issues=[issue.to_dict() for issue in diagnosis.llm_analysis.issues],
+                    )
+            except Exception as e:
+                logger.warning("[import_file] Failed to store diagnosis issues: %s", e)
         return _file_asset_to_response(asset)
     except AssetValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))

@@ -459,7 +459,7 @@ class TestDiagnosisCaching:
                 PotentialItem(question="Any patterns?", analysis="Check distributions"),
             ],
             issues=[
-                IssueItem(issue="Missing values", suggestion="Fill or remove nulls"),
+                IssueItem(issue="Missing values", issue_type="Completeness", suggestion="Fill or remove nulls"),
             ],
             analyzed_at=diagnosis.diagnosed_at,
             model_used="test-model",

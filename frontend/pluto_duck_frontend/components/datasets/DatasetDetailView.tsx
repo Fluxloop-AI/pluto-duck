@@ -30,15 +30,22 @@ export function DatasetDetailView({
   onDelete,
 }: DatasetDetailViewProps) {
   const [activeTab, setActiveTab] = useState<DatasetTab>('summary');
-  const { diagnosis, diagnosisLoading } = useDatasetDiagnosis(projectId, dataset);
+  const {
+    diagnosis,
+    diagnosisLoading,
+    refreshDiagnosis,
+    setDiagnosis,
+  } = useDatasetDiagnosis(projectId, dataset);
   const { preview, loading, error } = useDatasetPreview(projectId, dataset, activeTab);
   const summaryProps = {
+    projectId,
     dataset,
     preview,
     previewLoading: loading,
     setActiveTab,
     diagnosis,
     diagnosisLoading,
+    onDiagnosisUpdate: setDiagnosis,
   };
   const tableProps = {
     preview,
@@ -86,8 +93,12 @@ export function DatasetDetailView({
           )}
           {activeTab === 'diagnosis' && (
             <DiagnosisTabContent
+              projectId={projectId}
+              dataset={dataset}
               diagnosis={diagnosis}
               diagnosisLoading={diagnosisLoading}
+              onDiagnosisUpdate={setDiagnosis}
+              refreshDiagnosis={refreshDiagnosis}
             />
           )}
         </div>

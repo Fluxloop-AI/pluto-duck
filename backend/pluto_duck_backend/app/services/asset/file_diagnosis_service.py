@@ -1692,6 +1692,77 @@ class FileDiagnosisService:
 
         return diagnosis_id
 
+    def update_llm_analysis(self, diagnosis_id: str, llm_analysis: Optional[LLMAnalysisResult]) -> bool:
+        """Update only the llm_analysis field for an existing diagnosis."""
+        llm_analysis_json = json.dumps(llm_analysis.to_dict()) if llm_analysis else None
+        with self._get_connection() as conn:
+            conn.execute(
+                f"""
+                UPDATE {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
+                SET llm_analysis = ?
+                WHERE id = ? AND project_id = ?
+                """,
+                [llm_analysis_json, diagnosis_id, self.project_id],
+            )
+            result = conn.execute(
+                f"""
+                SELECT COUNT(*) FROM {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
+                WHERE id = ? AND project_id = ?
+                """,
+                [diagnosis_id, self.project_id],
+            ).fetchone()
+        return bool(result and result[0])
+
+    def update_quick_scan(self, diagnosis_id: str, diagnosis: FileDiagnosis) -> bool:
+        """Update technical diagnosis fields without touching llm_analysis."""
+        schema_json = json.dumps([col.to_dict() for col in diagnosis.schema])
+        missing_values_json = json.dumps(diagnosis.missing_values)
+        type_suggestions_json = json.dumps([ts.to_dict() for ts in diagnosis.type_suggestions])
+        parsing_integrity_json = (
+            json.dumps(diagnosis.parsing_integrity.to_dict())
+            if diagnosis.parsing_integrity
+            else None
+        )
+        with self._get_connection() as conn:
+            conn.execute(
+                f"""
+                UPDATE {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
+                SET file_path = ?,
+                    file_type = ?,
+                    schema_info = ?,
+                    missing_values = ?,
+                    type_suggestions = ?,
+                    parsing_integrity = ?,
+                    row_count = ?,
+                    column_count = ?,
+                    file_size_bytes = ?,
+                    diagnosed_at = ?
+                WHERE id = ? AND project_id = ?
+                """,
+                [
+                    diagnosis.file_path,
+                    diagnosis.file_type,
+                    schema_json,
+                    missing_values_json,
+                    type_suggestions_json,
+                    parsing_integrity_json,
+                    diagnosis.row_count,
+                    len(diagnosis.schema),
+                    diagnosis.file_size_bytes,
+                    diagnosis.diagnosed_at,
+                    diagnosis_id,
+                    self.project_id,
+                ],
+            )
+            result = conn.execute(
+                f"""
+                SELECT COUNT(*) FROM {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
+                WHERE id = ? AND project_id = ?
+                """,
+                [diagnosis_id, self.project_id],
+            ).fetchone()
+        return bool(result and result[0])
+
     def get_diagnosis_by_id(self, diagnosis_id: str) -> Optional[FileDiagnosis]:
         """Get a diagnosis by its ID.
 

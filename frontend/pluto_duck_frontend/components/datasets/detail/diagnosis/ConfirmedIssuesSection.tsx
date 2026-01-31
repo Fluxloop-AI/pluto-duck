@@ -12,7 +12,7 @@ function getIssueResponseInfo(issue: DatasetIssue): IssueResponseInfo | null {
   if (issue.status === 'dismissed') {
     return {
       type: 'no',
-      text: '문제 아님',
+      text: 'Not an issue',
       color: 'text-[#a8a29e]',
     };
   }
@@ -21,15 +21,15 @@ function getIssueResponseInfo(issue: DatasetIssue): IssueResponseInfo | null {
   if (!issue.userNote) {
     return {
       type: 'yes',
-      text: '문제 맞음',
+      text: 'Issue confirmed',
       color: 'text-red-500',
     };
   }
 
-  if (issue.userNote === '확인 필요') {
+  if (issue.userNote === 'Needs review') {
     return {
       type: 'unsure',
-      text: '확인 필요',
+      text: 'Needs review',
       color: 'text-[#d97706]',
     };
   }
@@ -100,7 +100,7 @@ export function ConfirmedIssuesSection({ issues }: ConfirmedIssuesSectionProps) 
           className="flex items-center gap-2 rounded-lg bg-[#292524] px-4 py-2.5 text-sm text-white hover:bg-[#1c1917] transition-colors"
         >
           <MessageSquare size={14} />
-          <span>에이전트와 함께 정리하기</span>
+          <span>Review with agent</span>
           <ArrowRight size={14} />
         </button>
       </div>

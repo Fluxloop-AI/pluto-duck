@@ -24,23 +24,26 @@ export function IssueCard({ issue, onRespond, onReset }: IssueCardProps) {
 
   const getStatusText = () => {
     if (issue.status === 'dismissed') {
-      return issue.dismissedReason || '문제 아님';
+      return issue.dismissedReason || 'Not an issue';
     }
     if (issue.status === 'acknowledged') {
       if (issue.userNote) {
         return issue.userNote;
       }
-      return '문제 맞음';
+      return 'Issue confirmed';
     }
     return '';
   };
 
   const getStatusColor = () => {
     if (issue.status === 'acknowledged') {
-      if (issue.userNote === '확인 필요') {
+      if (issue.userNote === 'Needs review') {
         return 'text-[#d97706]'; // warning color
       }
-      return 'text-red-500'; // "문제 맞음" - red color
+      if (issue.userNote) {
+        return 'text-muted-foreground';
+      }
+      return 'text-red-500'; // Issue confirmed
     }
     return 'text-muted-foreground';
   };
@@ -57,7 +60,7 @@ export function IssueCard({ issue, onRespond, onReset }: IssueCardProps) {
           )}
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>{issue.discoveredAt} 발견</span>
+          <span>{issue.discoveredAt} detected</span>
         </div>
       </div>
 
@@ -66,7 +69,7 @@ export function IssueCard({ issue, onRespond, onReset }: IssueCardProps) {
 
       {/* Example */}
       <div className="rounded-lg bg-background px-4 py-3">
-        <code className="text-sm text-muted-foreground">예: {issue.example}</code>
+        <code className="text-sm text-muted-foreground">Example: {issue.example}</code>
       </div>
 
       {/* Actions or Status */}
@@ -77,28 +80,28 @@ export function IssueCard({ issue, onRespond, onReset }: IssueCardProps) {
             onClick={() => onRespond(issue.id, 'correct')}
             className="px-4 py-2 text-sm bg-background border border-border rounded-lg hover:bg-muted/50 transition-colors"
           >
-            맞아요
+            Yes
           </button>
           <button
             type="button"
             onClick={() => onRespond(issue.id, 'incorrect')}
             className="px-4 py-2 text-sm bg-background border border-border rounded-lg hover:bg-muted/50 transition-colors"
           >
-            아니에요
+            No
           </button>
           <button
             type="button"
             onClick={() => onRespond(issue.id, 'unknown')}
             className="px-4 py-2 text-sm bg-background border border-border rounded-lg hover:bg-muted/50 transition-colors"
           >
-            잘 모르겠어요
+            Not sure
           </button>
           <button
             type="button"
             onClick={() => setShowInput(true)}
             className="px-4 py-2 text-sm bg-background border border-border rounded-lg hover:bg-muted/50 transition-colors"
           >
-            직접 입력
+            Add note
           </button>
         </div>
       )}
@@ -109,7 +112,7 @@ export function IssueCard({ issue, onRespond, onReset }: IssueCardProps) {
           <textarea
             value={userInput}
             onChange={(e) => setUserInput(e.target.value)}
-            placeholder="이 데이터에 대해 알려주세요..."
+            placeholder="Tell us about this data..."
             className="w-full min-h-[80px] rounded-lg border border-border bg-background p-3 text-sm resize-none placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
           />
           <div className="flex justify-end gap-2">
@@ -121,14 +124,14 @@ export function IssueCard({ issue, onRespond, onReset }: IssueCardProps) {
               }}
               className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
-              취소
+              Cancel
             </button>
             <button
               type="button"
               onClick={handleCustomInput}
               className="px-4 py-2 text-sm bg-foreground text-background rounded-lg hover:bg-foreground/90 transition-colors"
             >
-              확인
+              Submit
             </button>
           </div>
         </div>
@@ -145,7 +148,7 @@ export function IssueCard({ issue, onRespond, onReset }: IssueCardProps) {
             onClick={() => onReset(issue.id)}
             className="text-sm text-muted-foreground hover:text-foreground underline-offset-2 hover:underline transition-colors"
           >
-            다시 확인하기
+            Review again
           </button>
         </div>
       )}

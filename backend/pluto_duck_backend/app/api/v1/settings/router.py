@@ -11,7 +11,11 @@ from pydantic import BaseModel, Field
 
 from pluto_duck_backend.app.api.deps import get_project_id_query_required
 from pluto_duck_backend.app.core.config import get_settings as get_app_settings
-from pluto_duck_backend.app.services.asset import get_file_asset_service, get_file_diagnosis_service
+from pluto_duck_backend.app.services.asset import (
+    get_diagnosis_issue_service,
+    get_file_asset_service,
+    get_file_diagnosis_service,
+)
 from pluto_duck_backend.app.services.chat import get_chat_repository
 from pluto_duck_backend.app.services.source import get_source_service
 from pluto_duck_backend.app.services.workzone import get_work_zone_service
@@ -227,6 +231,10 @@ def reset_workspace_data(
         # Clear cached diagnoses for this project.
         diagnosis_service = get_file_diagnosis_service(project_id)
         diagnosis_service.delete_all()
+
+        # Clear diagnosis issues for this project.
+        issue_service = get_diagnosis_issue_service(project_id)
+        issue_service.delete_all()
 
         # Drop cached tables in the project's warehouse.
         source_service = get_source_service(project_id)

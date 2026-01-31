@@ -216,6 +216,29 @@ class DiagnosisIssueService:
 
         return [self._row_to_issue(row) for row in rows]
 
+    def delete_all(self) -> int:
+        """Delete all diagnosis issues for this project.
+
+        Returns:
+            Number of issues removed (best effort).
+        """
+        with self._get_connection() as conn:
+            before = conn.execute(
+                f"""
+                SELECT COUNT(*) FROM {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
+                WHERE project_id = ?
+                """,
+                [self.project_id],
+            ).fetchone()[0]
+            conn.execute(
+                f"""
+                DELETE FROM {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
+                WHERE project_id = ?
+                """,
+                [self.project_id],
+            )
+        return int(before or 0)
+
     def update_issue(
         self,
         *,

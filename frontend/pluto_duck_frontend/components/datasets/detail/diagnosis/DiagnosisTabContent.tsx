@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import type { FileDiagnosis } from '../../../../lib/fileAssetApi';
 import { rescanQuickScan } from '../../../../lib/fileAssetApi';
 import type { Dataset } from '../types';
@@ -31,7 +32,9 @@ export function DiagnosisTabContent({
     issuesLoading,
     findIssues,
     updateIssue,
+    issuesError,
   } = useDatasetIssues(projectId, dataset);
+  const [quickScanError, setQuickScanError] = useState<string | null>(null);
 
   const handleRespond = (id: string, response: string, note?: string) => {
     if (response === 'correct') {
@@ -58,33 +61,48 @@ export function DiagnosisTabContent({
   return (
     <div className="space-y-12">
       {/* Quick Scan Section */}
-      <QuickScanSection
-        diagnosis={diagnosis}
-        diagnosisLoading={diagnosisLoading}
-        onRescan={async () => {
-          if (!isFileAsset(dataset)) return;
-          try {
-            const updated = await rescanQuickScan(projectId, dataset.id);
-            onDiagnosisUpdate(updated);
-          } catch (error) {
-            console.error('Failed to rescan quick scan:', error);
-          } finally {
-            await refreshDiagnosis();
-          }
-        }}
-      />
+      <div className="space-y-4">
+        <QuickScanSection
+          diagnosis={diagnosis}
+          diagnosisLoading={diagnosisLoading}
+          onRescan={async () => {
+            if (!isFileAsset(dataset)) return;
+            setQuickScanError(null);
+            try {
+              const updated = await rescanQuickScan(projectId, dataset.id);
+              onDiagnosisUpdate(updated);
+            } catch (error) {
+              setQuickScanError(error instanceof Error ? error.message : 'Failed to rescan quick scan');
+            } finally {
+              await refreshDiagnosis();
+            }
+          }}
+        />
+        {quickScanError && (
+          <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            {quickScanError}
+          </div>
+        )}
+      </div>
 
       {/* Divider */}
       <div className="border-t border-border/50" />
 
       {/* Issues Section */}
-      <IssuesSection
-        issues={issues}
-        onRespond={handleRespond}
-        onReset={handleReset}
-        onFindIssues={() => void findIssues()}
-        loading={issuesLoading}
-      />
+      <div className="space-y-4">
+        {issuesError && (
+          <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            {issuesError}
+          </div>
+        )}
+        <IssuesSection
+          issues={issues}
+          onRespond={handleRespond}
+          onReset={handleReset}
+          onFindIssues={() => void findIssues()}
+          loading={issuesLoading}
+        />
+      </div>
 
       {/* Divider */}
       <div className="border-t border-border/50" />

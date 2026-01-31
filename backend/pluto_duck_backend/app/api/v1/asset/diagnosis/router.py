@@ -272,6 +272,7 @@ async def diagnose_files(
 @router.get("/{file_id}/diagnosis", response_model=FileDiagnosisResponse)
 def get_file_diagnosis(
     file_id: str,
+    use_cache: bool = True,
     file_service: FileAssetService = Depends(get_file_asset_service_dep),
     diagnosis_service: FileDiagnosisService = Depends(get_file_diagnosis_service_dep),
 ) -> FileDiagnosisResponse:
@@ -279,6 +280,7 @@ def get_file_diagnosis(
 
     Retrieves the diagnosis linked to a file asset.
     First tries to lookup by diagnosis_id (if present), then falls back to file_path.
+    Set use_cache=false to force a fresh diagnosis and update the cache.
     """
     logger.info(f"[get_file_diagnosis] Request for file_id={file_id}")
     asset = file_service.get_file(file_id)
@@ -295,8 +297,23 @@ def get_file_diagnosis(
 
     diagnosis = None
 
+    if not use_cache:
+        logger.info("[get_file_diagnosis] use_cache=false, running fresh diagnosis")
+        try:
+            diagnosis = diagnosis_service.diagnose_file(
+                asset.file_path,
+                asset.file_type,
+            )
+            saved_id = diagnosis_service.save_diagnosis(diagnosis)
+            diagnosis.diagnosis_id = saved_id
+            file_service.update_diagnosis_id(asset.id, saved_id)
+            asset.diagnosis_id = saved_id
+        except DiagnosisError as e:
+            logger.error(f"[get_file_diagnosis] Fresh diagnosis failed: {e}")
+            raise HTTPException(status_code=500, detail=f"Diagnosis failed: {e}")
+
     # Method 1: Lookup by diagnosis_id (if present)
-    if asset.diagnosis_id:
+    if diagnosis is None and asset.diagnosis_id:
         logger.info(
             "[get_file_diagnosis] Trying lookup by diagnosis_id: %s",
             asset.diagnosis_id,

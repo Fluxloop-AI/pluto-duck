@@ -515,6 +515,7 @@ class FileDiagnosisService:
                     schema_info TEXT,
                     missing_values TEXT,
                     type_suggestions TEXT,
+                    parsing_integrity TEXT,
                     row_count BIGINT,
                     column_count INTEGER,
                     file_size_bytes BIGINT,
@@ -527,6 +528,14 @@ class FileDiagnosisService:
                 conn.execute(f"""
                     ALTER TABLE {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
                     ADD COLUMN IF NOT EXISTS llm_analysis TEXT
+                """)
+            except Exception:
+                # Column might already exist or ALTER not supported
+                pass
+            try:
+                conn.execute(f"""
+                    ALTER TABLE {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
+                    ADD COLUMN IF NOT EXISTS parsing_integrity TEXT
                 """)
             except Exception:
                 # Column might already exist or ALTER not supported
@@ -1626,6 +1635,11 @@ class FileDiagnosisService:
         schema_json = json.dumps([col.to_dict() for col in diagnosis.schema])
         missing_values_json = json.dumps(diagnosis.missing_values)
         type_suggestions_json = json.dumps([ts.to_dict() for ts in diagnosis.type_suggestions])
+        parsing_integrity_json = (
+            json.dumps(diagnosis.parsing_integrity.to_dict())
+            if diagnosis.parsing_integrity
+            else None
+        )
         llm_analysis_json = json.dumps(diagnosis.llm_analysis.to_dict()) if diagnosis.llm_analysis else None
         logger.info(f"[save_diagnosis] llm_analysis present: {diagnosis.llm_analysis is not None}")
 
@@ -1640,8 +1654,9 @@ class FileDiagnosisService:
             conn.execute(f"""
                 INSERT INTO {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
                 (id, project_id, file_path, file_type, schema_info, missing_values,
-                 type_suggestions, row_count, column_count, file_size_bytes, diagnosed_at, llm_analysis)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 type_suggestions, parsing_integrity, row_count, column_count,
+                 file_size_bytes, diagnosed_at, llm_analysis)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, [
                 diagnosis_id,
                 self.project_id,
@@ -1650,6 +1665,7 @@ class FileDiagnosisService:
                 schema_json,
                 missing_values_json,
                 type_suggestions_json,
+                parsing_integrity_json,
                 diagnosis.row_count,
                 len(diagnosis.schema),
                 diagnosis.file_size_bytes,
@@ -1676,7 +1692,8 @@ class FileDiagnosisService:
         with self._get_connection() as conn:
             result = conn.execute(f"""
                 SELECT file_path, file_type, schema_info, missing_values,
-                       type_suggestions, row_count, file_size_bytes, diagnosed_at, llm_analysis
+                       type_suggestions, parsing_integrity, row_count, file_size_bytes,
+                       diagnosed_at, llm_analysis
                 FROM {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
                 WHERE id = ? AND project_id = ?
             """, [diagnosis_id, self.project_id]).fetchone()
@@ -1691,7 +1708,8 @@ class FileDiagnosisService:
             schema_data = json.loads(result[2]) if result[2] else []
             missing_values = json.loads(result[3]) if result[3] else {}
             type_suggestions_data = json.loads(result[4]) if result[4] else []
-            llm_analysis_data = json.loads(result[8]) if result[8] else None
+            parsing_integrity_data = json.loads(result[5]) if result[5] else None
+            llm_analysis_data = json.loads(result[9]) if result[9] else None
 
             # Reconstruct schema
             schema = [
@@ -1714,6 +1732,16 @@ class FileDiagnosisService:
                 )
                 for ts in type_suggestions_data
             ]
+
+            parsing_integrity = None
+            if parsing_integrity_data:
+                parsing_integrity = ParsingIntegrity(
+                    total_lines=parsing_integrity_data.get("total_lines", 0),
+                    parsed_rows=parsing_integrity_data.get("parsed_rows", 0),
+                    malformed_rows=parsing_integrity_data.get("malformed_rows", 0),
+                    has_errors=parsing_integrity_data.get("has_errors", False),
+                    error_message=parsing_integrity_data.get("error_message"),
+                )
 
             # Reconstruct LLM analysis if present
             llm_analysis: Optional[LLMAnalysisResult] = None
@@ -1744,10 +1772,11 @@ class FileDiagnosisService:
                 file_type=result[1],
                 schema=schema,
                 missing_values=missing_values,
-                row_count=result[5],
-                file_size_bytes=result[6],
+                row_count=result[6],
+                file_size_bytes=result[7],
                 type_suggestions=type_suggestions,
-                diagnosed_at=result[7],
+                parsing_integrity=parsing_integrity,
+                diagnosed_at=result[8],
                 llm_analysis=llm_analysis,
                 diagnosis_id=diagnosis_id,
             )
@@ -1764,7 +1793,8 @@ class FileDiagnosisService:
         with self._get_connection() as conn:
             result = conn.execute(f"""
                 SELECT id, file_path, file_type, schema_info, missing_values,
-                       type_suggestions, row_count, file_size_bytes, diagnosed_at, llm_analysis
+                       type_suggestions, parsing_integrity, row_count, file_size_bytes,
+                       diagnosed_at, llm_analysis
                 FROM {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
                 WHERE file_path = ? AND project_id = ?
             """, [file_path, self.project_id]).fetchone()
@@ -1777,7 +1807,8 @@ class FileDiagnosisService:
             schema_data = json.loads(result[3]) if result[3] else []
             missing_values = json.loads(result[4]) if result[4] else {}
             type_suggestions_data = json.loads(result[5]) if result[5] else []
-            llm_analysis_data = json.loads(result[9]) if result[9] else None
+            parsing_integrity_data = json.loads(result[6]) if result[6] else None
+            llm_analysis_data = json.loads(result[10]) if result[10] else None
 
             # Reconstruct schema
             schema = [
@@ -1800,6 +1831,16 @@ class FileDiagnosisService:
                 )
                 for ts in type_suggestions_data
             ]
+
+            parsing_integrity = None
+            if parsing_integrity_data:
+                parsing_integrity = ParsingIntegrity(
+                    total_lines=parsing_integrity_data.get("total_lines", 0),
+                    parsed_rows=parsing_integrity_data.get("parsed_rows", 0),
+                    malformed_rows=parsing_integrity_data.get("malformed_rows", 0),
+                    has_errors=parsing_integrity_data.get("has_errors", False),
+                    error_message=parsing_integrity_data.get("error_message"),
+                )
 
             # Reconstruct LLM analysis if present
             llm_analysis: Optional[LLMAnalysisResult] = None
@@ -1830,10 +1871,11 @@ class FileDiagnosisService:
                 file_type=result[2],
                 schema=schema,
                 missing_values=missing_values,
-                row_count=result[6],
-                file_size_bytes=result[7],
+                row_count=result[7],
+                file_size_bytes=result[8],
                 type_suggestions=type_suggestions,
-                diagnosed_at=result[8],
+                parsing_integrity=parsing_integrity,
+                diagnosed_at=result[9],
                 llm_analysis=llm_analysis,
                 diagnosis_id=cached_diagnosis_id,
             )

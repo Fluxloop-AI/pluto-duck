@@ -69,7 +69,8 @@ class ResetWorkspaceDataResponse(BaseModel):
 
 def _quote_identifier(name: str) -> str:
     """Quote a SQL identifier safely for DuckDB."""
-    return f"\"{name.replace('\"', '\"\"')}\""
+    escaped = name.replace('"', '""')
+    return f'"{escaped}"'
 
 
 def mask_api_key(api_key: Optional[str]) -> Optional[str]:

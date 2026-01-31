@@ -38,7 +38,7 @@ export interface QuickScanItem {
 export interface DatasetIssue {
   id: string;
   title: string;
-  columnName: string;
+  issueType: string;
   discoveredAt: string;
   example: string;
   description: string;

@@ -25,7 +25,7 @@ export const initialMockIssues: DatasetIssue[] = [
   {
     id: '1',
     title: 'Date formats are mixed',
-    columnName: 'date',
+    issueType: 'date',
     discoveredAt: '2025.01.25',
     example: '"2025-01-22", "01/23/2025"',
     description: 'YYYY-MM-DD and MM/DD/YYYY formats are mixed.',
@@ -35,7 +35,7 @@ export const initialMockIssues: DatasetIssue[] = [
   {
     id: '2',
     title: 'Currency formats are mixed',
-    columnName: 'spend',
+    issueType: 'spend',
     discoveredAt: '2025.01.25',
     example: '"125000", "$125,000"',
     description: 'Values include both raw numbers and currency symbols.',
@@ -45,7 +45,7 @@ export const initialMockIssues: DatasetIssue[] = [
   {
     id: '3',
     title: 'Phone number formats are mixed',
-    columnName: 'phone',
+    issueType: 'phone',
     discoveredAt: '2025.01.26',
     example: '"010-1234-5678", "01012345678"',
     description: 'Values include both hyphenated and plain formats.',
@@ -55,7 +55,7 @@ export const initialMockIssues: DatasetIssue[] = [
   {
     id: '4',
     title: 'Missing values show a pattern',
-    columnName: 'revenue',
+    issueType: 'revenue',
     discoveredAt: '2025.01.26',
     example: 'revenue is null when conversions=0',
     description: 'Revenue is null when conversions are 0. Please confirm intent.',

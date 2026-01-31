@@ -52,15 +52,15 @@ export function IssueCard({ issue, onRespond, onReset }: IssueCardProps) {
     <div className="rounded-xl bg-muted/50 p-5 space-y-4">
       {/* Header */}
       <div className="space-y-1.5">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span>{issue.discoveredAt} detected</span>
+        </div>
         <div className="flex items-center gap-2">
-          <span className="px-2 py-0.5 text-xs bg-background border border-border rounded-md font-medium text-muted-foreground">{issue.columnName}</span>
+          <span className="px-2 py-0.5 text-xs bg-background border border-border rounded-md font-medium text-muted-foreground">{issue.issueType}</span>
           <h4 className="text-base font-medium">{issue.title}</h4>
           {issue.isNew && (
             <span className="text-[10px] font-semibold text-red-500">NEW</span>
           )}
-        </div>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>{issue.discoveredAt} detected</span>
         </div>
       </div>
 

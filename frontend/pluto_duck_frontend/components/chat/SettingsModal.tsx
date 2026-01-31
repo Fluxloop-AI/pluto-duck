@@ -35,7 +35,13 @@ import {
   SelectValue,
 } from '../ui/select';
 import { Avatar, AvatarFallback } from '../ui/avatar';
-import { fetchSettings, updateSettings, resetDatabase, type UpdateSettingsRequest } from '../../lib/settingsApi';
+import {
+  fetchSettings,
+  updateSettings,
+  resetDatabase,
+  resetWorkspaceData,
+  type UpdateSettingsRequest,
+} from '../../lib/settingsApi';
 import {
   downloadLocalModel,
   listLocalModels,
@@ -56,6 +62,8 @@ interface SettingsModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSettingsSaved?: (model: string) => void;
+  projectId?: string | null;
+  onWorkspaceReset?: () => void;
 }
 
 type SettingsMenu = 'profile' | 'preferences' | 'notifications' | 'models' | 'updates' | 'data';
@@ -80,7 +88,13 @@ const MENU_ITEMS_SETTINGS: MenuItem[] = [
 
 const MODELS = ALL_MODEL_OPTIONS;
 
-export function SettingsModal({ open, onOpenChange, onSettingsSaved }: SettingsModalProps) {
+export function SettingsModal({
+  open,
+  onOpenChange,
+  onSettingsSaved,
+  projectId,
+  onWorkspaceReset,
+}: SettingsModalProps) {
   const [activeMenu, setActiveMenu] = useState<SettingsMenu>('profile');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -100,6 +114,8 @@ export function SettingsModal({ open, onOpenChange, onSettingsSaved }: SettingsM
   // DB Reset states
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [showResetWorkspaceDialog, setShowResetWorkspaceDialog] = useState(false);
+  const [resettingWorkspace, setResettingWorkspace] = useState(false);
 
   // Auto Update
   const {
@@ -356,6 +372,29 @@ export function SettingsModal({ open, onOpenChange, onSettingsSaved }: SettingsM
       setShowResetDialog(false);
     } finally {
       setResetting(false);
+    }
+  };
+
+  const handleResetWorkspaceData = async () => {
+    if (!projectId) {
+      setError('No active workspace selected');
+      return;
+    }
+
+    setResettingWorkspace(true);
+    setError(null);
+    setSuccessMessage(null);
+
+    try {
+      await resetWorkspaceData(projectId);
+      setSuccessMessage('Workspace reset successfully!');
+      setShowResetWorkspaceDialog(false);
+      onWorkspaceReset?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to reset workspace data');
+      setShowResetWorkspaceDialog(false);
+    } finally {
+      setResettingWorkspace(false);
     }
   };
 
@@ -762,6 +801,32 @@ export function SettingsModal({ open, onOpenChange, onSettingsSaved }: SettingsM
     <div className="grid gap-4">
       <h3 className="text-sm font-semibold">Data Management</h3>
       <div className="flex items-start gap-3">
+        <AlertTriangleIcon className="h-5 w-5 text-amber-500 mt-0.5 shrink-0" />
+        <div className="grid gap-2 flex-1">
+          <h4 className="text-sm font-medium">Workspace Reset</h4>
+          <div className="grid gap-2">
+            <p className="text-sm text-muted-foreground">
+              Reset all workspace data without deleting the workspace itself.
+            </p>
+            <p className="text-xs text-muted-foreground">
+              This will delete datasets, boards, conversations, and project metadata.
+            </p>
+          </div>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => setShowResetWorkspaceDialog(true)}
+            disabled={loading || saving || resetting || resettingWorkspace || !projectId}
+            className="w-fit"
+          >
+            Reset Workspace
+          </Button>
+          {!projectId && (
+            <p className="text-xs text-muted-foreground">No active workspace selected.</p>
+          )}
+        </div>
+      </div>
+      <div className="flex items-start gap-3">
         <AlertTriangleIcon className="h-5 w-5 text-destructive mt-0.5 shrink-0" />
         <div className="grid gap-2 flex-1">
           <h4 className="text-sm font-medium">Danger Zone</h4>
@@ -777,7 +842,7 @@ export function SettingsModal({ open, onOpenChange, onSettingsSaved }: SettingsM
             variant="destructive"
             size="sm"
             onClick={() => setShowResetDialog(true)}
-            disabled={loading || saving || resetting}
+            disabled={loading || saving || resetting || resettingWorkspace}
             className="w-fit"
           >
             Reset Database
@@ -952,6 +1017,53 @@ export function SettingsModal({ open, onOpenChange, onSettingsSaved }: SettingsM
               disabled={resetting}
             >
               {resetting ? 'Resetting...' : 'Yes, Reset Database'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Confirmation Dialog for Workspace Data Reset */}
+      <Dialog open={showResetWorkspaceDialog} onOpenChange={setShowResetWorkspaceDialog}>
+        <DialogContent className="sm:max-w-[450px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-600">
+              <AlertTriangleIcon className="h-5 w-5" />
+              Reset Workspace?
+            </DialogTitle>
+            <DialogDescription>
+              This will permanently delete data in the current workspace.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-4">
+            <ul className="list-disc list-inside space-y-2 text-sm text-muted-foreground">
+              <li>Datasets (file imports and cached tables)</li>
+              <li>Boards and board items</li>
+              <li>Conversations and messages</li>
+              <li>Data source metadata and cached diagnoses</li>
+            </ul>
+
+            <div className="mt-4 p-3 bg-amber-500/10 rounded-md border border-amber-500/20">
+              <p className="text-sm font-medium text-amber-700">
+                The workspace will remain, but its contents will be cleared.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowResetWorkspaceDialog(false)}
+              disabled={resettingWorkspace}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleResetWorkspaceData}
+              disabled={resettingWorkspace}
+            >
+              {resettingWorkspace ? 'Resetting...' : 'Yes, Reset Workspace'}
             </Button>
           </DialogFooter>
         </DialogContent>

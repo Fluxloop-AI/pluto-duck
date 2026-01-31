@@ -10,9 +10,11 @@ This service analyzes CSV/Parquet files before import to provide:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
+import threading
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -301,18 +303,26 @@ class IssueItem:
 
     Attributes:
         issue: Description of the data quality issue
+        issue_type: Category of the issue (e.g., Validity, Completeness)
         suggestion: Suggested fix or improvement
+        example: Example values showing the issue (optional)
     """
 
     issue: str
+    issue_type: str
     suggestion: str
+    example: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
-        return {
+        result = {
             "issue": self.issue,
+            "issue_type": self.issue_type,
             "suggestion": self.suggestion,
         }
+        if self.example is not None:
+            result["example"] = self.example
+        return result
 
 
 @dataclass
@@ -500,6 +510,9 @@ class FileDiagnosisService:
         """
         self.project_id = project_id
         self.warehouse_path = warehouse_path
+        self._llm_state_lock = threading.Lock()
+        self._llm_inflight_keys: set[str] = set()
+        self._llm_merged_cache: Dict[str, MergedAnalysis] = {}
         self._ensure_metadata_tables()
 
     def _ensure_metadata_tables(self) -> None:
@@ -515,6 +528,7 @@ class FileDiagnosisService:
                     schema_info TEXT,
                     missing_values TEXT,
                     type_suggestions TEXT,
+                    parsing_integrity TEXT,
                     row_count BIGINT,
                     column_count INTEGER,
                     file_size_bytes BIGINT,
@@ -527,6 +541,14 @@ class FileDiagnosisService:
                 conn.execute(f"""
                     ALTER TABLE {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
                     ADD COLUMN IF NOT EXISTS llm_analysis TEXT
+                """)
+            except Exception:
+                # Column might already exist or ALTER not supported
+                pass
+            try:
+                conn.execute(f"""
+                    ALTER TABLE {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
+                    ADD COLUMN IF NOT EXISTS parsing_integrity TEXT
                 """)
             except Exception:
                 # Column might already exist or ALTER not supported
@@ -1626,6 +1648,11 @@ class FileDiagnosisService:
         schema_json = json.dumps([col.to_dict() for col in diagnosis.schema])
         missing_values_json = json.dumps(diagnosis.missing_values)
         type_suggestions_json = json.dumps([ts.to_dict() for ts in diagnosis.type_suggestions])
+        parsing_integrity_json = (
+            json.dumps(diagnosis.parsing_integrity.to_dict())
+            if diagnosis.parsing_integrity
+            else None
+        )
         llm_analysis_json = json.dumps(diagnosis.llm_analysis.to_dict()) if diagnosis.llm_analysis else None
         logger.info(f"[save_diagnosis] llm_analysis present: {diagnosis.llm_analysis is not None}")
 
@@ -1640,8 +1667,9 @@ class FileDiagnosisService:
             conn.execute(f"""
                 INSERT INTO {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
                 (id, project_id, file_path, file_type, schema_info, missing_values,
-                 type_suggestions, row_count, column_count, file_size_bytes, diagnosed_at, llm_analysis)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 type_suggestions, parsing_integrity, row_count, column_count,
+                 file_size_bytes, diagnosed_at, llm_analysis)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, [
                 diagnosis_id,
                 self.project_id,
@@ -1650,6 +1678,7 @@ class FileDiagnosisService:
                 schema_json,
                 missing_values_json,
                 type_suggestions_json,
+                parsing_integrity_json,
                 diagnosis.row_count,
                 len(diagnosis.schema),
                 diagnosis.file_size_bytes,
@@ -1662,6 +1691,77 @@ class FileDiagnosisService:
         diagnosis.diagnosis_id = diagnosis_id
 
         return diagnosis_id
+
+    def update_llm_analysis(self, diagnosis_id: str, llm_analysis: Optional[LLMAnalysisResult]) -> bool:
+        """Update only the llm_analysis field for an existing diagnosis."""
+        llm_analysis_json = json.dumps(llm_analysis.to_dict()) if llm_analysis else None
+        with self._get_connection() as conn:
+            conn.execute(
+                f"""
+                UPDATE {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
+                SET llm_analysis = ?
+                WHERE id = ? AND project_id = ?
+                """,
+                [llm_analysis_json, diagnosis_id, self.project_id],
+            )
+            result = conn.execute(
+                f"""
+                SELECT COUNT(*) FROM {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
+                WHERE id = ? AND project_id = ?
+                """,
+                [diagnosis_id, self.project_id],
+            ).fetchone()
+        return bool(result and result[0])
+
+    def update_quick_scan(self, diagnosis_id: str, diagnosis: FileDiagnosis) -> bool:
+        """Update technical diagnosis fields without touching llm_analysis."""
+        schema_json = json.dumps([col.to_dict() for col in diagnosis.schema])
+        missing_values_json = json.dumps(diagnosis.missing_values)
+        type_suggestions_json = json.dumps([ts.to_dict() for ts in diagnosis.type_suggestions])
+        parsing_integrity_json = (
+            json.dumps(diagnosis.parsing_integrity.to_dict())
+            if diagnosis.parsing_integrity
+            else None
+        )
+        with self._get_connection() as conn:
+            conn.execute(
+                f"""
+                UPDATE {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
+                SET file_path = ?,
+                    file_type = ?,
+                    schema_info = ?,
+                    missing_values = ?,
+                    type_suggestions = ?,
+                    parsing_integrity = ?,
+                    row_count = ?,
+                    column_count = ?,
+                    file_size_bytes = ?,
+                    diagnosed_at = ?
+                WHERE id = ? AND project_id = ?
+                """,
+                [
+                    diagnosis.file_path,
+                    diagnosis.file_type,
+                    schema_json,
+                    missing_values_json,
+                    type_suggestions_json,
+                    parsing_integrity_json,
+                    diagnosis.row_count,
+                    len(diagnosis.schema),
+                    diagnosis.file_size_bytes,
+                    diagnosis.diagnosed_at,
+                    diagnosis_id,
+                    self.project_id,
+                ],
+            )
+            result = conn.execute(
+                f"""
+                SELECT COUNT(*) FROM {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
+                WHERE id = ? AND project_id = ?
+                """,
+                [diagnosis_id, self.project_id],
+            ).fetchone()
+        return bool(result and result[0])
 
     def get_diagnosis_by_id(self, diagnosis_id: str) -> Optional[FileDiagnosis]:
         """Get a diagnosis by its ID.
@@ -1676,7 +1776,8 @@ class FileDiagnosisService:
         with self._get_connection() as conn:
             result = conn.execute(f"""
                 SELECT file_path, file_type, schema_info, missing_values,
-                       type_suggestions, row_count, file_size_bytes, diagnosed_at, llm_analysis
+                       type_suggestions, parsing_integrity, row_count, file_size_bytes,
+                       diagnosed_at, llm_analysis
                 FROM {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
                 WHERE id = ? AND project_id = ?
             """, [diagnosis_id, self.project_id]).fetchone()
@@ -1691,92 +1792,7 @@ class FileDiagnosisService:
             schema_data = json.loads(result[2]) if result[2] else []
             missing_values = json.loads(result[3]) if result[3] else {}
             type_suggestions_data = json.loads(result[4]) if result[4] else []
-            llm_analysis_data = json.loads(result[8]) if result[8] else None
-
-            # Reconstruct schema
-            schema = [
-                ColumnSchema(
-                    name=col["name"],
-                    type=col["type"],
-                    nullable=col.get("nullable", True),
-                )
-                for col in schema_data
-            ]
-
-            # Reconstruct type suggestions
-            type_suggestions = [
-                TypeSuggestion(
-                    column_name=ts["column_name"],
-                    current_type=ts["current_type"],
-                    suggested_type=ts["suggested_type"],
-                    confidence=ts["confidence"],
-                    sample_values=ts.get("sample_values", []),
-                )
-                for ts in type_suggestions_data
-            ]
-
-            # Reconstruct LLM analysis if present
-            llm_analysis: Optional[LLMAnalysisResult] = None
-            if llm_analysis_data:
-                llm_analysis = LLMAnalysisResult(
-                    suggested_name=llm_analysis_data.get("suggested_name", ""),
-                    context=llm_analysis_data.get("context", ""),
-                    potential=[
-                        PotentialItem(
-                            question=p.get("question", ""),
-                            analysis=p.get("analysis", ""),
-                        )
-                        for p in llm_analysis_data.get("potential", [])
-                    ],
-                    issues=[
-                        IssueItem(
-                            issue=i.get("issue", ""),
-                            suggestion=i.get("suggestion", ""),
-                        )
-                        for i in llm_analysis_data.get("issues", [])
-                    ],
-                    analyzed_at=datetime.fromisoformat(llm_analysis_data["analyzed_at"]) if llm_analysis_data.get("analyzed_at") else datetime.now(UTC),
-                    model_used=llm_analysis_data.get("model_used", "unknown"),
-                )
-
-            return FileDiagnosis(
-                file_path=result[0],
-                file_type=result[1],
-                schema=schema,
-                missing_values=missing_values,
-                row_count=result[5],
-                file_size_bytes=result[6],
-                type_suggestions=type_suggestions,
-                diagnosed_at=result[7],
-                llm_analysis=llm_analysis,
-                diagnosis_id=diagnosis_id,
-            )
-
-    def get_cached_diagnosis(self, file_path: str) -> Optional[FileDiagnosis]:
-        """Get a cached diagnosis result for a file.
-
-        Args:
-            file_path: Path to the file
-
-        Returns:
-            FileDiagnosis if cached, None otherwise
-        """
-        with self._get_connection() as conn:
-            result = conn.execute(f"""
-                SELECT id, file_path, file_type, schema_info, missing_values,
-                       type_suggestions, row_count, file_size_bytes, diagnosed_at, llm_analysis
-                FROM {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
-                WHERE file_path = ? AND project_id = ?
-            """, [file_path, self.project_id]).fetchone()
-
-            if not result:
-                return None
-
-            # Deserialize JSON fields
-            cached_diagnosis_id = result[0]
-            schema_data = json.loads(result[3]) if result[3] else []
-            missing_values = json.loads(result[4]) if result[4] else {}
-            type_suggestions_data = json.loads(result[5]) if result[5] else []
+            parsing_integrity_data = json.loads(result[5]) if result[5] else None
             llm_analysis_data = json.loads(result[9]) if result[9] else None
 
             # Reconstruct schema
@@ -1801,6 +1817,16 @@ class FileDiagnosisService:
                 for ts in type_suggestions_data
             ]
 
+            parsing_integrity = None
+            if parsing_integrity_data:
+                parsing_integrity = ParsingIntegrity(
+                    total_lines=parsing_integrity_data.get("total_lines", 0),
+                    parsed_rows=parsing_integrity_data.get("parsed_rows", 0),
+                    malformed_rows=parsing_integrity_data.get("malformed_rows", 0),
+                    has_errors=parsing_integrity_data.get("has_errors", False),
+                    error_message=parsing_integrity_data.get("error_message"),
+                )
+
             # Reconstruct LLM analysis if present
             llm_analysis: Optional[LLMAnalysisResult] = None
             if llm_analysis_data:
@@ -1817,7 +1843,110 @@ class FileDiagnosisService:
                     issues=[
                         IssueItem(
                             issue=i.get("issue", ""),
+                            issue_type=i.get("issue_type", "general"),
                             suggestion=i.get("suggestion", ""),
+                            example=i.get("example"),
+                        )
+                        for i in llm_analysis_data.get("issues", [])
+                    ],
+                    analyzed_at=datetime.fromisoformat(llm_analysis_data["analyzed_at"]) if llm_analysis_data.get("analyzed_at") else datetime.now(UTC),
+                    model_used=llm_analysis_data.get("model_used", "unknown"),
+                )
+
+            return FileDiagnosis(
+                file_path=result[0],
+                file_type=result[1],
+                schema=schema,
+                missing_values=missing_values,
+                row_count=result[6],
+                file_size_bytes=result[7],
+                type_suggestions=type_suggestions,
+                parsing_integrity=parsing_integrity,
+                diagnosed_at=result[8],
+                llm_analysis=llm_analysis,
+                diagnosis_id=diagnosis_id,
+            )
+
+    def get_cached_diagnosis(self, file_path: str) -> Optional[FileDiagnosis]:
+        """Get a cached diagnosis result for a file.
+
+        Args:
+            file_path: Path to the file
+
+        Returns:
+            FileDiagnosis if cached, None otherwise
+        """
+        with self._get_connection() as conn:
+            result = conn.execute(f"""
+                SELECT id, file_path, file_type, schema_info, missing_values,
+                       type_suggestions, parsing_integrity, row_count, file_size_bytes,
+                       diagnosed_at, llm_analysis
+                FROM {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
+                WHERE file_path = ? AND project_id = ?
+            """, [file_path, self.project_id]).fetchone()
+
+            if not result:
+                return None
+
+            # Deserialize JSON fields
+            cached_diagnosis_id = result[0]
+            schema_data = json.loads(result[3]) if result[3] else []
+            missing_values = json.loads(result[4]) if result[4] else {}
+            type_suggestions_data = json.loads(result[5]) if result[5] else []
+            parsing_integrity_data = json.loads(result[6]) if result[6] else None
+            llm_analysis_data = json.loads(result[10]) if result[10] else None
+
+            # Reconstruct schema
+            schema = [
+                ColumnSchema(
+                    name=col["name"],
+                    type=col["type"],
+                    nullable=col.get("nullable", True),
+                )
+                for col in schema_data
+            ]
+
+            # Reconstruct type suggestions
+            type_suggestions = [
+                TypeSuggestion(
+                    column_name=ts["column_name"],
+                    current_type=ts["current_type"],
+                    suggested_type=ts["suggested_type"],
+                    confidence=ts["confidence"],
+                    sample_values=ts.get("sample_values", []),
+                )
+                for ts in type_suggestions_data
+            ]
+
+            parsing_integrity = None
+            if parsing_integrity_data:
+                parsing_integrity = ParsingIntegrity(
+                    total_lines=parsing_integrity_data.get("total_lines", 0),
+                    parsed_rows=parsing_integrity_data.get("parsed_rows", 0),
+                    malformed_rows=parsing_integrity_data.get("malformed_rows", 0),
+                    has_errors=parsing_integrity_data.get("has_errors", False),
+                    error_message=parsing_integrity_data.get("error_message"),
+                )
+
+            # Reconstruct LLM analysis if present
+            llm_analysis: Optional[LLMAnalysisResult] = None
+            if llm_analysis_data:
+                llm_analysis = LLMAnalysisResult(
+                    suggested_name=llm_analysis_data.get("suggested_name", ""),
+                    context=llm_analysis_data.get("context", ""),
+                    potential=[
+                        PotentialItem(
+                            question=p.get("question", ""),
+                            analysis=p.get("analysis", ""),
+                        )
+                        for p in llm_analysis_data.get("potential", [])
+                    ],
+                    issues=[
+                        IssueItem(
+                            issue=i.get("issue", ""),
+                            issue_type=i.get("issue_type", "general"),
+                            suggestion=i.get("suggestion", ""),
+                            example=i.get("example"),
                         )
                         for i in llm_analysis_data.get("issues", [])
                     ],
@@ -1830,10 +1959,11 @@ class FileDiagnosisService:
                 file_type=result[2],
                 schema=schema,
                 missing_values=missing_values,
-                row_count=result[6],
-                file_size_bytes=result[7],
+                row_count=result[7],
+                file_size_bytes=result[8],
                 type_suggestions=type_suggestions,
-                diagnosed_at=result[8],
+                parsing_integrity=parsing_integrity,
+                diagnosed_at=result[9],
                 llm_analysis=llm_analysis,
                 diagnosis_id=cached_diagnosis_id,
             )
@@ -1858,6 +1988,79 @@ class FileDiagnosisService:
                 WHERE file_path = ? AND project_id = ?
             """, [file_path, self.project_id]).fetchone()
             return check[0] == 0
+
+    # =========================================================================
+    # LLM background coordination helpers
+    # =========================================================================
+
+    def build_llm_cache_key(
+        self,
+        files: List[DiagnoseFileRequest],
+        merge_context: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Build a stable key for LLM analysis caching/in-flight tracking."""
+        payload = {
+            "files": [
+                {"path": f.file_path, "type": f.file_type} for f in files
+            ],
+            "merge_context": merge_context or {},
+        }
+        encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    def is_llm_inflight(self, key: str) -> bool:
+        """Return True if an LLM job is already running for this key."""
+        with self._llm_state_lock:
+            return key in self._llm_inflight_keys
+
+    def mark_llm_inflight(self, key: str) -> bool:
+        """Mark an LLM job as inflight. Returns True if newly marked."""
+        with self._llm_state_lock:
+            if key in self._llm_inflight_keys:
+                return False
+            self._llm_inflight_keys.add(key)
+            return True
+
+    def clear_llm_inflight(self, key: str) -> None:
+        """Clear inflight marker for an LLM job."""
+        with self._llm_state_lock:
+            self._llm_inflight_keys.discard(key)
+
+    def get_cached_merged_analysis(self, key: str) -> Optional[MergedAnalysis]:
+        """Get cached merged analysis for an LLM job key."""
+        with self._llm_state_lock:
+            return self._llm_merged_cache.get(key)
+
+    def set_cached_merged_analysis(self, key: str, merged: Optional[MergedAnalysis]) -> None:
+        """Cache merged analysis for an LLM job key."""
+        with self._llm_state_lock:
+            if merged is None:
+                self._llm_merged_cache.pop(key, None)
+            else:
+                self._llm_merged_cache[key] = merged
+
+    def delete_all(self) -> int:
+        """Delete all cached diagnoses for this project.
+
+        Returns:
+            Number of diagnoses removed (best effort).
+        """
+        with self._get_connection() as conn:
+            before = conn.execute(
+                f"""
+                SELECT COUNT(*) FROM {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
+                WHERE project_id = ?
+                """,
+                [self.project_id],
+            ).fetchone()[0]
+            conn.execute(
+                f"""
+                DELETE FROM {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
+                WHERE project_id = ?
+                """,
+                [self.project_id],
+            )
+        return int(before or 0)
 
 
 # =============================================================================

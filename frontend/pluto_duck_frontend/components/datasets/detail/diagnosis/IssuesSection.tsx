@@ -8,9 +8,11 @@ interface IssuesSectionProps {
   issues: DatasetIssue[];
   onRespond: (id: string, response: string, note?: string) => void;
   onReset: (id: string) => void;
+  onFindIssues: () => void;
+  loading: boolean;
 }
 
-export function IssuesSection({ issues, onRespond, onReset }: IssuesSectionProps) {
+export function IssuesSection({ issues, onRespond, onReset, onFindIssues, loading }: IssuesSectionProps) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -19,10 +21,12 @@ export function IssuesSection({ issues, onRespond, onReset }: IssuesSectionProps
         </h3>
         <button
           type="button"
+          onClick={onFindIssues}
+          disabled={loading}
           className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground border border-border rounded-lg hover:bg-muted/50 transition-colors"
         >
           <Search className="h-4 w-4" />
-          Find Issues
+          {loading ? 'Finding...' : 'Find Issues'}
         </button>
       </div>
 

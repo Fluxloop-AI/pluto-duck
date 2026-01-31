@@ -22,7 +22,12 @@ class IssueItemSchema(BaseModel):
     """Schema for a data quality issue and suggestion."""
 
     issue: str = Field(description="Description of the data quality issue")
+    issue_type: str = Field(description="Category of the issue (e.g., Validity, Completeness)")
     suggestion: str = Field(description="Suggestion to fix or improve the issue")
+    example: Optional[str] = Field(
+        default=None,
+        description="Example values showing the issue",
+    )
 
 
 class FileAnalysisSchema(BaseModel):

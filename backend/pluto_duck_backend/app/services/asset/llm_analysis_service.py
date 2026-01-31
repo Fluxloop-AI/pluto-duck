@@ -137,7 +137,12 @@ def _schema_to_result(
         for p in file_schema.potential
     ]
     issues = [
-        IssueItem(issue=i.issue, suggestion=i.suggestion)
+        IssueItem(
+            issue=i.issue,
+            issue_type=i.issue_type or "general",
+            suggestion=i.suggestion,
+            example=i.example,
+        )
         for i in file_schema.issues
     ]
 
@@ -175,6 +180,7 @@ async def analyze_batch_with_llm(
     # Load and format prompt
     prompt_template = load_dataset_analysis_prompt()
     prompt = prompt_template.replace("{input_json}", input_json)
+    logger.debug(f"[LLM] Prompt:\n{prompt[:500]}...")  # 프롬프트 일부
 
     # Call LLM with structured output
     try:
@@ -184,6 +190,7 @@ async def analyze_batch_with_llm(
             prompt=prompt,
             response_schema=BatchAnalysisSchema,
         )
+        logger.debug(f"[LLM] Raw response: {batch_result.model_dump_json()}")  # 전체 응답
 
         logger.info(f"[LLM] Got structured response with {len(batch_result.files)} files")
 

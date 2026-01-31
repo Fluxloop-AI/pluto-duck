@@ -155,7 +155,9 @@ export interface PotentialItem {
 
 export interface IssueItem {
   issue: string;
+  issue_type: string;
   suggestion: string;
+  example?: string;
 }
 
 export interface LLMAnalysis {
@@ -165,6 +167,43 @@ export interface LLMAnalysis {
   issues: IssueItem[];
   analyzed_at?: string;
   model_used: string;
+}
+
+export type DiagnosisIssueStatus = 'open' | 'confirmed' | 'dismissed' | 'resolved';
+
+export interface DiagnosisIssue {
+  id: string;
+  diagnosis_id: string;
+  file_asset_id: string;
+  issue: string;
+  issue_type: string;
+  suggestion?: string | null;
+  example?: string | null;
+  status: DiagnosisIssueStatus;
+  user_response?: string | null;
+  confirmed_at?: string | null;
+  resolved_at?: string | null;
+  resolved_by?: string | null;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+  delete_reason?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface DiagnosisIssueListResponse {
+  issues: DiagnosisIssue[];
+}
+
+export interface DiagnosisIssueUpdateRequest {
+  status?: DiagnosisIssueStatus;
+  user_response?: string;
+  resolved_by?: string;
+}
+
+export interface DiagnosisIssueDeleteRequest {
+  deleted_by?: string;
+  delete_reason?: string;
 }
 
 export interface FileDiagnosis {
@@ -205,6 +244,7 @@ export interface DiagnoseFilesRequest {
   files: DiagnoseFileRequest[];
   use_cache?: boolean;
   include_llm?: boolean;
+  llm_mode?: 'sync' | 'defer' | 'cache_only';
   include_merge_analysis?: boolean;
   merge_context?: MergeContext;
 }
@@ -212,6 +252,7 @@ export interface DiagnoseFilesRequest {
 export interface DiagnoseFilesResponse {
   diagnoses: FileDiagnosis[];
   merged_analysis?: MergedAnalysis;
+  llm_pending?: boolean;
 }
 
 // =============================================================================
@@ -342,13 +383,18 @@ export async function diagnoseFiles(
   useCache: boolean = true,
   includeLlm: boolean = false,
   includeMergeAnalysis: boolean = false,
-  mergeContext?: MergeContext
+  mergeContext?: MergeContext,
+  llmMode: 'sync' | 'defer' | 'cache_only' = 'sync'
 ): Promise<DiagnoseFilesResponse> {
   const requestBody: DiagnoseFilesRequest = {
     files,
     use_cache: useCache,
     include_llm: includeLlm,
   };
+
+  if (includeLlm) {
+    requestBody.llm_mode = llmMode;
+  }
 
   // Only include merge analysis fields when requested
   if (includeMergeAnalysis) {
@@ -391,15 +437,21 @@ export async function countDuplicateRows(
  *
  * @param projectId - Project ID
  * @param fileId - File asset ID
+ * @param options - Optional settings (useCache=false to force fresh diagnosis)
  * @returns FileDiagnosis or null if not found
  */
 export async function getFileDiagnosis(
   projectId: string,
-  fileId: string
+  fileId: string,
+  options?: { useCache?: boolean }
 ): Promise<FileDiagnosis | null> {
+  const params = new URLSearchParams();
+  if (options?.useCache === false) {
+    params.set('use_cache', 'false');
+  }
   try {
     return await apiJson<FileDiagnosis>(
-      buildAssetPath(`/files/${encodeURIComponent(fileId)}/diagnosis`),
+      buildAssetPath(`/files/${encodeURIComponent(fileId)}/diagnosis`, params),
       { projectId }
     );
   } catch (error) {
@@ -408,4 +460,93 @@ export async function getFileDiagnosis(
     }
     throw error;
   }
+}
+
+export async function regenerateSummary(
+  projectId: string,
+  fileId: string
+): Promise<FileDiagnosis> {
+  return apiJson<FileDiagnosis>(
+    buildAssetPath(`/files/${encodeURIComponent(fileId)}/summary/regenerate`),
+    {
+      method: 'POST',
+      projectId,
+    }
+  );
+}
+
+export async function rescanQuickScan(
+  projectId: string,
+  fileId: string
+): Promise<FileDiagnosis> {
+  return apiJson<FileDiagnosis>(
+    buildAssetPath(`/files/${encodeURIComponent(fileId)}/diagnosis/rescan`),
+    {
+      method: 'POST',
+      projectId,
+    }
+  );
+}
+
+export async function listDiagnosisIssues(
+  projectId: string,
+  fileId: string,
+  options?: { status?: DiagnosisIssueStatus; includeDeleted?: boolean }
+): Promise<DiagnosisIssueListResponse> {
+  const params = new URLSearchParams();
+  if (options?.status) {
+    params.set('status', options.status);
+  }
+  if (options?.includeDeleted) {
+    params.set('include_deleted', 'true');
+  }
+  return apiJson<DiagnosisIssueListResponse>(
+    buildAssetPath(`/files/${encodeURIComponent(fileId)}/issues`, params),
+    { projectId }
+  );
+}
+
+export async function findDiagnosisIssues(
+  projectId: string,
+  fileId: string
+): Promise<DiagnosisIssueListResponse> {
+  return apiJson<DiagnosisIssueListResponse>(
+    buildAssetPath(`/files/${encodeURIComponent(fileId)}/issues/find`),
+    {
+      method: 'POST',
+      projectId,
+    }
+  );
+}
+
+export async function updateDiagnosisIssue(
+  projectId: string,
+  issueId: string,
+  request: DiagnosisIssueUpdateRequest
+): Promise<DiagnosisIssue> {
+  return apiJson<DiagnosisIssue>(
+    buildAssetPath(`/files/issues/${encodeURIComponent(issueId)}`),
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+      projectId,
+    }
+  );
+}
+
+export async function deleteDiagnosisIssue(
+  projectId: string,
+  issueId: string,
+  request: DiagnosisIssueDeleteRequest = {}
+): Promise<DiagnosisIssue> {
+  return apiJson<DiagnosisIssue>(
+    buildAssetPath(`/files/issues/${encodeURIComponent(issueId)}`),
+    {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+      projectId,
+    }
+  );
 }

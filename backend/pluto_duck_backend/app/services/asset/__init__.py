@@ -18,6 +18,11 @@ from .file_diagnosis_service import (
     DiagnoseFileRequest,
     get_file_diagnosis_service,
 )
+from .diagnosis_issue_service import (
+    DiagnosisIssueService,
+    DiagnosisIssue,
+    get_diagnosis_issue_service,
+)
 from .errors import AssetError, AssetNotFoundError, AssetExecutionError, AssetValidationError, DiagnosisError
 
 __all__ = [
@@ -35,6 +40,10 @@ __all__ = [
     "TypeSuggestion",
     "DiagnoseFileRequest",
     "get_file_diagnosis_service",
+    # Diagnosis Issues
+    "DiagnosisIssueService",
+    "DiagnosisIssue",
+    "get_diagnosis_issue_service",
     # Errors
     "AssetError",
     "AssetNotFoundError",
@@ -42,4 +51,3 @@ __all__ = [
     "AssetValidationError",
     "DiagnosisError",
 ]
-

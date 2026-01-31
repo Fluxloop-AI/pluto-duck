@@ -817,6 +817,15 @@ class FileAssetService:
             overwrite=True,
         )
 
+    def update_diagnosis_id(self, file_id: str, diagnosis_id: Optional[str]) -> None:
+        """Update the diagnosis_id for a file asset."""
+        with self._get_connection() as conn:
+            conn.execute(f"""
+                UPDATE {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
+                SET diagnosis_id = ?, updated_at = ?
+                WHERE id = ? AND project_id = ?
+            """, [diagnosis_id, datetime.now(UTC), file_id, self.project_id])
+
     def get_table_schema(self, file_id: str) -> List[Dict[str, Any]]:
         """Get the schema of the imported table.
 

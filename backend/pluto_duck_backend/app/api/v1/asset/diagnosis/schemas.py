@@ -54,6 +54,10 @@ class DiagnoseFilesRequest(BaseModel):
     files: List[DiagnoseFileRequestModel] = Field(..., description="List of files to diagnose")
     use_cache: bool = Field(True, description="Use cached results if available")
     include_llm: bool = Field(False, description="Include LLM analysis (slower, provides insights)")
+    llm_mode: Literal["sync", "defer", "cache_only"] = Field(
+        "sync",
+        description="LLM execution mode: sync waits for results, defer runs in background, cache_only returns cached LLM only",
+    )
     include_merge_analysis: bool = Field(
         False,
         description="Include merged dataset analysis (requires include_llm=true)",
@@ -178,7 +182,9 @@ class IssueItemResponse(BaseModel):
     """Response for a data quality issue."""
 
     issue: str
+    issue_type: str
     suggestion: str
+    example: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -234,5 +240,59 @@ class DiagnoseFilesResponse(BaseModel):
         None,
         description="Merged dataset analysis (when include_merge_analysis=true)",
     )
+    llm_pending: bool = Field(
+        False,
+        description="Whether LLM analysis is still running (defer/cache_only modes)",
+    )
 
     model_config = {"from_attributes": True}
+
+
+DiagnosisIssueStatus = Literal["open", "confirmed", "dismissed", "resolved"]
+
+
+class DiagnosisIssueResponse(BaseModel):
+    """Response for a stored diagnosis issue."""
+
+    id: str
+    diagnosis_id: str
+    file_asset_id: str
+    issue: str
+    issue_type: str
+    suggestion: Optional[str] = None
+    example: Optional[str] = None
+    status: DiagnosisIssueStatus
+    user_response: Optional[str] = None
+    confirmed_at: Optional[datetime] = None
+    resolved_at: Optional[datetime] = None
+    resolved_by: Optional[str] = None
+    deleted_at: Optional[datetime] = None
+    deleted_by: Optional[str] = None
+    delete_reason: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class DiagnosisIssueListResponse(BaseModel):
+    """Response for listing issues for a file asset."""
+
+    issues: List[DiagnosisIssueResponse]
+
+    model_config = {"from_attributes": True}
+
+
+class DiagnosisIssueUpdateRequest(BaseModel):
+    """Request to update an issue status/response."""
+
+    status: Optional[DiagnosisIssueStatus] = None
+    user_response: Optional[str] = None
+    resolved_by: Optional[str] = None
+
+
+class DiagnosisIssueDeleteRequest(BaseModel):
+    """Request to soft delete an issue."""
+
+    deleted_by: Optional[str] = None
+    delete_reason: Optional[str] = None

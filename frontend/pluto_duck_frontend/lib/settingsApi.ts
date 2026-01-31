@@ -30,6 +30,11 @@ export interface ResetDatabaseResponse {
   message: string;
 }
 
+export interface ResetWorkspaceDataResponse {
+  success: boolean;
+  message: string;
+}
+
 export async function fetchSettings(): Promise<UserSettings> {
   return apiJson<UserSettings>('/api/v1/settings');
 }
@@ -52,5 +57,15 @@ export async function resetDatabase(): Promise<ResetDatabaseResponse> {
     headers: {
       'Content-Type': 'application/json',
     },
+  });
+}
+
+export async function resetWorkspaceData(projectId: string): Promise<ResetWorkspaceDataResponse> {
+  return apiJson<ResetWorkspaceDataResponse>('/api/v1/settings/reset-workspace-data', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    projectId,
   });
 }

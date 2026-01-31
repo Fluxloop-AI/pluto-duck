@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Pencil,
   RefreshCw,
@@ -12,7 +12,11 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AssetTableView } from '../../../editor/components/AssetTableView';
-import type { FileDiagnosis, FilePreview } from '../../../../lib/fileAssetApi';
+import {
+  regenerateSummary,
+  type FileDiagnosis,
+  type FilePreview,
+} from '../../../../lib/fileAssetApi';
 import type { CachedTablePreview } from '../../../../lib/sourceApi';
 import type {
   AgentAnalysis,
@@ -30,23 +34,28 @@ import {
 } from '../utils';
 
 interface SummaryTabContentProps {
+  projectId: string;
   dataset: Dataset;
   preview: FilePreview | CachedTablePreview | null;
   previewLoading: boolean;
   setActiveTab: (tab: DatasetTab) => void;
   diagnosis: FileDiagnosis | null;
   diagnosisLoading: boolean;
+  onDiagnosisUpdate: (diagnosis: FileDiagnosis | null) => void;
 }
 
 export function SummaryTabContent({
+  projectId,
   dataset,
   preview,
   previewLoading,
   setActiveTab,
   diagnosis,
   diagnosisLoading,
+  onDiagnosisUpdate,
 }: SummaryTabContentProps) {
   const { memo, handleMemoChange } = useDatasetMemo(dataset.id);
+  const [regenerating, setRegenerating] = useState(false);
 
   // Build metadata
   const createdAt = isFileAsset(dataset) ? dataset.created_at : dataset.cached_at;
@@ -118,10 +127,23 @@ export function SummaryTabContent({
                 </button>
                 <button
                   type="button"
+                  onClick={async () => {
+                    if (!isFileAsset(dataset)) return;
+                    setRegenerating(true);
+                    try {
+                      const updated = await regenerateSummary(projectId, dataset.id);
+                      onDiagnosisUpdate(updated);
+                    } catch (error) {
+                      console.error('Failed to regenerate summary:', error);
+                    } finally {
+                      setRegenerating(false);
+                    }
+                  }}
+                  disabled={regenerating || diagnosisLoading}
                   className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
                 >
                   <RefreshCw className="h-3 w-3" />
-                  <span>Regenerate</span>
+                  <span>{regenerating ? 'Regenerating...' : 'Regenerate'}</span>
                 </button>
               </div>
             )}

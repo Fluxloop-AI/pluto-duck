@@ -2,12 +2,21 @@
 
 import { useState } from 'react';
 import { initialMockIssues } from '../mocks';
+import type { FileDiagnosis } from '../../../../lib/fileAssetApi';
 import type { DatasetIssue } from '../types';
 import { ConfirmedIssuesSection } from './ConfirmedIssuesSection';
 import { IssuesSection } from './IssuesSection';
 import { QuickScanSection } from './QuickScanSection';
 
-export function DiagnosisTabContent() {
+interface DiagnosisTabContentProps {
+  diagnosis: FileDiagnosis | null;
+  diagnosisLoading: boolean;
+}
+
+export function DiagnosisTabContent({
+  diagnosis,
+  diagnosisLoading,
+}: DiagnosisTabContentProps) {
   const [issues, setIssues] = useState<DatasetIssue[]>(initialMockIssues);
 
   const handleRespond = (id: string, response: string, note?: string) => {
@@ -19,13 +28,28 @@ export function DiagnosisTabContent() {
           return { ...issue, status: 'acknowledged' as const, isNew: false };
         }
         if (response === 'incorrect') {
-          return { ...issue, status: 'dismissed' as const, dismissedReason: '문제 아님', isNew: false };
+          return {
+            ...issue,
+            status: 'dismissed' as const,
+            dismissedReason: 'Not an issue',
+            isNew: false,
+          };
         }
         if (response === 'unknown') {
-          return { ...issue, status: 'acknowledged' as const, userNote: '확인 필요', isNew: false };
+          return {
+            ...issue,
+            status: 'acknowledged' as const,
+            userNote: 'Needs review',
+            isNew: false,
+          };
         }
         if (response === 'custom' && note) {
-          return { ...issue, status: 'acknowledged' as const, userNote: `"${note}"`, isNew: false };
+          return {
+            ...issue,
+            status: 'acknowledged' as const,
+            userNote: note,
+            isNew: false,
+          };
         }
         return issue;
       })
@@ -49,7 +73,10 @@ export function DiagnosisTabContent() {
   return (
     <div className="space-y-12">
       {/* Quick Scan Section */}
-      <QuickScanSection />
+      <QuickScanSection
+        diagnosis={diagnosis}
+        diagnosisLoading={diagnosisLoading}
+      />
 
       {/* Divider */}
       <div className="border-t border-border/50" />

@@ -391,15 +391,21 @@ export async function countDuplicateRows(
  *
  * @param projectId - Project ID
  * @param fileId - File asset ID
+ * @param options - Optional settings (useCache=false to force fresh diagnosis)
  * @returns FileDiagnosis or null if not found
  */
 export async function getFileDiagnosis(
   projectId: string,
-  fileId: string
+  fileId: string,
+  options?: { useCache?: boolean }
 ): Promise<FileDiagnosis | null> {
+  const params = new URLSearchParams();
+  if (options?.useCache === false) {
+    params.set('use_cache', 'false');
+  }
   try {
     return await apiJson<FileDiagnosis>(
-      buildAssetPath(`/files/${encodeURIComponent(fileId)}/diagnosis`),
+      buildAssetPath(`/files/${encodeURIComponent(fileId)}/diagnosis`, params),
       { projectId }
     );
   } catch (error) {

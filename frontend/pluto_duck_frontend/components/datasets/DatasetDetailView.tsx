@@ -85,7 +85,10 @@ export function DatasetDetailView({
             <SummaryTabContent {...summaryProps} />
           )}
           {activeTab === 'diagnosis' && (
-            <DiagnosisTabContent />
+            <DiagnosisTabContent
+              diagnosis={diagnosis}
+              diagnosisLoading={diagnosisLoading}
+            />
           )}
         </div>
       </div>

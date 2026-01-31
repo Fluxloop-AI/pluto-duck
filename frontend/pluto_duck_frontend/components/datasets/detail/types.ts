@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { FileAsset } from '../../../lib/fileAssetApi';
 import type { CachedTable } from '../../../lib/sourceApi';
 
@@ -31,7 +32,7 @@ export interface QuickScanItem {
   id: string;
   status: 'success' | 'warning';
   title: string;
-  subtitle: string;
+  subtitle: ReactNode;
 }
 
 export interface DatasetIssue {

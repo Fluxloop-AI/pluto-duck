@@ -355,7 +355,7 @@ async def diagnose_files(
                     cached = None
                     if request.use_cache:
                         cached = service.get_cached_diagnosis(file_req.file_path)
-                        if llm_mode == "cache_only" and cached:
+                        if cached:
                             diagnosis = cached
 
                     if diagnosis is None:

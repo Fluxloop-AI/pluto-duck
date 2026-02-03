@@ -51,3 +51,9 @@ thoughts
 .fluxloop
 .claude
 docs
+
+# Test/temp directories
+.home_test
+.loop
+.plutoduck_test
+.venv-ci

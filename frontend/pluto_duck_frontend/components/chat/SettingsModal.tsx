@@ -62,6 +62,8 @@ interface SettingsModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSettingsSaved?: (model: string) => void;
+  onProfileSaved?: (name: string | null) => void;
+  initialMenu?: SettingsMenu;
   projectId?: string | null;
   onWorkspaceReset?: () => void;
 }
@@ -92,6 +94,8 @@ export function SettingsModal({
   open,
   onOpenChange,
   onSettingsSaved,
+  onProfileSaved,
+  initialMenu,
   projectId,
   onWorkspaceReset,
 }: SettingsModalProps) {
@@ -140,13 +144,14 @@ export function SettingsModal({
 
   useEffect(() => {
     if (open) {
+      setActiveMenu(initialMenu ?? 'profile');
       loadSettings();
     }
     return () => {
       Object.values(downloadPollRef.current).forEach(timer => clearTimeout(timer));
       downloadPollRef.current = {};
     };
-  }, [open]);
+  }, [open, initialMenu]);
 
   const fetchLocalModels = async () => {
     setLoadingLocalModels(true);
@@ -858,11 +863,13 @@ export function SettingsModal({
     setSaving(true);
 
     try {
+      const nextName = userName.trim();
       const payload: UpdateSettingsRequest = {
-        user_name: userName.trim() || undefined,
+        user_name: nextName || undefined,
       };
 
       await updateSettings(payload);
+      onProfileSaved?.(nextName || null);
       setSuccessMessage('Profile saved successfully!');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save profile');
@@ -872,7 +879,13 @@ export function SettingsModal({
   };
 
   const renderProfileContent = () => {
-    const avatarLetter = userName.trim() ? userName.trim()[0].toUpperCase() : '?';
+    const getInitials = (name: string) => {
+      const parts = name.trim().split(/\s+/).filter(Boolean);
+      if (parts.length === 0) return '?';
+      if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    };
+    const avatarLetter = userName.trim() ? getInitials(userName) : '?';
 
     return (
       <div className="flex flex-col h-full">

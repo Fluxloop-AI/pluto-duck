@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState, useRef } from 'react';
-import { SettingsIcon, DatabaseIcon, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Package, Database, Layers, Plus } from 'lucide-react';
+import { DatabaseIcon, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Package, Database, Layers, Plus } from 'lucide-react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { isTauriRuntime } from '../lib/tauriRuntime';
 
@@ -17,7 +17,7 @@ import {
   ConnectFolderModal,
 } from '../components/data-sources';
 import { BoardsView, BoardList, CreateBoardModal, BoardSelectorModal, type BoardsViewHandle } from '../components/boards';
-import { DatasetList } from '../components/sidebar';
+import { DatasetList, ProfileCard } from '../components/sidebar';
 import { DatasetDetailView } from '../components/datasets';
 import { AssetListView } from '../components/assets';
 import { ProjectSelector, CreateProjectModal } from '../components/projects';
@@ -71,6 +71,7 @@ export default function WorkspacePage() {
   const [sidebarDatasets, setSidebarDatasets] = useState<(FileAsset | CachedTable)[]>([]);
   const [selectedDataset, setSelectedDataset] = useState<Dataset | null>(null);
   const [workspaceResetCounter, setWorkspaceResetCounter] = useState(0);
+  const [userName, setUserName] = useState<string | null>(null);
   const datasetLoadIdRef = useRef(0);
 
   // Ref for BoardsView to access insertMarkdown
@@ -208,6 +209,7 @@ export default function WorkspacePage() {
           if (settings.llm_model) {
             setSelectedModel(settings.llm_model);
           }
+          setUserName(settings.user_name ?? null);
           if (settings.default_project_id) {
             setDefaultProjectId(settings.default_project_id);
           }
@@ -730,7 +732,7 @@ export default function WorkspacePage() {
               )}
             </div>
 
-            <div className="space-y-1 px-3 pb-4">
+            <div className="space-y-1 px-3">
               <button
                 type="button"
                 className="flex w-full items-center gap-2 rounded-lg px-[10px] py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-black/10 transition-colors"
@@ -751,14 +753,12 @@ export default function WorkspacePage() {
                 <Package className="h-4 w-4" />
                 <span>Assets</span>
               </button>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded-lg px-[10px] py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-black/10 transition-colors"
+            </div>
+            <div className="px-3 pb-4 pt-3">
+              <ProfileCard
+                name={userName}
                 onClick={() => setSettingsOpen(true)}
-              >
-                <SettingsIcon className="h-4 w-4" />
-                <span>Settings</span>
-              </button>
+              />
             </div>
           </div>
         </aside>
@@ -871,6 +871,8 @@ export default function WorkspacePage() {
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
         onSettingsSaved={(model) => setSelectedModel(model)}
+        onProfileSaved={setUserName}
+        initialMenu="profile"
         projectId={defaultProjectId || null}
         onWorkspaceReset={handleWorkspaceReset}
       />

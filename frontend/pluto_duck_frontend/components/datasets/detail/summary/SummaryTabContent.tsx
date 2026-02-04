@@ -236,7 +236,7 @@ export function SummaryTabContent({
 
           {/* Diagnosis */}
           <div className="pt-4 space-y-3">
-            <span className="text-sm text-muted-foreground">Diagnosis</span>
+            <span className="text-sm text-muted-foreground">History</span>
             <div className="space-y-4">
               {historyItems.map((item) => (
                 <div key={item.id} className="flex items-start gap-3">

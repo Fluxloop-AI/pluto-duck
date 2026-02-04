@@ -11,6 +11,7 @@ export interface UserSettings {
   };
   default_project_id?: string | null;
   user_name?: string | null;
+  language?: string | null;
 }
 
 export interface UpdateSettingsRequest {
@@ -18,6 +19,7 @@ export interface UpdateSettingsRequest {
   llm_model?: string;
   llm_provider?: string;
   user_name?: string;
+  language?: string;
 }
 
 export interface UpdateSettingsResponse {

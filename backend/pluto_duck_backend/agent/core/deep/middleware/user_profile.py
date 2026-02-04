@@ -12,9 +12,18 @@ from pluto_duck_backend.app.services.chat import get_chat_repository
 
 USER_PROFILE_PROMPT = """
 <user_profile>
-name: {user_name}
+{profile_lines}
 </user_profile>
+
+<assistant_style>
+Respond in {language_label}.
+</assistant_style>
 """.strip()
+
+LANGUAGE_LABELS = {
+    "en": "English",
+    "ko": "Korean",
+}
 
 
 def _normalize_user_name(value: Optional[str]) -> Optional[str]:
@@ -22,6 +31,13 @@ def _normalize_user_name(value: Optional[str]) -> Optional[str]:
         return None
     trimmed = value.strip()
     return trimmed if trimmed else None
+
+
+def _normalize_language(value: Optional[str]) -> str:
+    if not value:
+        return "en"
+    trimmed = value.strip().lower()
+    return trimmed if trimmed in LANGUAGE_LABELS else "en"
 
 
 class UserProfileMiddleware(AgentMiddleware):
@@ -32,9 +48,15 @@ class UserProfileMiddleware(AgentMiddleware):
         repo = get_chat_repository()
         settings = repo.get_settings()
         user_name = _normalize_user_name(settings.get("user_name"))
-        if not user_name:
-            return None
-        return USER_PROFILE_PROMPT.format(user_name=user_name)
+        language = _normalize_language(settings.get("language"))
+        profile_lines = []
+        if user_name:
+            profile_lines.append(f"name: {user_name}")
+        profile_lines.append(f"language: {language}")
+        return USER_PROFILE_PROMPT.format(
+            profile_lines="\n".join(profile_lines),
+            language_label=LANGUAGE_LABELS[language],
+        )
 
     def wrap_model_call(self, request: ModelRequest, handler: Callable[[ModelRequest], ModelResponse]) -> ModelResponse:
         section = self._build_section()

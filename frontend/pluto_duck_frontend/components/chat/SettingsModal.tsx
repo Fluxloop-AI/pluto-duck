@@ -108,6 +108,7 @@ export function SettingsModal({
   const [model, setModel] = useState('gpt-5-mini');
   const [hasExistingKey, setHasExistingKey] = useState(false);
   const [userName, setUserName] = useState('');
+  const [language, setLanguage] = useState('en');
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [localModels, setLocalModels] = useState<LocalModelInfo[]>([]);
@@ -213,6 +214,7 @@ export function SettingsModal({
         setModel(settings.llm_model);
       }
       setUserName(settings.user_name || '');
+      setLanguage(settings.language || 'en');
       await fetchLocalModels();
       await fetchDownloadStatuses();
     } catch (err) {
@@ -905,6 +907,71 @@ export function SettingsModal({
     }
   };
 
+  const handleSavePreferences = async () => {
+    setError(null);
+    setSuccessMessage(null);
+    setSaving(true);
+
+    try {
+      const payload: UpdateSettingsRequest = {
+        language,
+      };
+
+      await updateSettings(payload);
+      setSuccessMessage('Preferences saved successfully!');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save preferences');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const renderPreferencesContent = () => (
+    <div className="flex flex-col h-full">
+      <div className="flex-1 overflow-y-auto">
+        <div className="grid gap-6">
+          <div className="grid gap-2">
+            <label htmlFor="language" className="text-sm font-medium">
+              Language
+            </label>
+            <Select value={language} onValueChange={setLanguage}>
+              <SelectTrigger id="language">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="en">English</SelectItem>
+                <SelectItem value="ko">Korean</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Used for assistant responses
+            </p>
+          </div>
+
+          {error && (
+            <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+              {error}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between gap-2 pt-4 border-t border-border mt-4">
+        <div className="min-h-[16px] text-xs text-green-600 dark:text-green-400">
+          {successMessage ?? ''}
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleCancel} disabled={saving}>
+            Cancel
+          </Button>
+          <Button onClick={handleSavePreferences} disabled={loading || saving}>
+            {saving ? 'Saving...' : 'Save Changes'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+
   const renderProfileContent = () => {
     const getInitials = (name: string) => {
       const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -1053,6 +1120,7 @@ export function SettingsModal({
       case 'profile':
         return renderProfileContent();
       case 'preferences':
+        return renderPreferencesContent();
       case 'notifications':
         return renderPlaceholder(activeMenu);
       default:

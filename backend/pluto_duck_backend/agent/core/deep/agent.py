@@ -28,7 +28,9 @@ from pluto_duck_backend.app.services.llm import LLMService
 
 from .hitl import ApprovalBroker
 from .middleware.approvals import ApprovalPersistenceMiddleware, PlutoDuckHITLConfig
+from .middleware.dataset_context import DatasetContextMiddleware
 from .middleware.memory import AgentMemoryMiddleware
+from .middleware.user_profile import UserProfileMiddleware
 from .middleware.skills import SkillsMiddleware
 from .prompts import load_default_agent_prompt
 from .tools import build_default_tools
@@ -49,12 +51,6 @@ You are operating inside the **Pluto Duck backend** with a **virtual filesystem*
   - `/skills/` for skill libraries (SKILL.md)
 - Never use relative paths
 
-### Skills Directory
-
-Your skills are stored under `/skills/`.
-Skills may contain scripts or supporting files, but **script execution is not available** in backend mode.
-Treat skills as guidance/templates and follow their workflows using available tools.
-
 ### Human-in-the-Loop Tool Approval
 
 Some tool calls require user approval before execution. When a tool call is rejected by the user:
@@ -64,15 +60,6 @@ Some tool calls require user approval before execution. When a tool call is reje
 4. Never attempt the exact same rejected action again
 
 Respect the user's decisions and work with them collaboratively.
-
-### Todo List Management
-
-When using the write_todos tool:
-1. Keep the todo list minimal - aim for 3-6 items maximum
-2. Only create todos for complex, multi-step tasks that truly need tracking
-3. Break down work into clear, actionable items without over-fragmenting
-4. For simple tasks (1-2 steps), just do them directly without creating todos
-5. Update todo status promptly as you complete each item
 """.strip()
 
 
@@ -135,7 +122,9 @@ def build_deep_agent(
     middleware: list[AgentMiddleware] = [
         ApprovalPersistenceMiddleware(config=hitl_config, broker=broker),
         AgentMemoryMiddleware(conversation_id=conversation_id, default_user_agent_md=default_agent_md),
+        DatasetContextMiddleware(conversation_id=conversation_id),
         SkillsMiddleware(conversation_id=conversation_id),
+        UserProfileMiddleware(),
         *list(extra_middleware),
     ]
 
@@ -166,5 +155,3 @@ def build_deep_agent(
         interrupt_on=None,
         checkpointer=checkpointer,
     )
-
-

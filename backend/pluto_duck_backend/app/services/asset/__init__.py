@@ -23,6 +23,13 @@ from .diagnosis_issue_service import (
     DiagnosisIssue,
     get_diagnosis_issue_service,
 )
+from .file_preprocessing_service import (
+    FilePreprocessingService,
+    FilePreprocessingStatus,
+    EffectivePreprocessingStatus,
+    FilePreprocessingEvent,
+    get_file_preprocessing_service,
+)
 from .errors import AssetError, AssetNotFoundError, AssetExecutionError, AssetValidationError, DiagnosisError
 
 __all__ = [
@@ -44,6 +51,12 @@ __all__ = [
     "DiagnosisIssueService",
     "DiagnosisIssue",
     "get_diagnosis_issue_service",
+    # File Preprocessing
+    "FilePreprocessingService",
+    "FilePreprocessingStatus",
+    "EffectivePreprocessingStatus",
+    "FilePreprocessingEvent",
+    "get_file_preprocessing_service",
     # Errors
     "AssetError",
     "AssetNotFoundError",

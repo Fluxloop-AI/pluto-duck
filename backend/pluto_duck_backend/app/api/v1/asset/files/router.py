@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pluto_duck_backend.app.api.deps import get_project_id_query
 from pluto_duck_backend.app.api.v1.asset.files.schemas import (
     FileAssetResponse,
+    FilePreprocessingEventResponse,
     FilePreviewResponse,
     FileSchemaResponse,
     FileSourceResponse,
@@ -21,9 +22,11 @@ from pluto_duck_backend.app.services.asset import (
     FileAsset,
     FileAssetService,
     FileDiagnosisService,
+    FilePreprocessingService,
     get_file_asset_service,
     get_diagnosis_issue_service,
     get_file_diagnosis_service,
+    get_file_preprocessing_service,
 )
 from pluto_duck_backend.app.services.asset.errors import AssetError, AssetValidationError
 
@@ -85,6 +88,13 @@ def get_diagnosis_issue_service_dep(
 ) -> DiagnosisIssueService:
     """Provide a DiagnosisIssueService scoped to the project."""
     return get_diagnosis_issue_service(project_id)
+
+
+def get_file_preprocessing_service_dep(
+    project_id: Optional[str] = Depends(get_project_id_query),
+) -> FilePreprocessingService:
+    """Provide a FilePreprocessingService scoped to the project."""
+    return get_file_preprocessing_service(project_id)
 
 
 @router.post("", response_model=FileAssetResponse)
@@ -230,3 +240,13 @@ def preview_file_data(
         )
     except AssetNotFoundError:
         raise HTTPException(status_code=404, detail=f"File asset '{file_id}' not found")
+
+
+@router.get("/{file_id}/events", response_model=List[FilePreprocessingEventResponse])
+def list_file_events(
+    file_id: str,
+    service: FilePreprocessingService = Depends(get_file_preprocessing_service_dep),
+) -> List[FilePreprocessingEventResponse]:
+    """List preprocessing/history events for a file asset."""
+    events = service.list_events(file_asset_id=file_id)
+    return [FilePreprocessingEventResponse(**event.to_dict()) for event in events]

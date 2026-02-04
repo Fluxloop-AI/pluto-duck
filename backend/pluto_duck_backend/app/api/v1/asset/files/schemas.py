@@ -87,3 +87,16 @@ class FilePreviewResponse(BaseModel):
     total_rows: Optional[int] = None
 
     model_config = {"from_attributes": True}
+
+
+class FilePreprocessingEventResponse(BaseModel):
+    """Response for file preprocessing events."""
+
+    id: str
+    file_asset_id: str
+    event_type: str
+    message: Optional[str] = None
+    actor: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}

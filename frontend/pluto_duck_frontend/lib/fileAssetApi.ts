@@ -72,6 +72,15 @@ export interface FilePreview {
   total_rows: number | null;
 }
 
+export interface FilePreprocessingEvent {
+  id: string;
+  file_asset_id: string;
+  event_type: string;
+  message: string | null;
+  actor: string | null;
+  created_at: string | null;
+}
+
 // =============================================================================
 // Diagnosis Types
 // =============================================================================
@@ -548,5 +557,15 @@ export async function deleteDiagnosisIssue(
       body: JSON.stringify(request),
       projectId,
     }
+  );
+}
+
+export async function getFilePreprocessingEvents(
+  projectId: string,
+  fileId: string
+): Promise<FilePreprocessingEvent[]> {
+  return apiJson<FilePreprocessingEvent[]>(
+    buildAssetPath(`/files/${encodeURIComponent(fileId)}/events`),
+    { projectId }
   );
 }

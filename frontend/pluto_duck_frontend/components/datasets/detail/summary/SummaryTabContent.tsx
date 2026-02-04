@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Pencil,
   RefreshCw,
@@ -16,6 +16,7 @@ import {
   regenerateSummary,
   type FileDiagnosis,
   type FilePreview,
+  getFilePreprocessingEvents,
 } from '../../../../lib/fileAssetApi';
 import type { CachedTablePreview } from '../../../../lib/sourceApi';
 import type {
@@ -56,9 +57,8 @@ export function SummaryTabContent({
 }: SummaryTabContentProps) {
   const { memo, handleMemoChange } = useDatasetMemo(dataset.id);
   const [regenerating, setRegenerating] = useState(false);
-
-  // Build metadata
-  const createdAt = isFileAsset(dataset) ? dataset.created_at : dataset.cached_at;
+  const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   // Agent Analysis from LLM diagnosis
   const agentAnalysis = useMemo((): AgentAnalysis | null => {
@@ -77,29 +77,57 @@ export function SummaryTabContent({
   // Source files (multi-source aware with fallback)
   const sourceFiles = useMemo((): SourceFile[] => buildSourceFiles(dataset), [dataset]);
 
-  // Mock diagnosis data based on dataset creation date
-  const historyItems = useMemo((): HistoryItem[] => {
-    const createdDate = createdAt ? new Date(createdAt) : new Date();
-    const processedDate = new Date(createdDate);
-    processedDate.setDate(processedDate.getDate() + 1);
-    processedDate.setHours(9, 15, 0, 0);
+  useEffect(() => {
+    if (!isFileAsset(dataset)) {
+      setHistoryItems([]);
+      return;
+    }
 
-    return [
-      {
-        id: '1',
-        title: 'Pre-processing completed',
-        timestamp: processedDate.toISOString(),
-        isHighlighted: true,
-        badge: 'Agent',
-      },
-      {
-        id: '2',
-        title: 'Dataset created',
-        timestamp: createdDate.toISOString(),
-        isHighlighted: false,
-      },
-    ];
-  }, [createdAt]);
+    let cancelled = false;
+    setHistoryLoading(true);
+    getFilePreprocessingEvents(projectId, dataset.id)
+      .then((events) => {
+        if (cancelled) return;
+        const labels: Record<string, string> = {
+          dataset_created: 'Dataset created',
+          dataset_appended: 'Dataset appended',
+          agent_decision: 'Agent decision',
+          preprocessing_completed: 'Pre-processing completed',
+          user_skipped: 'Pre-processing skipped',
+        };
+        const items = events.map((event) => {
+          const title = event.message || labels[event.event_type] || event.event_type;
+          const badge = event.actor
+            ? event.actor.charAt(0).toUpperCase() + event.actor.slice(1)
+            : undefined;
+          return {
+            id: event.id,
+            title,
+            timestamp: event.created_at || new Date().toISOString(),
+            isHighlighted:
+              event.event_type === 'agent_decision' ||
+              event.event_type === 'preprocessing_completed',
+            badge,
+          } satisfies HistoryItem;
+        });
+        setHistoryItems(items);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          console.error('Failed to load history events:', error);
+          setHistoryItems([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setHistoryLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [dataset, projectId]);
 
   return (
     <div className="space-y-12">
@@ -236,31 +264,37 @@ export function SummaryTabContent({
 
           {/* Diagnosis */}
           <div className="pt-4 space-y-3">
-            <span className="text-sm text-muted-foreground">Diagnosis</span>
+            <span className="text-sm text-muted-foreground">History</span>
             <div className="space-y-4">
-              {historyItems.map((item) => (
-                <div key={item.id} className="flex items-start gap-3">
-                  <span
-                    className={cn(
-                      'mt-1.5 h-2.5 w-2.5 rounded-full shrink-0',
-                      item.isHighlighted ? 'bg-blue-500' : 'bg-muted-foreground/40'
-                    )}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm">{item.title}</span>
-                      {item.badge && (
-                        <span className="text-xs px-2 py-0.5 rounded bg-blue-50 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400">
-                          {item.badge}
-                        </span>
+              {historyLoading ? (
+                <p className="text-xs text-muted-foreground">Loading history...</p>
+              ) : historyItems.length > 0 ? (
+                historyItems.map((item) => (
+                  <div key={item.id} className="flex items-start gap-3">
+                    <span
+                      className={cn(
+                        'mt-1.5 h-2.5 w-2.5 rounded-full shrink-0',
+                        item.isHighlighted ? 'bg-blue-500' : 'bg-muted-foreground/40'
                       )}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm">{item.title}</span>
+                        {item.badge && (
+                          <span className="text-xs px-2 py-0.5 rounded bg-blue-50 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400">
+                            {item.badge}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {formatDate(item.timestamp)}
+                      </p>
                     </div>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {formatDate(item.timestamp)}
-                    </p>
                   </div>
-                </div>
-              ))}
+                ))
+              ) : (
+                <p className="text-xs text-muted-foreground">No history yet.</p>
+              )}
             </div>
           </div>
         </div>

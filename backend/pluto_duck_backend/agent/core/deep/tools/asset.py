@@ -23,6 +23,10 @@ from pluto_duck_backend.app.services.asset import (
     AssetNotFoundError,
     FileAssetService,
     get_file_asset_service,
+    FilePreprocessingService,
+    get_file_preprocessing_service,
+    DiagnosisIssueService,
+    get_diagnosis_issue_service,
 )
 from pluto_duck_backend.app.services.asset.errors import AssetValidationError
 
@@ -436,6 +440,207 @@ def build_asset_tools(*, warehouse_path: Path, project_id: Optional[str] = None)
         }
 
     # =========================================================================
+    # Dataset Readiness (Preprocessing)
+    # =========================================================================
+
+    def get_readiness_summary() -> Dict[str, Any]:
+        """Summarize preprocessing readiness for all file assets.
+
+        Returns:
+            Total datasets, ready count, not-ready count, and details for non-ready files.
+        """
+        file_service: FileAssetService = get_file_asset_service(project_id)
+        preprocessing_service: FilePreprocessingService = get_file_preprocessing_service(project_id)
+        assets = file_service.list_files()
+
+        total = len(assets)
+        ready_count = 0
+        not_ready: List[Dict[str, Any]] = []
+
+        for asset in assets:
+            effective = preprocessing_service.get_effective_status(
+                file_asset_id=asset.id,
+                current_diagnosis_id=asset.diagnosis_id,
+            )
+            if effective.status == "ready":
+                ready_count += 1
+                continue
+
+            name = asset.name or asset.table_name or asset.file_path or asset.id
+            not_ready.append(
+                {
+                    "file_asset_id": asset.id,
+                    "name": name,
+                    "status": effective.status,
+                    "stale": effective.stale,
+                    "reason": effective.reason,
+                    "last_diagnosis_id": effective.last_diagnosis_id,
+                }
+            )
+
+        return {
+            "status": "success",
+            "total": total,
+            "ready_count": ready_count,
+            "not_ready_count": total - ready_count,
+            "not_ready": not_ready,
+        }
+
+    def list_not_ready(include_unknown: bool = True) -> Dict[str, Any]:
+        """List file assets that are not ready for analysis.
+
+        Args:
+            include_unknown: If True, include 'unknown' statuses; otherwise only 'not_ready'.
+        """
+        file_service: FileAssetService = get_file_asset_service(project_id)
+        preprocessing_service: FilePreprocessingService = get_file_preprocessing_service(project_id)
+        assets = file_service.list_files()
+
+        not_ready: List[Dict[str, Any]] = []
+        for asset in assets:
+            effective = preprocessing_service.get_effective_status(
+                file_asset_id=asset.id,
+                current_diagnosis_id=asset.diagnosis_id,
+            )
+            if effective.status == "ready":
+                continue
+            if effective.status == "unknown" and not include_unknown:
+                continue
+
+            name = asset.name or asset.table_name or asset.file_path or asset.id
+            not_ready.append(
+                {
+                    "file_asset_id": asset.id,
+                    "name": name,
+                    "status": effective.status,
+                    "stale": effective.stale,
+                    "reason": effective.reason,
+                    "last_diagnosis_id": effective.last_diagnosis_id,
+                }
+            )
+
+        return {
+            "status": "success",
+            "count": len(not_ready),
+            "not_ready": not_ready,
+        }
+
+    def set_readiness_status(
+        file_asset_id: str,
+        status: Literal["unknown", "not_ready", "ready"],
+        reason: Optional[str] = None,
+        actor: Optional[str] = None,
+        last_diagnosis_id: Optional[str] = None,
+        event_type: Optional[str] = None,
+        event_message: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Update preprocessing readiness status for a file asset.
+
+        Args:
+            file_asset_id: File asset ID
+            status: new status (unknown|not_ready|ready)
+            reason: optional explanation
+            actor: who updated the status
+            last_diagnosis_id: attach to current diagnosis if omitted
+            event_type: optional event type to log
+            event_message: optional event message to log
+        """
+        file_service: FileAssetService = get_file_asset_service(project_id)
+        preprocessing_service: FilePreprocessingService = get_file_preprocessing_service(project_id)
+
+        if last_diagnosis_id is None:
+            asset = file_service.get_file(file_asset_id)
+            last_diagnosis_id = asset.diagnosis_id if asset else None
+
+        status_obj = preprocessing_service.set_status(
+            file_asset_id=file_asset_id,
+            status=status,
+            reason=reason,
+            actor=actor,
+            last_diagnosis_id=last_diagnosis_id,
+        )
+
+        event = None
+        if event_type:
+            event = preprocessing_service.append_event(
+                file_asset_id=file_asset_id,
+                event_type=event_type,
+                message=event_message,
+                actor=actor,
+            )
+
+        return {
+            "status": "success",
+            "readiness": status_obj.to_dict(),
+            "event": event.to_dict() if event else None,
+        }
+
+    def append_preprocessing_event(
+        file_asset_id: str,
+        event_type: str,
+        message: Optional[str] = None,
+        actor: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Append a preprocessing event for a file asset."""
+        preprocessing_service: FilePreprocessingService = get_file_preprocessing_service(project_id)
+        event = preprocessing_service.append_event(
+            file_asset_id=file_asset_id,
+            event_type=event_type,
+            message=message,
+            actor=actor,
+        )
+        return {
+            "status": "success",
+            "event": event.to_dict(),
+        }
+
+    # =========================================================================
+    # Diagnosis Issues
+    # =========================================================================
+
+    def list_diagnosis_issues(
+        file_asset_id: str,
+        status: Optional[str] = None,
+        include_deleted: bool = False,
+    ) -> Dict[str, Any]:
+        """List diagnosis issues for a file asset."""
+        issue_service: DiagnosisIssueService = get_diagnosis_issue_service(project_id)
+        issues = issue_service.list_issues(
+            file_asset_id=file_asset_id,
+            include_deleted=include_deleted,
+            status=status,
+        )
+        return {
+            "status": "success",
+            "count": len(issues),
+            "issues": [issue.to_dict() for issue in issues],
+        }
+
+    def set_issue_status(
+        issue_id: str,
+        status: Optional[str] = None,
+        user_response: Optional[str] = None,
+        resolved_by: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Update a diagnosis issue status/user_response."""
+        issue_service: DiagnosisIssueService = get_diagnosis_issue_service(project_id)
+        updated = issue_service.update_issue(
+            issue_id=issue_id,
+            status=status,
+            user_response=user_response,
+            resolved_by=resolved_by,
+        )
+        if not updated:
+            return {
+                "status": "error",
+                "message": "Issue not found.",
+            }
+        return {
+            "status": "success",
+            "issue": updated.to_dict(),
+        }
+
+    # =========================================================================
     # Build Tool List
     # =========================================================================
 
@@ -492,5 +697,37 @@ def build_asset_tools(*, warehouse_path: Path, project_id: Optional[str] = None)
                 "임포트된 파일(CSV/Parquet) 목록을 조회합니다. "
                 "파일이 어떤 테이블로 저장되었는지 확인하고 run_sql로 쿼리할 수 있어요."
             ),
+        ),
+        # Readiness tools
+        StructuredTool.from_function(
+            name="get_readiness_summary",
+            func=get_readiness_summary,
+            description="파일 데이터셋의 전처리 준비 상태 요약을 조회합니다.",
+        ),
+        StructuredTool.from_function(
+            name="list_not_ready",
+            func=list_not_ready,
+            description="분석 준비가 되지 않은 파일 데이터셋 목록을 조회합니다.",
+        ),
+        StructuredTool.from_function(
+            name="set_readiness_status",
+            func=set_readiness_status,
+            description="파일 데이터셋의 전처리 준비 상태를 업데이트합니다.",
+        ),
+        StructuredTool.from_function(
+            name="append_preprocessing_event",
+            func=append_preprocessing_event,
+            description="전처리 관련 이벤트 로그를 추가합니다.",
+        ),
+        # Diagnosis issue tools
+        StructuredTool.from_function(
+            name="list_diagnosis_issues",
+            func=list_diagnosis_issues,
+            description="파일 진단 이슈 목록을 조회합니다.",
+        ),
+        StructuredTool.from_function(
+            name="set_issue_status",
+            func=set_issue_status,
+            description="진단 이슈 상태/응답을 업데이트합니다.",
         ),
     ]

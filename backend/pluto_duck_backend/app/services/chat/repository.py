@@ -334,6 +334,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "llm_provider": "openai",
     "llm_model": "gpt-5-mini",
     "local_models": [],
+    "language": "en",
 }
 
 

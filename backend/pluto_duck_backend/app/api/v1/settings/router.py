@@ -32,6 +32,7 @@ class UpdateSettingsRequest(BaseModel):
     llm_model: Optional[str] = Field(None, description="Default LLM model")
     llm_provider: Optional[str] = Field(None, description="LLM provider (currently only 'openai')")
     user_name: Optional[str] = Field(None, description="User display name")
+    language: Optional[str] = Field(None, description="User language preference")
 
 
 class SettingsResponse(BaseModel):
@@ -44,6 +45,7 @@ class SettingsResponse(BaseModel):
     ui_preferences: Dict[str, Any] = {"theme": "dark"}
     default_project_id: Optional[str] = None
     user_name: Optional[str] = None
+    language: str = "en"
 
 
 class UpdateSettingsResponse(BaseModel):
@@ -96,6 +98,7 @@ def get_settings() -> SettingsResponse:
         ui_preferences=settings.get("ui_preferences") or {"theme": "dark"},
         default_project_id=repo._default_project_id,
         user_name=settings.get("user_name"),
+        language=settings.get("language") or "en",
     )
 
 
@@ -131,6 +134,11 @@ def update_settings(request: UpdateSettingsRequest) -> UpdateSettingsResponse:
 
     if request.user_name is not None:
         payload["user_name"] = request.user_name
+    
+    if request.language is not None:
+        if request.language not in {"en", "ko"}:
+            raise HTTPException(status_code=400, detail="Invalid language. Must be 'en' or 'ko'")
+        payload["language"] = request.language
 
     if payload:
         repo.update_settings(payload)

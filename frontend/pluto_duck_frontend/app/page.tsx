@@ -4,6 +4,9 @@ import { useCallback, useEffect, useState, useRef } from 'react';
 import { DatabaseIcon, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Package, Database, Layers, Plus } from 'lucide-react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { isTauriRuntime } from '../lib/tauriRuntime';
+import { NextIntlClientProvider, useTranslations } from 'next-intl';
+import enMessages from '../messages/en.json';
+import koMessages from '../messages/ko.json';
 
 import { SettingsModal, MultiTabChatPanel } from '../components/chat';
 import { UpdateBanner } from '../components/UpdateBanner';
@@ -38,11 +41,20 @@ import { useBackendStatus } from '../hooks/useBackendStatus';
 
 type MainView = 'boards' | 'assets' | 'datasets';
 type Dataset = FileAsset | CachedTable;
+type Locale = 'en' | 'ko';
 
 const SIDEBAR_COLLAPSED_KEY = 'pluto-duck-sidebar-collapsed';
 const SELECTED_DATASET_ID_KEY = 'pluto_selected_dataset_id';
+const MESSAGES = { en: enMessages, ko: koMessages } as const;
 
-export default function WorkspacePage() {
+function WorkspacePageBody({
+  language,
+  onLanguageChange,
+}: {
+  language: Locale;
+  onLanguageChange: (language: Locale) => void;
+}) {
+  const t = useTranslations('nav');
   const { isReady: backendReady, isChecking: backendChecking } = useBackendStatus();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [dataSourcesOpen, setDataSourcesOpen] = useState(false);
@@ -210,6 +222,7 @@ export default function WorkspacePage() {
             setSelectedModel(settings.llm_model);
           }
           setUserName(settings.user_name ?? null);
+          onLanguageChange(settings.language === 'ko' ? 'ko' : 'en');
           if (settings.default_project_id) {
             setDefaultProjectId(settings.default_project_id);
           }
@@ -218,7 +231,7 @@ export default function WorkspacePage() {
         }
       })();
     }
-  }, [backendReady]);
+  }, [backendReady, onLanguageChange]);
         
   // Load data sources when project is selected
   useEffect(() => {
@@ -567,7 +580,7 @@ export default function WorkspacePage() {
         <button
           onClick={handleSidebarToggle}
           className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent"
-          title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          title={sidebarCollapsed ? t('expandSidebar') : t('collapseSidebar')}
         >
           {sidebarCollapsed ? (
             <PanelLeftOpen className="h-4 w-4" />
@@ -584,7 +597,7 @@ export default function WorkspacePage() {
         <button
           onClick={() => setChatPanelCollapsed(prev => !prev)}
           className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent"
-          title={chatPanelCollapsed ? 'Expand chat panel' : 'Collapse chat panel'}
+          title={chatPanelCollapsed ? t('expandChat') : t('collapseChat')}
         >
           {chatPanelCollapsed ? (
             <PanelRightOpen className="h-4 w-4" />
@@ -601,10 +614,10 @@ export default function WorkspacePage() {
           <div className="rounded-lg border bg-card p-8 text-center shadow-lg">
             <Loader />
             <p className="mt-4 text-sm font-medium text-muted-foreground">
-              {backendChecking ? 'Connecting to backend...' : 'Backend is starting...'}
+              {backendChecking ? t('backend.connecting') : t('backend.starting')}
             </p>
             <p className="mt-2 text-xs text-muted-foreground">
-              Please wait while the backend initializes
+              {t('backend.waitHint')}
             </p>
           </div>
         </div>
@@ -645,7 +658,7 @@ export default function WorkspacePage() {
                 }`}
               >
                 <Layers className="h-3.5 w-3.5" />
-                Boards
+                {t('boards')}
               </button>
               <button
                 type="button"
@@ -660,7 +673,7 @@ export default function WorkspacePage() {
                 }`}
               >
                 <Database className="h-3.5 w-3.5" />
-                Datasets
+                {t('datasets')}
               </button>
             </div>
 
@@ -675,7 +688,7 @@ export default function WorkspacePage() {
                 <div className="flex items-center justify-center rounded-full bg-primary/10" style={{ width: 22, height: 22 }}>
                   <Plus className="h-3.5 w-3.5" />
                 </div>
-                New Board
+                {t('newBoard')}
               </button>
             ) : (
               <button
@@ -687,7 +700,7 @@ export default function WorkspacePage() {
                 <div className="flex items-center justify-center rounded-full bg-primary/10" style={{ width: 22, height: 22 }}>
                   <Plus className="h-3.5 w-3.5" />
                 </div>
-                Add Dataset
+                {t('addDataset')}
               </button>
             )}
 
@@ -739,7 +752,7 @@ export default function WorkspacePage() {
                 onClick={() => setDataSourcesOpen(true)}
               >
                 <DatabaseIcon className="h-4 w-4" />
-                <span>Connect Data</span>
+                <span>{t('connectData')}</span>
               </button>
               <button
                 type="button"
@@ -751,7 +764,7 @@ export default function WorkspacePage() {
                 onClick={() => setMainView(mainView === 'assets' ? 'boards' : 'assets')}
               >
                 <Package className="h-4 w-4" />
-                <span>Assets</span>
+                <span>{t('assets')}</span>
               </button>
             </div>
             <div className="px-3 pb-4 pt-3">
@@ -800,12 +813,12 @@ export default function WorkspacePage() {
                     </div>
                     <div className="text-center">
                       <h3 className="text-lg font-medium">
-                        {sidebarDatasets.length > 0 ? 'Select a dataset' : 'No datasets yet'}
+                        {sidebarDatasets.length > 0 ? t('selectDataset') : t('noDatasets')}
                       </h3>
                       <p className="mt-1 text-sm text-muted-foreground">
                         {sidebarDatasets.length > 0
-                          ? 'Choose a dataset from the sidebar to view its details.'
-                          : 'Import CSV or Parquet files, or cache tables from connected databases.'}
+                          ? t('selectDatasetHint')
+                          : t('noDatasetHint')}
                       </p>
                     </div>
                     {sidebarDatasets.length === 0 && (
@@ -815,7 +828,7 @@ export default function WorkspacePage() {
                         className="flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
                       >
                         <Plus className="h-4 w-4" />
-                        Add Dataset
+                        {t('addDataset')}
                       </button>
                     )}
                   </div>
@@ -872,6 +885,9 @@ export default function WorkspacePage() {
         onOpenChange={setSettingsOpen}
         onSettingsSaved={(model) => setSelectedModel(model)}
         onProfileSaved={setUserName}
+        onPreferencesSaved={(nextLanguage) =>
+          onLanguageChange(nextLanguage === 'ko' ? 'ko' : 'en')
+        }
         initialMenu="profile"
         projectId={defaultProjectId || null}
         onWorkspaceReset={handleWorkspaceReset}
@@ -955,6 +971,7 @@ export default function WorkspacePage() {
         onOpenChange={setShowAddDatasetModal}
         onImportSuccess={handleImportSuccess}
         onOpenPostgresModal={() => setImportPostgresOpen(true)}
+        language={language}
       />
       <BoardSelectorModal
         open={boardSelectorOpen}
@@ -963,5 +980,23 @@ export default function WorkspacePage() {
         onSelect={handleBoardSelect}
       />
     </div>
+  );
+}
+
+export default function WorkspacePage() {
+  const [language, setLanguage] = useState<Locale>('en');
+  const messages = MESSAGES[language] ?? MESSAGES.en;
+
+  useEffect(() => {
+    document.documentElement.lang = language;
+  }, [language]);
+
+  return (
+    <NextIntlClientProvider locale={language} messages={messages}>
+      <WorkspacePageBody
+        language={language}
+        onLanguageChange={setLanguage}
+      />
+    </NextIntlClientProvider>
   );
 }

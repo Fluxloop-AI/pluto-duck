@@ -256,6 +256,13 @@ async def diagnose_files(
     Set include_merge_analysis=true with merge_context to get merged dataset name suggestion.
     """
     from pluto_duck_backend.app.services.asset.file_diagnosis_service import DiagnoseFileRequest
+    from pluto_duck_backend.app.services.asset.llm_analysis_service import (
+        PromptContext,
+        resolve_language_code,
+    )
+
+    prompt_context = PromptContext(language=request.language)
+    language_code = resolve_language_code(prompt_context)
 
     # Convert request to DiagnoseFileRequest objects
     file_requests = [
@@ -282,6 +289,7 @@ async def diagnose_files(
         new_diagnoses,
         llm_cache_key: str,
         merge_context: Optional[dict],
+        prompt_context: PromptContext,
     ) -> None:
         try:
             from pluto_duck_backend.app.services.asset.file_diagnosis_service import MergedAnalysis
@@ -308,6 +316,7 @@ async def diagnose_files(
             batch_result = await analyze_datasets_with_llm(
                 diagnoses_for_llm,
                 merge_context=llm_merge_context,
+                prompt_context=prompt_context,
             )
 
             # Save LLM results for newly analyzed files (or cache without LLM on failure)
@@ -339,6 +348,7 @@ async def diagnose_files(
                     files=file_requests,
                     use_cache=request.use_cache,
                     merge_context=merge_context_dict,
+                    prompt_context=prompt_context,
                 )
                 all_diagnoses = diagnosis_result.diagnoses
                 # Extract merged analysis if present
@@ -354,7 +364,10 @@ async def diagnose_files(
                     diagnosis = None
                     cached = None
                     if request.use_cache:
-                        cached = service.get_cached_diagnosis(file_req.file_path)
+                        cached = service.get_cached_diagnosis(
+                            file_req.file_path,
+                            language=language_code,
+                        )
                         if cached:
                             diagnosis = cached
 
@@ -375,6 +388,7 @@ async def diagnose_files(
                     llm_cache_key = service.build_llm_cache_key(
                         file_requests,
                         merge_context_dict,
+                        language=language_code,
                     )
                     cached_merged = service.get_cached_merged_analysis(llm_cache_key)
                     if cached_merged:
@@ -397,6 +411,7 @@ async def diagnose_files(
                         llm_cache_key = service.build_llm_cache_key(
                             file_requests,
                             merge_context_dict,
+                            language=language_code,
                         )
                     if service.mark_llm_inflight(llm_cache_key):
                         asyncio.create_task(
@@ -405,6 +420,7 @@ async def diagnose_files(
                                 new_diagnoses,
                                 llm_cache_key,
                                 merge_context_dict,
+                                prompt_context,
                             )
                         )
         else:
@@ -467,6 +483,13 @@ def get_file_diagnosis(
         logger.warning(f"[get_file_diagnosis] File asset not found: {file_id}")
         raise HTTPException(status_code=404, detail=f"File asset '{file_id}' not found")
 
+    from pluto_duck_backend.app.services.asset.llm_analysis_service import (
+        PromptContext,
+        resolve_language_code,
+    )
+
+    language_code = resolve_language_code(PromptContext())
+
     logger.info(
         "[get_file_diagnosis] Asset found: id=%s, diagnosis_id=%s, file_path=%s",
         asset.id,
@@ -497,7 +520,10 @@ def get_file_diagnosis(
             "[get_file_diagnosis] Trying lookup by diagnosis_id: %s",
             asset.diagnosis_id,
         )
-        diagnosis = diagnosis_service.get_diagnosis_by_id(asset.diagnosis_id)
+        diagnosis = diagnosis_service.get_diagnosis_by_id(
+            asset.diagnosis_id,
+            language=language_code,
+        )
         logger.info(
             "[get_file_diagnosis] Lookup result by diagnosis_id: %s",
             "FOUND" if diagnosis else "NOT FOUND",
@@ -509,7 +535,10 @@ def get_file_diagnosis(
             "[get_file_diagnosis] Trying fallback lookup by file_path: %s",
             asset.file_path,
         )
-        diagnosis = diagnosis_service.get_cached_diagnosis(asset.file_path)
+        diagnosis = diagnosis_service.get_cached_diagnosis(
+            asset.file_path,
+            language=language_code,
+        )
         logger.info(
             "[get_file_diagnosis] Lookup result by file_path: %s",
             "FOUND" if diagnosis else "NOT FOUND",
@@ -530,7 +559,10 @@ async def regenerate_summary(
     diagnosis_service: FileDiagnosisService = Depends(get_file_diagnosis_service_dep),
 ) -> FileDiagnosisResponse:
     """Regenerate LLM summary (agent analysis) without touching issues."""
-    from pluto_duck_backend.app.services.asset.llm_analysis_service import analyze_datasets_with_llm
+    from pluto_duck_backend.app.services.asset.llm_analysis_service import (
+        PromptContext,
+        analyze_datasets_with_llm,
+    )
 
     asset = file_service.get_file(file_id)
     if not asset:
@@ -547,7 +579,10 @@ async def regenerate_summary(
         diagnosis.diagnosis_id = saved_id
         file_service.update_diagnosis_id(asset.id, saved_id)
 
-    batch_result = await analyze_datasets_with_llm([diagnosis])
+    batch_result = await analyze_datasets_with_llm(
+        [diagnosis],
+        prompt_context=PromptContext(),
+    )
     llm_result = batch_result.file_results.get(diagnosis.file_path)
     if not llm_result:
         raise HTTPException(status_code=500, detail="Failed to regenerate LLM summary")
@@ -574,11 +609,24 @@ def rescan_quick_scan(
     if not asset:
         raise HTTPException(status_code=404, detail=f"File asset '{file_id}' not found")
 
+    from pluto_duck_backend.app.services.asset.llm_analysis_service import (
+        PromptContext,
+        resolve_language_code,
+    )
+
+    language_code = resolve_language_code(PromptContext())
+
     existing = None
     if asset.diagnosis_id:
-        existing = diagnosis_service.get_diagnosis_by_id(asset.diagnosis_id)
+        existing = diagnosis_service.get_diagnosis_by_id(
+            asset.diagnosis_id,
+            language=language_code,
+        )
     if existing is None:
-        existing = diagnosis_service.get_cached_diagnosis(asset.file_path)
+        existing = diagnosis_service.get_cached_diagnosis(
+            asset.file_path,
+            language=language_code,
+        )
 
     diagnosis = diagnosis_service.diagnose_file(asset.file_path, asset.file_type)
     if existing and existing.llm_analysis:
@@ -622,7 +670,10 @@ async def find_issues(
     issue_service: DiagnosisIssueService = Depends(get_diagnosis_issue_service_dep),
 ) -> DiagnosisIssueListResponse:
     """Run LLM diagnosis to find issues and append them to history."""
-    from pluto_duck_backend.app.services.asset.llm_analysis_service import analyze_datasets_with_llm
+    from pluto_duck_backend.app.services.asset.llm_analysis_service import (
+        PromptContext,
+        analyze_datasets_with_llm,
+    )
 
     asset = file_service.get_file(file_id)
     if not asset:
@@ -639,7 +690,10 @@ async def find_issues(
         diagnosis.diagnosis_id = saved_id
         file_service.update_diagnosis_id(asset.id, saved_id)
 
-    batch_result = await analyze_datasets_with_llm([diagnosis])
+    batch_result = await analyze_datasets_with_llm(
+        [diagnosis],
+        prompt_context=PromptContext(),
+    )
     llm_result = batch_result.file_results.get(diagnosis.file_path)
     if not llm_result:
         raise HTTPException(status_code=500, detail="Failed to generate issues")

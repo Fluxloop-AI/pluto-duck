@@ -32,6 +32,11 @@ logger = logging.getLogger(__name__)
 
 # Batch size for LLM calls - can be adjusted for token efficiency
 LLM_BATCH_SIZE = 5
+DEFAULT_LANGUAGE = "en"
+LANGUAGE_LABELS = {
+    "en": "English",
+    "ko": "Korean",
+}
 
 
 @dataclass
@@ -60,6 +65,41 @@ class BatchLLMAnalysisResult:
 
     file_results: Dict[str, LLMAnalysisResult]
     merged_result: Optional[MergedAnalysisResult] = None
+
+
+@dataclass
+class PromptContext:
+    language: Optional[str] = None
+
+
+def _normalize_language(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    trimmed = value.strip().lower()
+    return trimmed if trimmed in LANGUAGE_LABELS else None
+
+
+def resolve_language_code(prompt_context: Optional[PromptContext]) -> str:
+    if prompt_context is not None:
+        candidate = _normalize_language(prompt_context.language)
+        if candidate:
+            return candidate
+
+    try:
+        from pluto_duck_backend.app.services.chat import get_chat_repository
+
+        settings = get_chat_repository().get_settings()
+        candidate = _normalize_language(settings.get("language"))
+        if candidate:
+            return candidate
+    except Exception:
+        pass
+
+    return DEFAULT_LANGUAGE
+
+
+def _resolve_language_label(prompt_context: Optional[PromptContext]) -> str:
+    return LANGUAGE_LABELS[resolve_language_code(prompt_context)]
 
 
 def format_diagnoses_for_llm(
@@ -121,6 +161,7 @@ def _schema_to_result(
     file_schema: FileAnalysisSchema,
     analyzed_at: datetime,
     model_used: str,
+    language: Optional[str],
 ) -> LLMAnalysisResult:
     """Convert Pydantic FileAnalysisSchema to dataclass LLMAnalysisResult.
 
@@ -153,6 +194,7 @@ def _schema_to_result(
         issues=issues,
         analyzed_at=analyzed_at,
         model_used=model_used,
+        language=language,
     )
 
 
@@ -160,6 +202,7 @@ async def analyze_batch_with_llm(
     diagnoses: List[FileDiagnosis],
     llm_service: LLMService,
     merge_context: Optional[MergeContext] = None,
+    prompt_context: Optional[PromptContext] = None,
 ) -> BatchLLMAnalysisResult:
     """Analyze a batch of file diagnoses using LLM with structured output.
 
@@ -179,7 +222,9 @@ async def analyze_batch_with_llm(
 
     # Load and format prompt
     prompt_template = load_dataset_analysis_prompt()
-    prompt = prompt_template.replace("{input_json}", input_json)
+    language_code = resolve_language_code(prompt_context)
+    language_label = LANGUAGE_LABELS[language_code]
+    prompt = prompt_template.replace("{input_json}", input_json).replace("{language}", language_label)
     logger.debug(f"[LLM] Prompt:\n{prompt[:500]}...")  # 프롬프트 일부
 
     # Call LLM with structured output
@@ -201,7 +246,12 @@ async def analyze_batch_with_llm(
 
         for file_schema in batch_result.files:
             file_path = file_schema.file_path
-            file_results[file_path] = _schema_to_result(file_schema, analyzed_at, model_used)
+            file_results[file_path] = _schema_to_result(
+                file_schema,
+                analyzed_at,
+                model_used,
+                language_code,
+            )
 
             logger.info(f"[LLM] Parsed result for {file_path}:")
             logger.info(f"  - suggested_name: {file_schema.suggested_name}")
@@ -235,6 +285,7 @@ async def analyze_datasets_with_llm(
     diagnoses: List[FileDiagnosis],
     llm_service: LLMService | None = None,
     merge_context: Optional[MergeContext] = None,
+    prompt_context: Optional[PromptContext] = None,
 ) -> BatchLLMAnalysisResult:
     """Analyze multiple file diagnoses using LLM with batching.
 
@@ -269,7 +320,12 @@ async def analyze_datasets_with_llm(
         logger.info(
             f"Analyzing {len(diagnoses)} files in single batch with merge_context"
         )
-        return await analyze_batch_with_llm(diagnoses, llm_service, merge_context)
+        return await analyze_batch_with_llm(
+            diagnoses,
+            llm_service,
+            merge_context,
+            prompt_context=prompt_context,
+        )
 
     # Otherwise, split into batches for parallel processing
     batches: List[List[FileDiagnosis]] = []
@@ -283,7 +339,7 @@ async def analyze_datasets_with_llm(
 
     # Process batches in parallel
     tasks = [
-        analyze_batch_with_llm(batch, llm_service)
+        analyze_batch_with_llm(batch, llm_service, prompt_context=prompt_context)
         for batch in batches
     ]
     batch_results = await asyncio.gather(*tasks, return_exceptions=True)

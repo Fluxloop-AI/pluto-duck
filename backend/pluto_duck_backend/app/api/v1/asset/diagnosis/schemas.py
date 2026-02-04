@@ -58,6 +58,10 @@ class DiagnoseFilesRequest(BaseModel):
         "sync",
         description="LLM execution mode: sync waits for results, defer runs in background, cache_only returns cached LLM only",
     )
+    language: Optional[Literal["en", "ko"]] = Field(
+        None,
+        description="Language for LLM responses (defaults to user settings)",
+    )
     include_merge_analysis: bool = Field(
         False,
         description="Include merged dataset analysis (requires include_llm=true)",

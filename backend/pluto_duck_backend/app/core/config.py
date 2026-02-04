@@ -131,13 +131,22 @@ class PlutoDuckSettings(BaseSettings):
 
         root_override = os.getenv("PLUTODUCK_DATA_DIR__ROOT")
         if root_override:
-            self.data_dir.root = Path(root_override)
+            root_path = Path(root_override)
+            self.data_dir.root = root_path
+            self.data_dir.artifacts = root_path / "artifacts"
+            self.data_dir.configs = root_path / "configs"
+            self.data_dir.logs = root_path / "logs"
+            self.data_dir.runtime = root_path / "runtime"
+            self.duckdb.path = root_path / "data" / "warehouse.duckdb"
 
         agent_provider_override = os.getenv("PLUTODUCK_AGENT__PROVIDER")
         if agent_provider_override:
             self.agent.provider = agent_provider_override
 
         self.data_dir.ensure()
+
+        # Ensure DuckDB parent directory exists (not covered by DataDirectory)
+        self.duckdb.path.parent.mkdir(parents=True, exist_ok=True)
 
         # Seed default agent skills (developer-provided) for all users
         _ensure_default_agent_skills(self.data_dir.root / "deepagents" / "user" / "skills")
@@ -150,5 +159,3 @@ def get_settings() -> PlutoDuckSettings:
     settings = PlutoDuckSettings()
     settings.prepare_environment()
     return settings
-
-

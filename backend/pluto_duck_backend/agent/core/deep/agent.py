@@ -28,6 +28,7 @@ from pluto_duck_backend.app.services.llm import LLMService
 
 from .hitl import ApprovalBroker
 from .middleware.approvals import ApprovalPersistenceMiddleware, PlutoDuckHITLConfig
+from .middleware.dataset_context import DatasetContextMiddleware
 from .middleware.memory import AgentMemoryMiddleware
 from .middleware.skills import SkillsMiddleware
 from .prompts import load_default_agent_prompt
@@ -135,6 +136,7 @@ def build_deep_agent(
     middleware: list[AgentMiddleware] = [
         ApprovalPersistenceMiddleware(config=hitl_config, broker=broker),
         AgentMemoryMiddleware(conversation_id=conversation_id, default_user_agent_md=default_agent_md),
+        DatasetContextMiddleware(conversation_id=conversation_id),
         SkillsMiddleware(conversation_id=conversation_id),
         *list(extra_middleware),
     ]
@@ -166,5 +168,4 @@ def build_deep_agent(
         interrupt_on=None,
         checkpointer=checkpointer,
     )
-
 

@@ -48,7 +48,7 @@ Skills follow a **progressive disclosure** pattern - you know they exist (name +
 1. **Recognize when a skill applies**: Check if the user's task matches any skill's description
 2. **Read the skill's full instructions**: The skill list above shows the exact path to use with read_file
 3. **Follow the skill's instructions**: SKILL.md contains step-by-step workflows, best practices, and examples
-4. **Access supporting files**: Skills may include scripts, configs, or reference docs - use virtual absolute paths starting with `/`
+4. **Access supporting files**: Skills may include scripts, configs, or reference docs in the skill directory
 
 **When to Use Skills:**
 - When the user's request matches a skill's domain

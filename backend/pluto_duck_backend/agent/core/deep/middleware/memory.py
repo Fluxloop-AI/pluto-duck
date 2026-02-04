@@ -126,7 +126,6 @@ write_file '{project_deepagents_dir}/agent.md' ...
 
 **Important**:
 - Memory files are exposed under `/memories/` (virtual filesystem)
-- Always use absolute virtual paths starting with `/` (e.g. `/memories/user/agent.md`)
 - Updating memory requires HITL approval (file edit/write)
 """.strip()
 

@@ -441,7 +441,6 @@ class TestDiagnosisCaching:
         self, diagnosis_service: FileDiagnosisService, sample_csv: Path
     ):
         """Test that cached diagnosis preserves LLM analysis results."""
-        from datetime import timezone
         from pluto_duck_backend.app.services.asset.file_diagnosis_service import (
             LLMAnalysisResult,
             PotentialItem,
@@ -463,6 +462,7 @@ class TestDiagnosisCaching:
             ],
             analyzed_at=diagnosis.diagnosed_at,
             model_used="test-model",
+            language="en",
         )
 
         # Save the diagnosis with LLM analysis
@@ -481,6 +481,45 @@ class TestDiagnosisCaching:
         assert len(cached.llm_analysis.issues) == 1
         assert cached.llm_analysis.issues[0].issue == "Missing values"
         assert cached.llm_analysis.model_used == "test-model"
+        assert cached.llm_analysis.language == "en"
+
+    def test_cached_diagnosis_language_mismatch_drops_llm_analysis(
+        self, diagnosis_service: FileDiagnosisService, sample_csv: Path
+    ):
+        """Test that cached LLM analysis is ignored when language mismatches."""
+        from pluto_duck_backend.app.services.asset.file_diagnosis_service import (
+            LLMAnalysisResult,
+            PotentialItem,
+        )
+
+        diagnosis = diagnosis_service.diagnose_file(str(sample_csv), "csv")
+        diagnosis.llm_analysis = LLMAnalysisResult(
+            suggested_name="test_dataset",
+            context="Test dataset.",
+            potential=[PotentialItem(question="Q", analysis="A")],
+            issues=[],
+            analyzed_at=diagnosis.diagnosed_at,
+            model_used="test-model",
+            language="en",
+        )
+
+        diagnosis_service.save_diagnosis(diagnosis)
+
+        cached = diagnosis_service.get_cached_diagnosis(str(sample_csv), language="ko")
+        assert cached is not None
+        assert cached.llm_analysis is None
+
+    def test_llm_cache_key_varies_by_language(
+        self, diagnosis_service: FileDiagnosisService, sample_csv: Path
+    ):
+        """Test that LLM cache keys differ across languages."""
+        from pluto_duck_backend.app.services.asset import DiagnoseFileRequest
+
+        files = [DiagnoseFileRequest(file_path=str(sample_csv), file_type="csv")]
+        key_en = diagnosis_service.build_llm_cache_key(files, language="en")
+        key_ko = diagnosis_service.build_llm_cache_key(files, language="ko")
+
+        assert key_en != key_ko
 
     def test_cached_diagnosis_without_llm_analysis(
         self, diagnosis_service: FileDiagnosisService, sample_csv: Path

@@ -344,6 +344,7 @@ class LLMAnalysisResult:
     issues: List[IssueItem]
     analyzed_at: datetime
     model_used: str
+    language: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
@@ -354,6 +355,7 @@ class LLMAnalysisResult:
             "issues": [i.to_dict() for i in self.issues],
             "analyzed_at": self.analyzed_at.isoformat() if self.analyzed_at else None,
             "model_used": self.model_used,
+            "language": self.language,
         }
 
 
@@ -1429,8 +1431,10 @@ class FileDiagnosisService:
         from .llm_analysis_service import (
             analyze_datasets_with_llm,
             MergeContext as LLMMergeContext,
+            resolve_language_code,
         )
 
+        language_code = resolve_language_code(prompt_context)
         diagnoses: List[FileDiagnosis] = []
         new_diagnoses: List[FileDiagnosis] = []  # Diagnoses that need LLM analysis
 
@@ -1440,7 +1444,10 @@ class FileDiagnosisService:
 
             # Try cache if enabled
             if use_cache:
-                diagnosis = self.get_cached_diagnosis(file_req.file_path)
+                diagnosis = self.get_cached_diagnosis(
+                    file_req.file_path,
+                    language=language_code,
+                )
                 # If cached but no LLM analysis, treat as needing analysis
                 if diagnosis and diagnosis.llm_analysis is None:
                     new_diagnoses.append(diagnosis)
@@ -1765,11 +1772,16 @@ class FileDiagnosisService:
             ).fetchone()
         return bool(result and result[0])
 
-    def get_diagnosis_by_id(self, diagnosis_id: str) -> Optional[FileDiagnosis]:
+    def get_diagnosis_by_id(
+        self,
+        diagnosis_id: str,
+        language: Optional[str] = None,
+    ) -> Optional[FileDiagnosis]:
         """Get a diagnosis by its ID.
 
         Args:
             diagnosis_id: Diagnosis ID (e.g., 'diag_xxxxxxxxxxxx')
+            language: Optional language to validate cached LLM analysis
 
         Returns:
             FileDiagnosis if found, None otherwise
@@ -1853,7 +1865,13 @@ class FileDiagnosisService:
                     ],
                     analyzed_at=datetime.fromisoformat(llm_analysis_data["analyzed_at"]) if llm_analysis_data.get("analyzed_at") else datetime.now(UTC),
                     model_used=llm_analysis_data.get("model_used", "unknown"),
+                    language=llm_analysis_data.get("language"),
                 )
+
+            # Only invalidate cache if language was recorded AND differs from requested
+            # (legacy cache without language field should remain usable)
+            if language and llm_analysis and llm_analysis.language and llm_analysis.language != language:
+                llm_analysis = None
 
             return FileDiagnosis(
                 file_path=result[0],
@@ -1869,7 +1887,11 @@ class FileDiagnosisService:
                 diagnosis_id=diagnosis_id,
             )
 
-    def get_cached_diagnosis(self, file_path: str) -> Optional[FileDiagnosis]:
+    def get_cached_diagnosis(
+        self,
+        file_path: str,
+        language: Optional[str] = None,
+    ) -> Optional[FileDiagnosis]:
         """Get a cached diagnosis result for a file.
 
         Args:
@@ -1954,7 +1976,13 @@ class FileDiagnosisService:
                     ],
                     analyzed_at=datetime.fromisoformat(llm_analysis_data["analyzed_at"]) if llm_analysis_data.get("analyzed_at") else datetime.now(UTC),
                     model_used=llm_analysis_data.get("model_used", "unknown"),
+                    language=llm_analysis_data.get("language"),
                 )
+
+            # Only invalidate cache if language was recorded AND differs from requested
+            # (legacy cache without language field should remain usable)
+            if language and llm_analysis and llm_analysis.language and llm_analysis.language != language:
+                llm_analysis = None
 
             return FileDiagnosis(
                 file_path=result[1],
@@ -1999,6 +2027,7 @@ class FileDiagnosisService:
         self,
         files: List[DiagnoseFileRequest],
         merge_context: Optional[Dict[str, Any]] = None,
+        language: Optional[str] = None,
     ) -> str:
         """Build a stable key for LLM analysis caching/in-flight tracking."""
         payload = {
@@ -2006,6 +2035,7 @@ class FileDiagnosisService:
                 {"path": f.file_path, "type": f.file_type} for f in files
             ],
             "merge_context": merge_context or {},
+            "language": language,
         }
         encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()

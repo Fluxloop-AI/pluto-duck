@@ -256,9 +256,13 @@ async def diagnose_files(
     Set include_merge_analysis=true with merge_context to get merged dataset name suggestion.
     """
     from pluto_duck_backend.app.services.asset.file_diagnosis_service import DiagnoseFileRequest
-    from pluto_duck_backend.app.services.asset.llm_analysis_service import PromptContext
+    from pluto_duck_backend.app.services.asset.llm_analysis_service import (
+        PromptContext,
+        resolve_language_code,
+    )
 
     prompt_context = PromptContext(language=request.language)
+    language_code = resolve_language_code(prompt_context)
 
     # Convert request to DiagnoseFileRequest objects
     file_requests = [
@@ -360,7 +364,10 @@ async def diagnose_files(
                     diagnosis = None
                     cached = None
                     if request.use_cache:
-                        cached = service.get_cached_diagnosis(file_req.file_path)
+                        cached = service.get_cached_diagnosis(
+                            file_req.file_path,
+                            language=language_code,
+                        )
                         if cached:
                             diagnosis = cached
 
@@ -381,6 +388,7 @@ async def diagnose_files(
                     llm_cache_key = service.build_llm_cache_key(
                         file_requests,
                         merge_context_dict,
+                        language=language_code,
                     )
                     cached_merged = service.get_cached_merged_analysis(llm_cache_key)
                     if cached_merged:
@@ -403,6 +411,7 @@ async def diagnose_files(
                         llm_cache_key = service.build_llm_cache_key(
                             file_requests,
                             merge_context_dict,
+                            language=language_code,
                         )
                     if service.mark_llm_inflight(llm_cache_key):
                         asyncio.create_task(
@@ -474,6 +483,13 @@ def get_file_diagnosis(
         logger.warning(f"[get_file_diagnosis] File asset not found: {file_id}")
         raise HTTPException(status_code=404, detail=f"File asset '{file_id}' not found")
 
+    from pluto_duck_backend.app.services.asset.llm_analysis_service import (
+        PromptContext,
+        resolve_language_code,
+    )
+
+    language_code = resolve_language_code(PromptContext())
+
     logger.info(
         "[get_file_diagnosis] Asset found: id=%s, diagnosis_id=%s, file_path=%s",
         asset.id,
@@ -504,7 +520,10 @@ def get_file_diagnosis(
             "[get_file_diagnosis] Trying lookup by diagnosis_id: %s",
             asset.diagnosis_id,
         )
-        diagnosis = diagnosis_service.get_diagnosis_by_id(asset.diagnosis_id)
+        diagnosis = diagnosis_service.get_diagnosis_by_id(
+            asset.diagnosis_id,
+            language=language_code,
+        )
         logger.info(
             "[get_file_diagnosis] Lookup result by diagnosis_id: %s",
             "FOUND" if diagnosis else "NOT FOUND",
@@ -516,7 +535,10 @@ def get_file_diagnosis(
             "[get_file_diagnosis] Trying fallback lookup by file_path: %s",
             asset.file_path,
         )
-        diagnosis = diagnosis_service.get_cached_diagnosis(asset.file_path)
+        diagnosis = diagnosis_service.get_cached_diagnosis(
+            asset.file_path,
+            language=language_code,
+        )
         logger.info(
             "[get_file_diagnosis] Lookup result by file_path: %s",
             "FOUND" if diagnosis else "NOT FOUND",
@@ -587,11 +609,24 @@ def rescan_quick_scan(
     if not asset:
         raise HTTPException(status_code=404, detail=f"File asset '{file_id}' not found")
 
+    from pluto_duck_backend.app.services.asset.llm_analysis_service import (
+        PromptContext,
+        resolve_language_code,
+    )
+
+    language_code = resolve_language_code(PromptContext())
+
     existing = None
     if asset.diagnosis_id:
-        existing = diagnosis_service.get_diagnosis_by_id(asset.diagnosis_id)
+        existing = diagnosis_service.get_diagnosis_by_id(
+            asset.diagnosis_id,
+            language=language_code,
+        )
     if existing is None:
-        existing = diagnosis_service.get_cached_diagnosis(asset.file_path)
+        existing = diagnosis_service.get_cached_diagnosis(
+            asset.file_path,
+            language=language_code,
+        )
 
     diagnosis = diagnosis_service.diagnose_file(asset.file_path, asset.file_type)
     if existing and existing.llm_analysis:

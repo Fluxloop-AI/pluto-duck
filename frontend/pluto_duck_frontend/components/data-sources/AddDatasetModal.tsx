@@ -117,6 +117,7 @@ interface AddDatasetModalProps {
   onOpenChange: (open: boolean) => void;
   onImportSuccess?: (createdAsset?: FileAsset) => void;
   onOpenPostgresModal?: () => void;
+  language?: 'en' | 'ko';
 }
 
 type Step = 'select' | 'preview' | 'analyzing' | 'diagnose';
@@ -324,6 +325,7 @@ export function AddDatasetModal({
   onOpenChange,
   onImportSuccess,
   onOpenPostgresModal,
+  language,
 }: AddDatasetModalProps) {
   const [step, setStep] = useState<Step>('select');
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
@@ -584,7 +586,7 @@ export function AddDatasetModal({
 
     try {
       // First API call: fast diagnosis without LLM
-      const fastResponse = await diagnoseFiles(projectId, filesToDiagnose, true, false);
+      const fastResponse = await diagnoseFiles(projectId, filesToDiagnose, true, false, false, undefined, 'sync', language);
       setDiagnosisResults(fastResponse.diagnoses);
 
       // Check if schemas are identical for merge option
@@ -624,7 +626,8 @@ export function AddDatasetModal({
           true,
           includeMergeAnalysis,
           mergeContext,
-          llmMode
+          llmMode,
+          language
         );
         setDiagnosisResults((current) => mergeDiagnosisResults(current, llmResponse.diagnoses));
 
@@ -650,7 +653,8 @@ export function AddDatasetModal({
                 true,
                 includeMergeAnalysis,
                 mergeContext,
-                'cache_only'
+                'cache_only',
+                language
               );
 
               setDiagnosisResults((current) => mergeDiagnosisResults(current, pollResponse.diagnoses));
@@ -683,7 +687,7 @@ export function AddDatasetModal({
     } finally {
       setIsDiagnosing(false);
     }
-  }, [projectId, selectedFiles]);
+  }, [projectId, selectedFiles, language]);
 
   // Import files - called when Import button is clicked on diagnose step
   const handleConfirmImport = useCallback(async (datasetNames: Record<number, string>) => {

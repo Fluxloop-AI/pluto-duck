@@ -1404,6 +1404,7 @@ class FileDiagnosisService:
         files: List[DiagnoseFileRequest],
         use_cache: bool = True,
         merge_context: Optional[Dict[str, Any]] = None,
+        prompt_context: Optional["PromptContext"] = None,
     ) -> DiagnosisWithMergedAnalysis:
         """Diagnose multiple files with LLM analysis.
 
@@ -1472,6 +1473,7 @@ class FileDiagnosisService:
                 batch_result = await analyze_datasets_with_llm(
                     new_diagnoses,
                     merge_context=llm_merge_context,
+                    prompt_context=prompt_context,
                 )
 
                 # Merge LLM results into diagnoses

@@ -72,6 +72,7 @@ export default function WorkspacePage() {
   const [selectedDataset, setSelectedDataset] = useState<Dataset | null>(null);
   const [workspaceResetCounter, setWorkspaceResetCounter] = useState(0);
   const [userName, setUserName] = useState<string | null>(null);
+  const [language, setLanguage] = useState<'en' | 'ko'>('en');
   const datasetLoadIdRef = useRef(0);
 
   // Ref for BoardsView to access insertMarkdown
@@ -210,6 +211,7 @@ export default function WorkspacePage() {
             setSelectedModel(settings.llm_model);
           }
           setUserName(settings.user_name ?? null);
+          setLanguage(settings.language === 'ko' ? 'ko' : 'en');
           if (settings.default_project_id) {
             setDefaultProjectId(settings.default_project_id);
           }
@@ -872,6 +874,7 @@ export default function WorkspacePage() {
         onOpenChange={setSettingsOpen}
         onSettingsSaved={(model) => setSelectedModel(model)}
         onProfileSaved={setUserName}
+        onPreferencesSaved={(nextLanguage) => setLanguage(nextLanguage === 'ko' ? 'ko' : 'en')}
         initialMenu="profile"
         projectId={defaultProjectId || null}
         onWorkspaceReset={handleWorkspaceReset}
@@ -955,6 +958,7 @@ export default function WorkspacePage() {
         onOpenChange={setShowAddDatasetModal}
         onImportSuccess={handleImportSuccess}
         onOpenPostgresModal={() => setImportPostgresOpen(true)}
+        language={language}
       />
       <BoardSelectorModal
         open={boardSelectorOpen}

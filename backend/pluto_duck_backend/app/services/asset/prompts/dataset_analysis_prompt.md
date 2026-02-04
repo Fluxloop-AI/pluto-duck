@@ -73,7 +73,7 @@ WARNING: Do NOT include `merged_*` fields when input has no `merge_context`.
 
 ## Tone & Style
 
-Write in casual, friendly English. Be concise and direct.
+Write in casual, friendly {language}. Be concise and direct.
 
 | DO | DON'T |
 |-------|----------|

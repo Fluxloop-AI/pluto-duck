@@ -63,6 +63,7 @@ interface SettingsModalProps {
   onOpenChange: (open: boolean) => void;
   onSettingsSaved?: (model: string) => void;
   onProfileSaved?: (name: string | null) => void;
+  onPreferencesSaved?: (language: string) => void;
   initialMenu?: SettingsMenu;
   projectId?: string | null;
   onWorkspaceReset?: () => void;
@@ -919,6 +920,7 @@ export function SettingsModal({
 
       await updateSettings(payload);
       setSuccessMessage('Preferences saved successfully!');
+      onPreferencesSaved?.(language);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save preferences');
     } finally {

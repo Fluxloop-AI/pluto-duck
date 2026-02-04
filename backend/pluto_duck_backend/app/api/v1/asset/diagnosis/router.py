@@ -256,6 +256,9 @@ async def diagnose_files(
     Set include_merge_analysis=true with merge_context to get merged dataset name suggestion.
     """
     from pluto_duck_backend.app.services.asset.file_diagnosis_service import DiagnoseFileRequest
+    from pluto_duck_backend.app.services.asset.llm_analysis_service import PromptContext
+
+    prompt_context = PromptContext(language=request.language)
 
     # Convert request to DiagnoseFileRequest objects
     file_requests = [
@@ -282,6 +285,7 @@ async def diagnose_files(
         new_diagnoses,
         llm_cache_key: str,
         merge_context: Optional[dict],
+        prompt_context: PromptContext,
     ) -> None:
         try:
             from pluto_duck_backend.app.services.asset.file_diagnosis_service import MergedAnalysis
@@ -308,6 +312,7 @@ async def diagnose_files(
             batch_result = await analyze_datasets_with_llm(
                 diagnoses_for_llm,
                 merge_context=llm_merge_context,
+                prompt_context=prompt_context,
             )
 
             # Save LLM results for newly analyzed files (or cache without LLM on failure)
@@ -339,6 +344,7 @@ async def diagnose_files(
                     files=file_requests,
                     use_cache=request.use_cache,
                     merge_context=merge_context_dict,
+                    prompt_context=prompt_context,
                 )
                 all_diagnoses = diagnosis_result.diagnoses
                 # Extract merged analysis if present
@@ -405,6 +411,7 @@ async def diagnose_files(
                                 new_diagnoses,
                                 llm_cache_key,
                                 merge_context_dict,
+                                prompt_context,
                             )
                         )
         else:
@@ -530,7 +537,10 @@ async def regenerate_summary(
     diagnosis_service: FileDiagnosisService = Depends(get_file_diagnosis_service_dep),
 ) -> FileDiagnosisResponse:
     """Regenerate LLM summary (agent analysis) without touching issues."""
-    from pluto_duck_backend.app.services.asset.llm_analysis_service import analyze_datasets_with_llm
+    from pluto_duck_backend.app.services.asset.llm_analysis_service import (
+        PromptContext,
+        analyze_datasets_with_llm,
+    )
 
     asset = file_service.get_file(file_id)
     if not asset:
@@ -547,7 +557,10 @@ async def regenerate_summary(
         diagnosis.diagnosis_id = saved_id
         file_service.update_diagnosis_id(asset.id, saved_id)
 
-    batch_result = await analyze_datasets_with_llm([diagnosis])
+    batch_result = await analyze_datasets_with_llm(
+        [diagnosis],
+        prompt_context=PromptContext(),
+    )
     llm_result = batch_result.file_results.get(diagnosis.file_path)
     if not llm_result:
         raise HTTPException(status_code=500, detail="Failed to regenerate LLM summary")
@@ -622,7 +635,10 @@ async def find_issues(
     issue_service: DiagnosisIssueService = Depends(get_diagnosis_issue_service_dep),
 ) -> DiagnosisIssueListResponse:
     """Run LLM diagnosis to find issues and append them to history."""
-    from pluto_duck_backend.app.services.asset.llm_analysis_service import analyze_datasets_with_llm
+    from pluto_duck_backend.app.services.asset.llm_analysis_service import (
+        PromptContext,
+        analyze_datasets_with_llm,
+    )
 
     asset = file_service.get_file(file_id)
     if not asset:
@@ -639,7 +655,10 @@ async def find_issues(
         diagnosis.diagnosis_id = saved_id
         file_service.update_diagnosis_id(asset.id, saved_id)
 
-    batch_result = await analyze_datasets_with_llm([diagnosis])
+    batch_result = await analyze_datasets_with_llm(
+        [diagnosis],
+        prompt_context=PromptContext(),
+    )
     llm_result = batch_result.file_results.get(diagnosis.file_path)
     if not llm_result:
         raise HTTPException(status_code=500, detail="Failed to generate issues")

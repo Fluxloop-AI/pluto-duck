@@ -389,6 +389,26 @@ class FileAssetService:
             )
         ]
 
+    def _append_file_event(
+        self,
+        *,
+        file_asset_id: str,
+        event_type: str,
+        message: Optional[str],
+    ) -> None:
+        try:
+            from .file_preprocessing_service import get_file_preprocessing_service
+
+            service = get_file_preprocessing_service(self.project_id)
+            service.append_event(
+                file_asset_id=file_asset_id,
+                event_type=event_type,
+                message=message,
+                actor=None,
+            )
+        except Exception as exc:
+            logger.warning("[FileAssetService] Failed to append event: %s", exc)
+
     # =========================================================================
     # CRUD Operations
     # =========================================================================
@@ -580,6 +600,14 @@ class FileAssetService:
                         file_size_bytes=file_size_bytes,
                         added_at=now,
                     )
+
+                    file_name = Path(file_path).name if file_path else None
+                    message = f"Dataset appended from {file_name}" if file_name else "Dataset appended"
+                    self._append_file_event(
+                        file_asset_id=asset_id,
+                        event_type="dataset_appended",
+                        message=message,
+                    )
                     
                     # Return updated asset
                     asset = self.get_file(asset_id)
@@ -642,6 +670,14 @@ class FileAssetService:
                 row_count=source_row_count,
                 file_size_bytes=file_size_bytes,
                 added_at=now,
+            )
+
+            file_name = Path(file_path).name if file_path else None
+            message = f"Dataset created from {file_name}" if file_name else "Dataset created"
+            self._append_file_event(
+                file_asset_id=asset_id,
+                event_type="dataset_created",
+                message=message,
             )
 
         return FileAsset(

@@ -57,6 +57,7 @@ import {
   LOCAL_MODEL_OPTION_MAP,
   type LocalModelOption,
 } from '../../constants/models';
+import { useTranslations } from 'next-intl';
 
 interface SettingsModalProps {
   open: boolean;
@@ -73,20 +74,20 @@ type SettingsMenu = 'profile' | 'preferences' | 'notifications' | 'models' | 'up
 
 interface MenuItem {
   id: SettingsMenu;
-  label: string;
+  labelKey: string;
   icon: React.ElementType;
 }
 
 const MENU_ITEMS: MenuItem[] = [
-  { id: 'profile', label: 'Profile', icon: User },
-  { id: 'preferences', label: 'Preferences', icon: Settings },
-  { id: 'notifications', label: 'Notifications', icon: Bell },
+  { id: 'profile', labelKey: 'menu.profile', icon: User },
+  { id: 'preferences', labelKey: 'menu.preferences', icon: Settings },
+  { id: 'notifications', labelKey: 'menu.notifications', icon: Bell },
 ];
 
 const MENU_ITEMS_SETTINGS: MenuItem[] = [
-  { id: 'models', label: 'Models', icon: Cpu },
-  { id: 'updates', label: 'Updates', icon: Download },
-  { id: 'data', label: 'Data', icon: Database },
+  { id: 'models', labelKey: 'menu.models', icon: Cpu },
+  { id: 'updates', labelKey: 'menu.updates', icon: Download },
+  { id: 'data', labelKey: 'menu.data', icon: Database },
 ];
 
 const MODELS = ALL_MODEL_OPTIONS;
@@ -96,10 +97,12 @@ export function SettingsModal({
   onOpenChange,
   onSettingsSaved,
   onProfileSaved,
+  onPreferencesSaved,
   initialMenu,
   projectId,
   onWorkspaceReset,
 }: SettingsModalProps) {
+  const t = useTranslations('settings');
   const [activeMenu, setActiveMenu] = useState<SettingsMenu>('profile');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -219,7 +222,7 @@ export function SettingsModal({
       await fetchLocalModels();
       await fetchDownloadStatuses();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load settings');
+      setError(err instanceof Error ? err.message : t('models.loadError'));
     } finally {
       setLoading(false);
     }
@@ -233,9 +236,13 @@ export function SettingsModal({
         delete downloadPollRef.current[modelId];
         await fetchLocalModels();
         if (next?.status === 'completed') {
-          setSuccessMessage(`"${LOCAL_MODEL_OPTION_MAP[modelId]?.label ?? modelId}" 다운로드가 완료되었습니다.`);
+          setSuccessMessage(
+            t('models.downloadCompleteMsg', {
+              name: LOCAL_MODEL_OPTION_MAP[modelId]?.label ?? modelId,
+            })
+          );
         } else if (next?.status === 'error') {
-          setError(next.detail ?? '다운로드에 실패했습니다.');
+          setError(next.detail ?? t('models.downloadFailedMsg'));
         }
       } else {
         downloadPollRef.current[modelId] = setTimeout(poll, 2000);
@@ -262,7 +269,11 @@ export function SettingsModal({
       if (status === 'completed') {
         await fetchLocalModels();
         await fetchDownloadStatuses();
-        setSuccessMessage(`"${option.label}" 로컬 모델이 준비되었습니다.`);
+        setSuccessMessage(
+          t('models.modelReadyMsg', {
+            name: option.label,
+          })
+        );
       } else {
         setLocalDownloadStates(prev => ({
           ...prev,
@@ -272,11 +283,12 @@ export function SettingsModal({
             updated_at: new Date().toISOString(),
           },
         }));
-        setSuccessMessage('모델 다운로드를 백그라운드에서 진행 중입니다. 설정 창을 닫아도 계속됩니다.');
+        setSuccessMessage(t('models.downloadInProgressMsg'));
         scheduleStatusPolling(option.id);
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to download local model';
+      const message =
+        err instanceof Error ? err.message : t('models.downloadFailedMsg');
       setError(message);
       setLocalDownloadStates(prev => ({
         ...prev,
@@ -292,7 +304,11 @@ export function SettingsModal({
   const handleDeleteLocalModel = async (model: LocalModelInfo) => {
     const option = LOCAL_MODEL_OPTION_MAP[model.id];
     const displayName = option?.label ?? model.name ?? model.id;
-    const confirmed = window.confirm(`정말로 로컬 모델 "${displayName}"을 삭제할까요?`);
+    const confirmed = window.confirm(
+      t('models.confirmDelete', {
+        name: displayName,
+      })
+    );
     if (!confirmed) return;
 
     setError(null);
@@ -301,7 +317,11 @@ export function SettingsModal({
     try {
       await deleteLocalModel(model.id);
       await fetchLocalModels();
-      setSuccessMessage(`로컬 모델 "${displayName}"을(를) 삭제했습니다.`);
+      setSuccessMessage(
+        t('models.modelDeletedMsg', {
+          name: displayName,
+        })
+      );
       if (downloadPollRef.current[model.id]) {
         clearTimeout(downloadPollRef.current[model.id]);
         delete downloadPollRef.current[model.id];
@@ -324,7 +344,7 @@ export function SettingsModal({
 
     // Validation
     if (apiKey && !apiKey.startsWith('sk-')) {
-      setError('API key must start with "sk-"');
+      setError(t('models.apiKeyError'));
       return;
     }
 
@@ -347,7 +367,7 @@ export function SettingsModal({
       }
 
       await updateSettings(payload);
-      setSuccessMessage('Settings saved successfully!');
+      setSuccessMessage(t('models.saved'));
       setHasExistingKey(true); // Mark that we now have a key
 
       // Notify parent component about model change
@@ -361,7 +381,7 @@ export function SettingsModal({
         setSuccessMessage(null);
       }, 1500);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save settings');
+      setError(err instanceof Error ? err.message : t('models.saveError'));
     } finally {
       setSaving(false);
     }
@@ -380,7 +400,7 @@ export function SettingsModal({
 
     try {
       await resetDatabase();
-      setSuccessMessage('Database reset successfully! Please restart the application.');
+      setSuccessMessage(t('models.dbResetSuccess'));
       setShowResetDialog(false);
 
       // Close the settings modal after a delay
@@ -389,7 +409,7 @@ export function SettingsModal({
         setSuccessMessage(null);
       }, 2000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to reset database');
+      setError(err instanceof Error ? err.message : t('models.dbResetError'));
       setShowResetDialog(false);
     } finally {
       setResetting(false);
@@ -398,7 +418,7 @@ export function SettingsModal({
 
   const handleResetWorkspaceData = async () => {
     if (!projectId) {
-      setError('No active workspace selected');
+      setError(t('data.noWorkspace'));
       return;
     }
 
@@ -408,11 +428,11 @@ export function SettingsModal({
 
     try {
       await resetWorkspaceData(projectId);
-      setSuccessMessage('Workspace reset successfully!');
+      setSuccessMessage(t('models.workspaceResetSuccess'));
       setShowResetWorkspaceDialog(false);
       onWorkspaceReset?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to reset workspace data');
+      setError(err instanceof Error ? err.message : t('models.workspaceResetError'));
       setShowResetWorkspaceDialog(false);
     } finally {
       setResettingWorkspace(false);
@@ -449,7 +469,7 @@ export function SettingsModal({
               }`}
             >
               <Icon className="h-4 w-4" />
-              {item.label}
+              {t(item.labelKey)}
             </button>
           );
         })}
@@ -469,7 +489,7 @@ export function SettingsModal({
               }`}
             >
               <Icon className="h-4 w-4" />
-              {item.label}
+              {t(item.labelKey)}
             </button>
           );
         })}
@@ -485,8 +505,8 @@ export function SettingsModal({
     return (
       <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
         <Icon className="h-12 w-12 mb-4 opacity-50" />
-        <h3 className="text-lg font-medium mb-2">{menuItem.label}</h3>
-        <p className="text-sm">This feature is coming soon.</p>
+        <h3 className="text-lg font-medium mb-2">{t(menuItem.labelKey)}</h3>
+        <p className="text-sm">{t('comingSoon')}</p>
       </div>
     );
   };
@@ -497,31 +517,31 @@ export function SettingsModal({
         <div className="grid gap-6">
           {/* API Section */}
           <div>
-            <h3 className="text-sm font-semibold mb-4">API</h3>
+            <h3 className="text-sm font-semibold mb-4">{t('models.api')}</h3>
             <div className="grid gap-4">
               {/* Provider */}
               <div className="grid gap-2">
-                <label className="text-sm font-medium">Provider</label>
+                <label className="text-sm font-medium">{t('models.provider')}</label>
                 <Select value="openai" disabled>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="openai">OpenAI</SelectItem>
+                    <SelectItem value="openai">{t('models.openai')}</SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  Currently only OpenAI is supported
+                  {t('models.providerHint')}
                 </p>
               </div>
 
               {/* API Key */}
               <div className="grid gap-2">
                 <label htmlFor="api-key" className="text-sm font-medium">
-                  API Key
+                  {t('models.apiKey')}
                   {hasExistingKey && (
                     <span className="ml-2 text-xs font-normal text-green-600 dark:text-green-400">
-                      ✓ Configured
+                      ✓ {t('models.configured')}
                     </span>
                   )}
                 </label>
@@ -549,15 +569,15 @@ export function SettingsModal({
                 </div>
                 <p className="text-xs text-muted-foreground">
                   {hasExistingKey
-                    ? 'API key is already configured. Enter a new key to replace it.'
-                    : 'Your OpenAI API key (starts with sk-)'}
+                    ? t('models.apiKeyHintExisting')
+                    : t('models.apiKeyHintNew')}
                 </p>
               </div>
 
               {/* Default Model */}
               <div className="grid gap-2">
                 <label htmlFor="model" className="text-sm font-medium">
-                  Default Model
+                  {t('models.defaultModel')}
                 </label>
                 <Select value={model} onValueChange={setModel}>
                   <SelectTrigger id="model">
@@ -572,7 +592,7 @@ export function SettingsModal({
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  Model to use for new conversations
+                  {t('models.modelHint')}
                 </p>
               </div>
             </div>
@@ -580,9 +600,9 @@ export function SettingsModal({
 
           {/* Local Models Section */}
           <div className="border-t border-border pt-6">
-            <h3 className="text-sm font-semibold mb-4">Local Models</h3>
+            <h3 className="text-sm font-semibold mb-4">{t('models.localModels')}</h3>
             <p className="text-xs text-muted-foreground mb-4">
-              다운로드는 백그라운드에서 진행되며, 창을 닫아도 계속됩니다.
+              {t('models.localModelsHint')}
             </p>
             <div className="grid gap-2">
               {LOCAL_MODEL_OPTIONS.map(option => {
@@ -601,19 +621,19 @@ export function SettingsModal({
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-sm font-medium">{option.label}</span>
                         <Badge variant={isInstalled ? 'secondary' : 'outline'}>
-                          {isInstalled ? '설치됨' : '미설치'}
+                          {isInstalled ? t('models.installed') : t('models.notInstalled')}
                         </Badge>
                         {downloadState === 'completed' && (
-                          <Badge variant="secondary">다운로드 완료</Badge>
+                          <Badge variant="secondary">{t('models.downloadComplete')}</Badge>
                         )}
                         {downloadState === 'queued' && (
-                          <Badge variant="secondary">대기 중</Badge>
+                          <Badge variant="secondary">{t('models.queued')}</Badge>
                         )}
                         {downloadState === 'downloading' && (
-                          <Badge variant="secondary">다운로드 중</Badge>
+                          <Badge variant="secondary">{t('models.downloading')}</Badge>
                         )}
                         {downloadState === 'error' && (
-                          <Badge variant="destructive">다운로드 실패</Badge>
+                          <Badge variant="destructive">{t('models.downloadFailed')}</Badge>
                         )}
                       </div>
                       {option.description && (
@@ -641,12 +661,12 @@ export function SettingsModal({
                         {isDownloading ? (
                           <>
                             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            다운로드 중…
+                            {t('models.downloadingBtn')}
                           </>
                         ) : isInstalled ? (
-                          '재다운로드'
+                          t('models.redownload')
                         ) : (
-                          '다운로드'
+                          t('models.download')
                         )}
                       </Button>
                       {downloadState === 'error' && (
@@ -656,7 +676,7 @@ export function SettingsModal({
                           onClick={() => handleDownloadLocalModel(option)}
                           disabled={isDownloading}
                         >
-                          다시 시도
+                          {t('models.retry')}
                         </Button>
                       )}
                     </div>
@@ -665,7 +685,9 @@ export function SettingsModal({
               })}
             </div>
             {loadingLocalModels ? (
-              <p className="text-xs text-muted-foreground mt-4">Loading local models…</p>
+              <p className="text-xs text-muted-foreground mt-4">
+                {t('models.loadingLocalModels')}
+              </p>
             ) : localModels.length > 0 ? (
               <ul className="mt-4 space-y-1 rounded-md border border-border p-3 text-xs text-muted-foreground">
                 {localModels.map(localModel => {
@@ -698,14 +720,14 @@ export function SettingsModal({
                           deletingModelId === localModel.id
                         }
                         onClick={() => handleDeleteLocalModel(localModel)}
-                        title="Delete local model"
+                        title={t('models.delete')}
                       >
                         {deletingModelId === localModel.id ? (
-                          <span className="text-xs">삭제 중...</span>
+                          <span className="text-xs">{t('models.deleting')}</span>
                         ) : (
                           <>
                             <TrashIcon className="h-4 w-4" />
-                            <span className="sr-only">Delete</span>
+                            <span className="sr-only">{t('models.delete')}</span>
                           </>
                         )}
                       </Button>
@@ -714,7 +736,9 @@ export function SettingsModal({
                 })}
               </ul>
             ) : (
-              <p className="text-xs text-muted-foreground mt-4">No local models installed yet.</p>
+              <p className="text-xs text-muted-foreground mt-4">
+                {t('models.noLocalModels')}
+              </p>
             )}
           </div>
 
@@ -737,10 +761,10 @@ export function SettingsModal({
       {/* Footer for Models section */}
       <div className="flex justify-end gap-2 pt-4 border-t border-border mt-4">
         <Button variant="outline" onClick={handleCancel} disabled={saving}>
-          Cancel
+          {t('button.cancel')}
         </Button>
         <Button onClick={handleSave} disabled={loading || saving}>
-          {saving ? 'Saving...' : 'Save'}
+          {saving ? t('button.saving') : t('button.save')}
         </Button>
       </div>
     </div>
@@ -752,7 +776,7 @@ export function SettingsModal({
         <Download className="h-5 w-5 text-muted-foreground mt-0.5 shrink-0" />
         <div className="grid gap-3 flex-1">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold">Auto Updates</h3>
+            <h3 className="text-sm font-semibold">{t('updates.autoUpdates')}</h3>
             {currentVersion && (
               <span className="text-xs text-muted-foreground font-mono">
                 v{currentVersion}
@@ -763,9 +787,9 @@ export function SettingsModal({
           {/* Auto Download Toggle */}
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm">Auto Download</p>
+              <p className="text-sm">{t('updates.autoDownload')}</p>
               <p className="text-xs text-muted-foreground">
-                Automatically download updates in the background
+                {t('updates.autoDownloadHint')}
               </p>
             </div>
             <button
@@ -788,19 +812,19 @@ export function SettingsModal({
           {/* Update Status */}
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm">Current Status</p>
+              <p className="text-sm">{t('updates.currentStatus')}</p>
               <p className="text-xs text-muted-foreground">
                 {readyToRestart
-                  ? `Update ready - restart to apply`
+                  ? t('updates.readyToRestart')
                   : updateAvailable
-                  ? `Version ${updateAvailable} available`
-                  : 'Up to date'}
+                  ? t('updates.versionAvailable', { version: updateAvailable })
+                  : t('updates.upToDate')}
               </p>
             </div>
 
             {readyToRestart ? (
               <Button size="sm" onClick={restart}>
-                Restart Now
+                {t('updates.restartNow')}
               </Button>
             ) : downloading ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -809,7 +833,7 @@ export function SettingsModal({
               </div>
             ) : updateAvailable && !autoDownload ? (
               <Button size="sm" variant="outline" onClick={downloadUpdate}>
-                Download
+                {t('models.download')}
               </Button>
             ) : (
               <Button
@@ -819,7 +843,7 @@ export function SettingsModal({
                 disabled={downloading}
               >
                 <RefreshCw className="h-4 w-4 mr-1" />
-                Check
+                {t('updates.check')}
               </Button>
             )}
           </div>
@@ -834,17 +858,17 @@ export function SettingsModal({
 
   const renderDataContent = () => (
     <div className="grid gap-4">
-      <h3 className="text-sm font-semibold">Data Management</h3>
+      <h3 className="text-sm font-semibold">{t('data.title')}</h3>
       <div className="flex items-start gap-3">
         <AlertTriangleIcon className="h-5 w-5 text-amber-500 mt-0.5 shrink-0" />
         <div className="grid gap-2 flex-1">
-          <h4 className="text-sm font-medium">Workspace Reset</h4>
+          <h4 className="text-sm font-medium">{t('data.workspaceReset')}</h4>
           <div className="grid gap-2">
             <p className="text-sm text-muted-foreground">
-              Reset all workspace data without deleting the workspace itself.
+              {t('data.workspaceResetDesc')}
             </p>
             <p className="text-xs text-muted-foreground">
-              This will delete datasets, boards, conversations, and project metadata.
+              {t('data.workspaceResetDetail')}
             </p>
           </div>
           <Button
@@ -854,23 +878,25 @@ export function SettingsModal({
             disabled={loading || saving || resetting || resettingWorkspace || !projectId}
             className="w-fit"
           >
-            Reset Workspace
+            {t('data.resetWorkspace')}
           </Button>
           {!projectId && (
-            <p className="text-xs text-muted-foreground">No active workspace selected.</p>
+            <p className="text-xs text-muted-foreground">
+              {t('data.noWorkspace')}
+            </p>
           )}
         </div>
       </div>
       <div className="flex items-start gap-3">
         <AlertTriangleIcon className="h-5 w-5 text-destructive mt-0.5 shrink-0" />
         <div className="grid gap-2 flex-1">
-          <h4 className="text-sm font-medium">Danger Zone</h4>
+          <h4 className="text-sm font-medium">{t('data.dangerZone')}</h4>
           <div className="grid gap-2">
             <p className="text-sm text-muted-foreground">
-              Reset the database to fix initialization issues.
+              {t('data.dbResetDesc')}
             </p>
             <p className="text-xs text-muted-foreground">
-              ⚠️ This will permanently delete all conversations, messages, projects, and data sources.
+              {t('data.dbResetWarning')}
             </p>
           </div>
           <Button
@@ -880,7 +906,7 @@ export function SettingsModal({
             disabled={loading || saving || resetting || resettingWorkspace}
             className="w-fit"
           >
-            Reset Database
+            {t('button.resetDatabase')}
           </Button>
         </div>
       </div>
@@ -900,9 +926,9 @@ export function SettingsModal({
 
       await updateSettings(payload);
       onProfileSaved?.(nextName || null);
-      setSuccessMessage('Profile saved successfully!');
+      setSuccessMessage(t('profile.saved'));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save profile');
+      setError(err instanceof Error ? err.message : t('profile.saveError'));
     } finally {
       setSaving(false);
     }
@@ -919,10 +945,10 @@ export function SettingsModal({
       };
 
       await updateSettings(payload);
-      setSuccessMessage('Preferences saved successfully!');
+      setSuccessMessage(t('preferences.saved'));
       onPreferencesSaved?.(language);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save preferences');
+      setError(err instanceof Error ? err.message : t('preferences.saveError'));
     } finally {
       setSaving(false);
     }
@@ -934,19 +960,19 @@ export function SettingsModal({
         <div className="grid gap-6">
           <div className="grid gap-2">
             <label htmlFor="language" className="text-sm font-medium">
-              Language
+              {t('preferences.language')}
             </label>
             <Select value={language} onValueChange={setLanguage}>
               <SelectTrigger id="language">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="en">English</SelectItem>
-                <SelectItem value="ko">Korean</SelectItem>
+                <SelectItem value="en">{t('preferences.languageEn')}</SelectItem>
+                <SelectItem value="ko">{t('preferences.languageKo')}</SelectItem>
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              Used for assistant responses
+              {t('preferences.languageHint')}
             </p>
           </div>
 
@@ -964,10 +990,10 @@ export function SettingsModal({
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={handleCancel} disabled={saving}>
-            Cancel
+            {t('button.cancel')}
           </Button>
           <Button onClick={handleSavePreferences} disabled={loading || saving}>
-            {saving ? 'Saving...' : 'Save Changes'}
+            {saving ? t('button.saving') : t('button.saveChanges')}
           </Button>
         </div>
       </div>
@@ -990,41 +1016,41 @@ export function SettingsModal({
             {/* Avatar and Name Display */}
             <div className="flex items-center gap-4">
               <Avatar className="h-16 w-16 text-xl">
-                <AvatarFallback>{avatarLetter}</AvatarFallback>
-              </Avatar>
-              <span className="text-lg font-medium">
-                {userName.trim() || 'No name set'}
-              </span>
-            </div>
+              <AvatarFallback>{avatarLetter}</AvatarFallback>
+            </Avatar>
+            <span className="text-lg font-medium">
+              {userName.trim() || t('profile.noName')}
+            </span>
+          </div>
 
-            {/* Display Name Input */}
-            <div className="grid gap-2">
-              <label htmlFor="display-name" className="text-sm font-medium">
-                Display Name
-              </label>
-              <Input
-                id="display-name"
-                type="text"
-                placeholder="Enter your name"
-                value={userName}
-                onChange={(e) => setUserName(e.target.value)}
-              />
-            </div>
+          {/* Display Name Input */}
+          <div className="grid gap-2">
+            <label htmlFor="display-name" className="text-sm font-medium">
+              {t('profile.displayName')}
+            </label>
+            <Input
+              id="display-name"
+              type="text"
+              placeholder={t('profile.enterName')}
+              value={userName}
+              onChange={(e) => setUserName(e.target.value)}
+            />
+          </div>
 
-            {/* Google Login (UI only) */}
-            <div className="grid gap-2">
-              <label className="text-sm font-medium">Google Account</label>
-              {googleStatus !== 'connected' ? (
-                <Button
-                  type="button"
-                  onClick={handleGoogleConnect}
-                  disabled={googleStatus === 'loading'}
+          {/* Google Login (UI only) */}
+          <div className="grid gap-2">
+            <label className="text-sm font-medium">{t('profile.googleAccount')}</label>
+            {googleStatus !== 'connected' ? (
+              <Button
+                type="button"
+                onClick={handleGoogleConnect}
+                disabled={googleStatus === 'loading'}
                   className="w-1/2 h-auto justify-center gap-3 rounded-full border border-black/10 bg-white py-[12px] text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-black/5 disabled:opacity-70"
                 >
                   {googleStatus === 'loading' ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin" />
-                      Connecting...
+                      {t('profile.connecting')}
                     </>
                   ) : (
                     <>
@@ -1050,14 +1076,14 @@ export function SettingsModal({
                           d="M24 47.5c5.76 0 10.59-1.9 14.12-5.45l-7.33-5.68c-1.95 1.36-4.58 2.3-6.79 2.3-6.3 0-11.68-3.98-13.46-9.5l-7.3 5.66C6.84 42.14 14.7 47.5 24 47.5z"
                         />
                       </svg>
-                      Continue with Google
+                      {t('profile.continueWithGoogle')}
                     </>
                   )}
                 </Button>
               ) : (
                 <div className="grid gap-3">
                   <div className="grid gap-2">
-                    <label className="text-sm font-medium">User Name</label>
+                    <label className="text-sm font-medium">{t('profile.userName')}</label>
                     <Input
                       value={googleFullName}
                       readOnly
@@ -1065,7 +1091,7 @@ export function SettingsModal({
                     />
                   </div>
                   <div className="grid gap-2">
-                    <label className="text-sm font-medium">Email</label>
+                    <label className="text-sm font-medium">{t('profile.email')}</label>
                     <Input
                       value={googleEmail}
                       readOnly
@@ -1090,24 +1116,24 @@ export function SettingsModal({
           <div className="min-h-[16px] text-xs text-green-600 dark:text-green-400">
             {successMessage ?? ''}
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={handleCancel} disabled={saving}>
-              Cancel
-            </Button>
-            <Button onClick={handleSaveProfile} disabled={loading || saving}>
-              {saving ? 'Saving...' : 'Save Changes'}
-            </Button>
-          </div>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleCancel} disabled={saving}>
+            {t('button.cancel')}
+          </Button>
+          <Button onClick={handleSaveProfile} disabled={loading || saving}>
+            {saving ? t('button.saving') : t('button.saveChanges')}
+          </Button>
         </div>
       </div>
-    );
+    </div>
+  );
   };
 
   const renderContent = () => {
     if (loading) {
       return (
         <div className="flex items-center justify-center h-full">
-          <div className="text-muted-foreground">Loading settings...</div>
+          <div className="text-muted-foreground">{t('loading')}</div>
         </div>
       );
     }
@@ -1136,7 +1162,7 @@ export function SettingsModal({
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="sm:max-w-[750px] p-0 overflow-hidden">
           <DialogHeader className="px-6 pt-6 pb-4 border-b border-border">
-            <DialogTitle>Settings</DialogTitle>
+            <DialogTitle>{t('title')}</DialogTitle>
           </DialogHeader>
 
           <div className="flex h-[500px]">
@@ -1154,24 +1180,24 @@ export function SettingsModal({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-destructive">
               <AlertTriangleIcon className="h-5 w-5" />
-              Reset Database?
+              {t('dialog.resetDbTitle')}
             </DialogTitle>
             <DialogDescription>
-              This action cannot be undone. This will permanently delete:
+              {t('dialog.resetDbDesc')}
             </DialogDescription>
           </DialogHeader>
 
           <div className="py-4">
             <ul className="list-disc list-inside space-y-2 text-sm text-muted-foreground">
-              <li>All conversation history and messages</li>
-              <li>All projects and workspaces</li>
-              <li>All data sources and imported data</li>
-              <li>All user settings (except API keys which are stored separately)</li>
+              <li>{t('dialog.resetDbItem1')}</li>
+              <li>{t('dialog.resetDbItem2')}</li>
+              <li>{t('dialog.resetDbItem3')}</li>
+              <li>{t('dialog.resetDbItem4')}</li>
             </ul>
 
             <div className="mt-4 p-3 bg-destructive/10 rounded-md border border-destructive/20">
               <p className="text-sm font-medium text-destructive">
-                Are you absolutely sure you want to continue?
+                {t('dialog.resetDbConfirm')}
               </p>
             </div>
           </div>
@@ -1182,14 +1208,14 @@ export function SettingsModal({
               onClick={() => setShowResetDialog(false)}
               disabled={resetting}
             >
-              Cancel
+              {t('button.cancel')}
             </Button>
             <Button
               variant="destructive"
               onClick={handleResetDatabase}
               disabled={resetting}
             >
-              {resetting ? 'Resetting...' : 'Yes, Reset Database'}
+              {resetting ? t('dialog.resetting') : t('dialog.yesResetDb')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1201,24 +1227,24 @@ export function SettingsModal({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-amber-600">
               <AlertTriangleIcon className="h-5 w-5" />
-              Reset Workspace?
+              {t('dialog.resetWsTitle')}
             </DialogTitle>
             <DialogDescription>
-              This will permanently delete data in the current workspace.
+              {t('dialog.resetWsDesc')}
             </DialogDescription>
           </DialogHeader>
 
           <div className="py-4">
             <ul className="list-disc list-inside space-y-2 text-sm text-muted-foreground">
-              <li>Datasets (file imports and cached tables)</li>
-              <li>Boards and board items</li>
-              <li>Conversations and messages</li>
-              <li>Data source metadata and cached diagnoses</li>
+              <li>{t('dialog.resetWsItem1')}</li>
+              <li>{t('dialog.resetWsItem2')}</li>
+              <li>{t('dialog.resetWsItem3')}</li>
+              <li>{t('dialog.resetWsItem4')}</li>
             </ul>
 
             <div className="mt-4 p-3 bg-amber-500/10 rounded-md border border-amber-500/20">
               <p className="text-sm font-medium text-amber-700">
-                The workspace will remain, but its contents will be cleared.
+                {t('dialog.resetWsNote')}
               </p>
             </div>
           </div>
@@ -1229,14 +1255,14 @@ export function SettingsModal({
               onClick={() => setShowResetWorkspaceDialog(false)}
               disabled={resettingWorkspace}
             >
-              Cancel
+              {t('button.cancel')}
             </Button>
             <Button
               variant="destructive"
               onClick={handleResetWorkspaceData}
               disabled={resettingWorkspace}
             >
-              {resettingWorkspace ? 'Resetting...' : 'Yes, Reset Workspace'}
+              {resettingWorkspace ? t('dialog.resetting') : t('dialog.yesResetWs')}
             </Button>
           </DialogFooter>
         </DialogContent>

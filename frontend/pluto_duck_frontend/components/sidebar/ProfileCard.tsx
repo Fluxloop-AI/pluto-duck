@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 
 interface ProfileCardProps {
@@ -22,10 +23,11 @@ export function ProfileCard({
   avatarUrl,
   onClick,
 }: ProfileCardProps) {
+  const t = useTranslations('profile');
   const trimmedName = name?.trim() ?? '';
   const isLoggedIn = trimmedName.length > 0;
-  const primaryText = isLoggedIn ? trimmedName : 'Log in';
-  const secondaryText = subtitle ?? 'your@gmail.com';
+  const primaryText = isLoggedIn ? trimmedName : t('login');
+  const secondaryText = subtitle ?? t('defaultEmail');
   const initials = isLoggedIn ? getInitials(trimmedName) : '?';
 
   return (
@@ -33,7 +35,7 @@ export function ProfileCard({
       type="button"
       onClick={onClick}
       className="flex w-full items-center gap-3 rounded-xl bg-transparent pl-1 pr-3 py-3 text-left transition-colors hover:bg-black/10"
-      aria-label="Open profile settings"
+      aria-label={t('openSettings')}
     >
       <Avatar className="h-10 w-10 bg-white text-sm">
         <AvatarImage alt="" src={avatarUrl || undefined} />

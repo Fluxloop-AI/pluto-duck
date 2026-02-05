@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pluto_duck_backend.agent.core.deep.middleware.dataset_context import (
+    DatasetContextMiddleware,
     _format_dataset_readiness_summary,
 )
 
@@ -56,3 +57,15 @@ def test_format_summary_no_instruction_when_all_ready() -> None:
 
     assert "<dataset_readiness>" in summary
     assert "dataset-readiness" not in summary or "SKILL.md" not in summary
+
+
+def test_before_agent_returns_zero_summary_when_no_project() -> None:
+    middleware = DatasetContextMiddleware(project_id=None)
+
+    update = middleware.before_agent({}, None)
+
+    assert update is not None
+    summary = update["dataset_readiness_summary"]
+    assert "datasets: 0" in summary
+    assert "ready: 0" in summary
+    assert "not_ready: 0" in summary

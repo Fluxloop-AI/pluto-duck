@@ -25,7 +25,7 @@ from deepagents.backends.filesystem import FilesystemBackend
 from pluto_duck_backend.app.core.config import get_settings
 from pluto_duck_backend.app.services.llm import LLMService
 
-from .hitl import ApprovalBroker
+from .context import RunContext, SessionContext
 from .middleware.approvals import ApprovalPersistenceMiddleware, PlutoDuckHITLConfig
 from .middleware.dataset_context import DatasetContextMiddleware
 from .middleware.memory import AgentMemoryMiddleware
@@ -62,12 +62,6 @@ Respect the user's decisions and work with them collaboratively.
 """.strip()
 
 
-def get_workspace_root(conversation_id: str) -> Path:
-    """Return the on-disk workspace root for a conversation."""
-    settings = get_settings()
-    return settings.data_dir.root / "agent_workspaces" / str(conversation_id)
-
-
 def get_deepagents_root() -> Path:
     """Return root directory for backend memory/skills storage."""
     return get_settings().data_dir.root / "deepagents"
@@ -75,11 +69,8 @@ def get_deepagents_root() -> Path:
 
 def build_deep_agent(
     *,
-    conversation_id: str,
-    run_id: str,
-    broker: ApprovalBroker,
-    project_id: str | None = None,
-    model: Optional[str] = None,
+    session_ctx: SessionContext,
+    run_ctx: RunContext,
     tools: Optional[Sequence[BaseTool | Callable[..., Any] | dict[str, Any]]] = None,
     extra_middleware: Sequence[AgentMiddleware] = (),
     checkpointer: Any = None,
@@ -91,8 +82,7 @@ def build_deep_agent(
     - Filesystem backend is workspace-scoped and does not support `execute` by design.
     - `checkpointer` is accepted for Phase 1 plumbing; a DB-backed implementation is added separately.
     """
-    workspace_root = get_workspace_root(conversation_id)
-    workspace_root.mkdir(parents=True, exist_ok=True)
+    workspace_root = session_ctx.workspace_root
 
     # Map virtual paths to the workspace root (virtual_mode=True).
     fs = FilesystemBackend(root_dir=workspace_root, virtual_mode=True)
@@ -112,16 +102,19 @@ def build_deep_agent(
 
     # Tool calling requires a ChatModel that implements bind_tools().
     # Use unified LLMService for provider-agnostic model access.
-    llm_service = LLMService(model_override=model)
+    llm_service = LLMService(model_override=run_ctx.model)
     chat_model = llm_service.get_chat_model()
 
-    hitl_config = PlutoDuckHITLConfig(conversation_id=conversation_id, run_id=run_id)
+    hitl_config = PlutoDuckHITLConfig(
+        conversation_id=session_ctx.conversation_id,
+        run_id=run_ctx.run_id,
+    )
     default_agent_md = load_default_agent_prompt()
     middleware: list[AgentMiddleware] = [
-        ApprovalPersistenceMiddleware(config=hitl_config, broker=broker),
-        AgentMemoryMiddleware(project_id=project_id, default_user_agent_md=default_agent_md),
-        DatasetContextMiddleware(project_id=project_id),
-        SkillsMiddleware(project_id=project_id),
+        ApprovalPersistenceMiddleware(config=hitl_config, broker=run_ctx.broker),
+        AgentMemoryMiddleware(project_id=session_ctx.project_id, default_user_agent_md=default_agent_md),
+        DatasetContextMiddleware(project_id=session_ctx.project_id),
+        SkillsMiddleware(project_id=session_ctx.project_id),
         UserProfileMiddleware(),
         *list(extra_middleware),
     ]
@@ -132,7 +125,7 @@ def build_deep_agent(
         model=chat_model,
         tools=list(tools) if tools is not None else build_default_tools(
             workspace_root=workspace_root,
-            project_id=project_id,
+            project_id=session_ctx.project_id,
         ),
         system_prompt=system_prompt,
         backend=backend,

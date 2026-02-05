@@ -57,6 +57,8 @@ export interface ChatTurn {
   seq: number;
   userMessages: DetailMessage[];
   assistantMessages: DetailMessage[];
+  streamingAssistantText?: string | null;
+  streamingAssistantFinal?: boolean;
   otherMessages: DetailMessage[];
   events: ChatEvent[];
   reasoningText: string;
@@ -179,7 +181,14 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
   const activeTabState = activeTabId ? tabStatesRef.current.get(activeTabId) : null;
   const activeRunId = activeTabState?.activeRunId || null;
 
-  const { events: streamEvents, status: streamStatus, reset: resetStream } = useAgentStream({
+  const {
+    events: streamEvents,
+    status: streamStatus,
+    chunkText,
+    chunkIsFinal,
+    chunkRunId,
+    reset: resetStream,
+  } = useAgentStream({
     runId: activeRunId ?? undefined,
     eventsPath: activeRunId ? `/api/v1/agent/${activeRunId}/events` : undefined,
     enabled: !!activeTabId && !!activeRunId,
@@ -425,6 +434,8 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
       result.push(runs.get(activeRunId)!);
     }
 
+    const streamingRunId = chunkRunId ?? activeRunId;
+
     // Attach events to each run and extract reasoning/tools
     runs.forEach(turn => {
       if (turn.runId) {
@@ -491,12 +502,17 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
         });
         
         turn.groupedToolEvents = toolOrder.map(key => toolMap.get(key)!);
+
+        if (streamingRunId && turn.runId === streamingRunId && chunkText && turn.assistantMessages.length === 0) {
+          turn.streamingAssistantText = chunkText;
+          turn.streamingAssistantFinal = chunkIsFinal;
+        }
       }
     });
 
     result.sort((a, b) => a.seq - b.seq);
     return result;
-  }, [activeTabState?.detail, streamEvents, isStreaming, activeRunId]);
+  }, [activeTabState?.detail, streamEvents, isStreaming, activeRunId, chunkText, chunkIsFinal, chunkRunId]);
 
   // Convert turns to flat render items for independent rendering
   const renderItems = useMemo<ChatRenderItem[]>(
@@ -945,4 +961,3 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
     feedbackMap,
   };
 }
-

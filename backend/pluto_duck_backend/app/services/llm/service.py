@@ -61,8 +61,11 @@ class LLMService:
                 )
         return self._settings
 
-    def get_chat_model(self) -> BaseChatModel:
+    def get_chat_model(self, *, streaming: bool = False) -> BaseChatModel:
         """Get a LangChain BaseChatModel for chat/tool-calling.
+
+        Args:
+            streaming: Enable token streaming callbacks for the model
 
         Returns:
             BaseChatModel instance (currently ChatOpenAI)
@@ -85,6 +88,7 @@ class LLMService:
                 model=settings.model,
                 api_key=settings.api_key,
                 base_url=settings.api_base,
+                streaming=streaming,
             )
 
         raise RuntimeError(

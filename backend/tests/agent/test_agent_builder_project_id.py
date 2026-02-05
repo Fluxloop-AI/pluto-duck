@@ -37,7 +37,7 @@ def test_build_deep_agent_passes_project_id(tmp_path: Path, monkeypatch) -> None
 
     monkeypatch.setattr(agent_module, "build_default_tools", fake_build_default_tools)
     monkeypatch.setattr(agent_module, "create_deep_agent", fake_create_deep_agent)
-    monkeypatch.setattr(agent_module.LLMService, "get_chat_model", lambda self: object())
+    monkeypatch.setattr(agent_module.LLMService, "get_chat_model", lambda self, *, streaming=False: object())
 
     session_ctx = build_session_context(conversation_id="conv", project_id="project-123")
     run_ctx = RunContext(

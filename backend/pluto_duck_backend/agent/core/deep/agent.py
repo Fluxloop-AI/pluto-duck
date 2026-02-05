@@ -104,7 +104,7 @@ def build_deep_agent(
     # Tool calling requires a ChatModel that implements bind_tools().
     # Use unified LLMService for provider-agnostic model access.
     llm_service = LLMService(model_override=run_ctx.model)
-    chat_model = llm_service.get_chat_model()
+    chat_model = llm_service.get_chat_model(streaming=True)
 
     hitl_config = PlutoDuckHITLConfig(
         conversation_id=session_ctx.conversation_id,

@@ -50,6 +50,10 @@ def _serialize(value: Any) -> Any:
     return value
 
 
+def _should_persist_event(event: AgentEvent) -> bool:
+    return not (event.type == EventType.MESSAGE and event.subtype == EventSubType.CHUNK)
+
+
 def safe_dump_event(event: Dict[str, Any]) -> str:
     """Serialize an event dictionary into an SSE data payload."""
 
@@ -157,7 +161,8 @@ class AgentRunManager:
         async def emit(event: AgentEvent) -> None:
             payload = event.to_dict()
             await run.queue.put(payload)
-            repo.log_event(run.conversation_id, payload)
+            if _should_persist_event(event):
+                repo.log_event(run.conversation_id, payload)
 
         run.broker = ApprovalBroker(emit=emit, run_id=run.run_id)
 

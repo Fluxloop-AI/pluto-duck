@@ -22,7 +22,8 @@ def test_build_deep_agent_uses_context_values(tmp_path: Path, monkeypatch) -> No
         def __init__(self, model_override: str | None = None) -> None:
             captured["model_override"] = model_override
 
-        def get_chat_model(self) -> object:
+        def get_chat_model(self, *, streaming: bool = False) -> object:
+            captured["streaming"] = streaming
             return object()
 
     def fake_build_default_tools(*, workspace_root: Path, project_id: str | None = None):
@@ -60,6 +61,7 @@ def test_build_deep_agent_uses_context_values(tmp_path: Path, monkeypatch) -> No
     assert captured["workspace_root"] == session_ctx.workspace_root
     assert captured["model_override"] == "model-1"
     assert captured["tools"] == []
+    assert captured["streaming"] is True
     middleware = captured["middleware"]
     assert isinstance(middleware[-1], SystemPromptComposerMiddleware)
     assert middleware[-1]._layout == "v2"

@@ -11,6 +11,7 @@ Phase 1 scope:
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Optional
@@ -45,6 +46,11 @@ class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
         self._conversation_id = conversation_id
         self._prompt_layout = prompt_layout
         self._tool_stack: list[str] = []  # Track active tool names for matching start/end
+        self._chunk_buffer: list[str] = []
+        self._chunk_tokens = 0
+        self._flush_interval_s = 0.05
+        self._max_chunk_tokens = 20
+        self._last_flush = time.monotonic() - self._flush_interval_s
 
     async def _emit(self, event: AgentEvent) -> None:
         await self._sink.emit(event)
@@ -78,6 +84,36 @@ class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
             return value
         except TypeError:
             return repr(value)
+
+    def _chunk_metadata(self) -> dict[str, Any]:
+        metadata: dict[str, Any] = {"run_id": self._run_id}
+        if self._conversation_id:
+            metadata["conversation_id"] = self._conversation_id
+        if self._prompt_layout:
+            metadata["prompt_layout"] = self._prompt_layout
+        return metadata
+
+    def _should_flush_chunk(self, now: float) -> bool:
+        return (now - self._last_flush) >= self._flush_interval_s or self._chunk_tokens >= self._max_chunk_tokens
+
+    async def _flush_chunk(self, now: float | None = None, *, is_final: bool = False) -> None:
+        if not self._chunk_buffer:
+            return
+        if now is None:
+            now = time.monotonic()
+        text_delta = "".join(self._chunk_buffer)
+        self._chunk_buffer.clear()
+        self._chunk_tokens = 0
+        self._last_flush = now
+        await self._emit(
+            AgentEvent(
+                type=EventType.MESSAGE,
+                subtype=EventSubType.CHUNK,
+                content={"text_delta": text_delta, "is_final": is_final},
+                metadata=self._chunk_metadata(),
+                timestamp=self._ts(),
+            )
+        )
 
     def _coerce_int(self, value: Any) -> int | None:  # noqa: ANN401
         if value is None:
@@ -175,7 +211,17 @@ class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
             )
         )
 
+    async def on_llm_new_token(self, token: str, **kwargs: Any) -> None:  # noqa: ANN401
+        if not token:
+            return
+        self._chunk_buffer.append(token)
+        self._chunk_tokens += 1
+        now = time.monotonic()
+        if self._should_flush_chunk(now):
+            await self._flush_chunk(now)
+
     async def on_llm_end(self, response: Any, **kwargs: Any) -> None:  # noqa: ANN401
+        await self._flush_chunk(is_final=True)
         text = None
         try:
             # Try to extract first generation text
@@ -238,4 +284,3 @@ class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
                 timestamp=self._ts(),
             )
         )
-

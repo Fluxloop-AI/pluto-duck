@@ -21,7 +21,6 @@ from typing import NotRequired, TypedDict, cast
 from langchain.agents.middleware.types import AgentMiddleware, AgentState, ModelRequest, ModelResponse
 
 from pluto_duck_backend.app.core.config import get_settings
-from pluto_duck_backend.app.services.chat import get_chat_repository
 
 
 class AgentMemoryState(AgentState):
@@ -164,10 +163,7 @@ class MemoryPaths:
     project_id: str | None
 
 
-def resolve_memory_paths(conversation_id: str) -> MemoryPaths:
-    repo = get_chat_repository()
-    summary = repo.get_conversation_summary(conversation_id)
-    project_id = getattr(summary, "project_id", None) if summary is not None else None
+def resolve_memory_paths(project_id: str | None) -> MemoryPaths:
     user_path = _user_agent_md_path()
     project_path = _project_agent_md_path(project_id) if project_id else None
     return MemoryPaths(user_agent_md=user_path, project_agent_md=project_path, project_id=project_id)
@@ -176,13 +172,13 @@ def resolve_memory_paths(conversation_id: str) -> MemoryPaths:
 class AgentMemoryMiddleware(AgentMiddleware):
     state_schema = AgentMemoryState
 
-    def __init__(self, *, conversation_id: str, default_user_agent_md: str) -> None:
-        self._conversation_id = conversation_id
+    def __init__(self, *, project_id: str | None, default_user_agent_md: str) -> None:
+        self._project_id = project_id
         self._default_user_agent_md = default_user_agent_md
         self.system_prompt_template = DEFAULT_MEMORY_SNIPPET
 
     def before_agent(self, state: AgentMemoryState, runtime) -> AgentMemoryStateUpdate:  # type: ignore[override]
-        paths = resolve_memory_paths(self._conversation_id)
+        paths = resolve_memory_paths(self._project_id)
 
         # Ensure files exist (empty by default except user agent.md seeded with default prompt)
         _ensure_file(paths.user_agent_md, default_content=self._default_user_agent_md)
@@ -205,7 +201,7 @@ class AgentMemoryMiddleware(AgentMiddleware):
         project_memory = state.get("project_memory") or ""
 
         # Decide displayed locations (virtual)
-        paths = resolve_memory_paths(self._conversation_id)
+        paths = resolve_memory_paths(self._project_id)
         agent_dir_display = "/memories/user"
         agent_dir_absolute = "/memories/user"
         project_deepagents_dir = (
@@ -245,5 +241,4 @@ class AgentMemoryMiddleware(AgentMiddleware):
     ) -> ModelResponse:
         system_prompt = self._build_system_prompt(request)
         return await handler(request.override(system_prompt=system_prompt))
-
 

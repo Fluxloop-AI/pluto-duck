@@ -23,7 +23,6 @@ from deepagents.backends.composite import CompositeBackend
 from deepagents.backends.filesystem import FilesystemBackend
 
 from pluto_duck_backend.app.core.config import get_settings
-from pluto_duck_backend.app.services.chat import get_chat_repository
 from pluto_duck_backend.app.services.llm import LLMService
 
 from .hitl import ApprovalBroker
@@ -79,6 +78,7 @@ def build_deep_agent(
     conversation_id: str,
     run_id: str,
     broker: ApprovalBroker,
+    project_id: str | None = None,
     model: Optional[str] = None,
     tools: Optional[Sequence[BaseTool | Callable[..., Any] | dict[str, Any]]] = None,
     extra_middleware: Sequence[AgentMiddleware] = (),
@@ -115,33 +115,18 @@ def build_deep_agent(
     llm_service = LLMService(model_override=model)
     chat_model = llm_service.get_chat_model()
 
-    repo = get_chat_repository()
-
     hitl_config = PlutoDuckHITLConfig(conversation_id=conversation_id, run_id=run_id)
     default_agent_md = load_default_agent_prompt()
     middleware: list[AgentMiddleware] = [
         ApprovalPersistenceMiddleware(config=hitl_config, broker=broker),
-        AgentMemoryMiddleware(conversation_id=conversation_id, default_user_agent_md=default_agent_md),
-        DatasetContextMiddleware(conversation_id=conversation_id),
-        SkillsMiddleware(conversation_id=conversation_id),
+        AgentMemoryMiddleware(project_id=project_id, default_user_agent_md=default_agent_md),
+        DatasetContextMiddleware(project_id=project_id),
+        SkillsMiddleware(project_id=project_id),
         UserProfileMiddleware(),
         *list(extra_middleware),
     ]
 
     system_prompt = get_runtime_system_prompt()
-
-    # Get project_id from conversation for source isolation
-    project_id = None
-    try:
-        conversation = repo.get_conversation_summary(conversation_id)
-        if conversation:
-            project_id = conversation.project_id
-            print(f"[build_deep_agent] Got project_id={project_id} from conversation={conversation_id}", flush=True)
-        else:
-            print(f"[build_deep_agent] Conversation {conversation_id} not found", flush=True)
-    except Exception as e:
-        print(f"[build_deep_agent] Failed to get project_id: {e}", flush=True)
-        pass  # Fallback to no project_id - source tools won't be available
 
     return create_deep_agent(
         model=chat_model,

@@ -193,11 +193,17 @@ class AgentRunManager:
 
         final_state: Dict[str, Any] = {"finished": False}
         try:
+            summary = repo.get_conversation_summary(run.conversation_id)
+            project_id = summary.project_id if summary else None
+            if project_id is None:
+                _log("project_id_missing", run_id=run.run_id, conversation_id=run.conversation_id)
+
             _log("run_build_agent", run_id=run.run_id, conversation_id=run.conversation_id, model=run.model)
             agent = build_deep_agent(
                 conversation_id=run.conversation_id,
                 run_id=run.run_id,
                 broker=run.broker,
+                project_id=project_id,
                 model=run.model,
             )
             callback = PlutoDuckEventCallbackHandler(
@@ -436,5 +442,4 @@ def _extract_final_answer(result: Any) -> str:
         if isinstance(text, str):
             return text
     return str(result)
-
 

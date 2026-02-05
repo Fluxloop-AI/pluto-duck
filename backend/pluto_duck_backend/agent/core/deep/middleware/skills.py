@@ -16,7 +16,6 @@ from typing import NotRequired, TypedDict, cast
 from langchain.agents.middleware.types import AgentMiddleware, AgentState, ModelRequest, ModelResponse
 
 from pluto_duck_backend.app.core.config import get_settings
-from pluto_duck_backend.app.services.chat import get_chat_repository
 
 from ..skills.load import SkillMetadata, list_skills
 
@@ -86,10 +85,7 @@ class SkillsPaths:
     project_id: str | None
 
 
-def resolve_skills_paths(conversation_id: str) -> SkillsPaths:
-    repo = get_chat_repository()
-    summary = repo.get_conversation_summary(conversation_id)
-    project_id = getattr(summary, "project_id", None) if summary is not None else None
+def resolve_skills_paths(project_id: str | None) -> SkillsPaths:
     user_dir = _skills_root() / "user" / "skills"
     project_dir = (_skills_root() / "projects" / str(project_id) / "skills") if project_id else None
     return SkillsPaths(user_skills_dir=user_dir, project_skills_dir=project_dir, project_id=project_id)
@@ -98,11 +94,11 @@ def resolve_skills_paths(conversation_id: str) -> SkillsPaths:
 class SkillsMiddleware(AgentMiddleware):
     state_schema = SkillsState
 
-    def __init__(self, *, conversation_id: str) -> None:
-        self._conversation_id = conversation_id
+    def __init__(self, *, project_id: str | None) -> None:
+        self._project_id = project_id
 
     def before_agent(self, state: SkillsState, runtime) -> SkillsStateUpdate | None:  # type: ignore[override]
-        paths = resolve_skills_paths(self._conversation_id)
+        paths = resolve_skills_paths(self._project_id)
         paths.user_skills_dir.mkdir(parents=True, exist_ok=True)
         if paths.project_skills_dir is not None:
             paths.project_skills_dir.mkdir(parents=True, exist_ok=True)
@@ -168,7 +164,7 @@ class SkillsMiddleware(AgentMiddleware):
         return "\n".join(lines).rstrip()
 
     def wrap_model_call(self, request: ModelRequest, handler: Callable[[ModelRequest], ModelResponse]) -> ModelResponse:
-        paths = resolve_skills_paths(self._conversation_id)
+        paths = resolve_skills_paths(self._project_id)
         state = cast("SkillsState", request.state)
         skills_metadata = state.get("skills_metadata", [])
 
@@ -183,7 +179,7 @@ class SkillsMiddleware(AgentMiddleware):
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
     ) -> ModelResponse:
-        paths = resolve_skills_paths(self._conversation_id)
+        paths = resolve_skills_paths(self._project_id)
         state = cast("SkillsState", request.state)
         skills_metadata = state.get("skills_metadata", [])
 
@@ -194,5 +190,4 @@ class SkillsMiddleware(AgentMiddleware):
 
         system_prompt = (request.system_prompt + "\n\n" + section) if request.system_prompt else section
         return await handler(request.override(system_prompt=system_prompt))
-
 

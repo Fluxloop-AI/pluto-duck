@@ -13,7 +13,6 @@ from pluto_duck_backend.app.services.asset import (
     get_file_asset_service,
     get_file_preprocessing_service,
 )
-from pluto_duck_backend.app.services.chat import get_chat_repository
 
 
 DATASET_READINESS_INSTRUCTION = """
@@ -59,19 +58,15 @@ class DatasetContextMiddleware(AgentMiddleware):
 
     state_schema = DatasetContextState
 
-    def __init__(self, *, conversation_id: str) -> None:
-        self._conversation_id = conversation_id
+    def __init__(self, *, project_id: str | None) -> None:
+        self._project_id = project_id
 
     def before_agent(
         self,
         state: DatasetContextState,
         runtime,
     ) -> DatasetContextStateUpdate | None:  # type: ignore[override]
-        repo = get_chat_repository()
-        summary = repo.get_conversation_summary(self._conversation_id)
-        project_id = getattr(summary, "project_id", None) if summary is not None else None
-
-        if project_id is None:
+        if self._project_id is None:
             readiness_summary = _format_dataset_readiness_summary(
                 total=0,
                 ready_count=0,
@@ -79,8 +74,8 @@ class DatasetContextMiddleware(AgentMiddleware):
             )
             return DatasetContextStateUpdate(dataset_readiness_summary=readiness_summary)
 
-        file_service: FileAssetService = get_file_asset_service(project_id)
-        preprocessing_service: FilePreprocessingService = get_file_preprocessing_service(project_id)
+        file_service: FileAssetService = get_file_asset_service(self._project_id)
+        preprocessing_service: FilePreprocessingService = get_file_preprocessing_service(self._project_id)
         assets = file_service.list_files()
 
         total = len(assets)

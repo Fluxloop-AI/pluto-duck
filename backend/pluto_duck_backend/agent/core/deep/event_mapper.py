@@ -48,8 +48,11 @@ class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
         self._tool_stack: list[str] = []  # Track active tool names for matching start/end
         self._chunk_buffer: list[str] = []
         self._chunk_tokens = 0
+        self._chunk_chars = 0
+        # Defaults: 50ms flush, 20 tokens, 4KB buffer cap.
         self._flush_interval_s = 0.05
         self._max_chunk_tokens = 20
+        self._max_buffer_chars = 4096
         self._last_flush = time.monotonic() - self._flush_interval_s
 
     async def _emit(self, event: AgentEvent) -> None:
@@ -94,7 +97,11 @@ class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
         return metadata
 
     def _should_flush_chunk(self, now: float) -> bool:
-        return (now - self._last_flush) >= self._flush_interval_s or self._chunk_tokens >= self._max_chunk_tokens
+        return (
+            (now - self._last_flush) >= self._flush_interval_s
+            or self._chunk_tokens >= self._max_chunk_tokens
+            or self._chunk_chars >= self._max_buffer_chars
+        )
 
     async def _flush_chunk(self, now: float | None = None, *, is_final: bool = False) -> None:
         if not self._chunk_buffer:
@@ -104,6 +111,7 @@ class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
         text_delta = "".join(self._chunk_buffer)
         self._chunk_buffer.clear()
         self._chunk_tokens = 0
+        self._chunk_chars = 0
         self._last_flush = now
         await self._emit(
             AgentEvent(
@@ -216,6 +224,7 @@ class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
             return
         self._chunk_buffer.append(token)
         self._chunk_tokens += 1
+        self._chunk_chars += len(token)
         now = time.monotonic()
         if self._should_flush_chunk(now):
             await self._flush_chunk(now)

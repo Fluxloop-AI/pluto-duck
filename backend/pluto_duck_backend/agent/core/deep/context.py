@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -34,7 +35,9 @@ def get_workspace_root(conversation_id: str) -> Path:
 def build_session_context(*, conversation_id: str, project_id: str | None) -> SessionContext:
     workspace_root = get_workspace_root(conversation_id)
     workspace_root.mkdir(parents=True, exist_ok=True)
-    prompt_layout = "v1"
+    digest = hashlib.sha256(f"prompt-layout-v1:{conversation_id}".encode("utf-8")).hexdigest()
+    bucket = int(digest[:8], 16) % 100
+    prompt_layout = "v1" if bucket < 50 else "v2"
     return SessionContext(
         conversation_id=conversation_id,
         project_id=project_id,

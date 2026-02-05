@@ -7,6 +7,7 @@ from typing import Any
 
 from pluto_duck_backend.agent.core.deep import agent as agent_module
 from pluto_duck_backend.agent.core.deep.context import RunContext, SessionContext
+from pluto_duck_backend.agent.core.deep.middleware.system_prompt_composer import SystemPromptComposerMiddleware
 from pluto_duck_backend.agent.core.deep.hitl import ApprovalBroker
 
 
@@ -31,6 +32,7 @@ def test_build_deep_agent_uses_context_values(tmp_path: Path, monkeypatch) -> No
 
     def fake_create_deep_agent(**kwargs):
         captured["tools"] = kwargs.get("tools")
+        captured["middleware"] = kwargs.get("middleware")
         return {"ok": True}
 
     monkeypatch.setattr(agent_module, "LLMService", FakeLLMService)
@@ -43,7 +45,7 @@ def test_build_deep_agent_uses_context_values(tmp_path: Path, monkeypatch) -> No
         conversation_id="conv",
         project_id="project-123",
         workspace_root=workspace_root,
-        prompt_layout="v1",
+        prompt_layout="v2",
     )
     run_ctx = RunContext(
         run_id="run",
@@ -58,3 +60,6 @@ def test_build_deep_agent_uses_context_values(tmp_path: Path, monkeypatch) -> No
     assert captured["workspace_root"] == session_ctx.workspace_root
     assert captured["model_override"] == "model-1"
     assert captured["tools"] == []
+    middleware = captured["middleware"]
+    assert isinstance(middleware[-1], SystemPromptComposerMiddleware)
+    assert middleware[-1]._layout == "v2"

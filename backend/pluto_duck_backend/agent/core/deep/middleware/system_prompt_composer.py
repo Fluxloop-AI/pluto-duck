@@ -7,8 +7,13 @@ from typing import NotRequired, TypedDict, cast
 
 from langchain.agents.middleware.types import AgentMiddleware, AgentState, ModelRequest, ModelResponse
 
-from .memory import build_longterm_memory_prompt, build_memory_section
-from .skills import build_skills_section
+from .memory import (
+    LONGTERM_MEMORY_GUIDE_STATIC,
+    build_longterm_memory_context,
+    build_longterm_memory_prompt,
+    build_memory_section,
+)
+from .skills import SKILLS_GUIDE_STATIC, build_skills_list_block, build_skills_section
 from ..skills.load import SkillMetadata
 
 
@@ -63,7 +68,45 @@ class SystemPromptComposerMiddleware(AgentMiddleware):
     def _compose(self, request: ModelRequest) -> str:
         if self._layout == "v1":
             return self._compose_v1(request)
+        if self._layout == "v2":
+            return self._compose_v2(request)
         return self._compose_v1(request)
+
+    def _compose_v2(self, request: ModelRequest) -> str:
+        state = cast("ComposerState", request.state)
+        user_profile_section = state.get("user_profile_section") or ""
+        user_memory = state.get("user_memory") or ""
+        project_memory = state.get("project_memory") or ""
+        dataset_readiness_summary = state.get("dataset_readiness_summary") or ""
+        skills_metadata = state.get("skills_metadata", [])
+
+        memory_section = build_memory_section(
+            user_memory=user_memory,
+            project_memory=project_memory,
+        )
+        memory_context = build_longterm_memory_context(
+            project_id=self._project_id,
+            project_memory=project_memory,
+        )
+        skills_list_block = build_skills_list_block(
+            skills_metadata=skills_metadata,
+            project_id=self._project_id,
+        )
+
+        system_prompt = request.system_prompt or ""
+        if SKILLS_GUIDE_STATIC:
+            system_prompt += "\n\n" + SKILLS_GUIDE_STATIC
+        if LONGTERM_MEMORY_GUIDE_STATIC:
+            system_prompt += "\n\n" + LONGTERM_MEMORY_GUIDE_STATIC
+        if user_profile_section:
+            system_prompt += "\n\n" + user_profile_section
+        system_prompt += "\n\n" + memory_section
+        system_prompt += "\n\n" + memory_context
+        if dataset_readiness_summary:
+            system_prompt += "\n\n" + dataset_readiness_summary
+        if skills_list_block:
+            system_prompt += "\n\n" + skills_list_block
+        return system_prompt
 
     def wrap_model_call(self, request: ModelRequest, handler: Callable[[ModelRequest], ModelResponse]) -> ModelResponse:
         system_prompt = self._compose(request)

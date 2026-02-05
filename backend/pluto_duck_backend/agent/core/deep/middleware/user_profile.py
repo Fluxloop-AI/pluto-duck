@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
-from typing import Optional
+from typing import NotRequired, Optional, TypedDict
 
-from langchain.agents.middleware.types import AgentMiddleware, ModelRequest, ModelResponse
+from langchain.agents.middleware.types import AgentMiddleware, AgentState
 
 from pluto_duck_backend.app.services.chat import get_chat_repository
 
@@ -26,6 +25,14 @@ LANGUAGE_LABELS = {
 }
 
 
+class UserProfileState(AgentState):
+    user_profile_section: NotRequired[str]
+
+
+class UserProfileStateUpdate(TypedDict):
+    user_profile_section: str
+
+
 def _normalize_user_name(value: Optional[str]) -> Optional[str]:
     if not value:
         return None
@@ -41,6 +48,8 @@ def _normalize_language(value: Optional[str]) -> str:
 
 
 class UserProfileMiddleware(AgentMiddleware):
+    state_schema = UserProfileState
+
     def __init__(self) -> None:
         pass
 
@@ -58,22 +67,8 @@ class UserProfileMiddleware(AgentMiddleware):
             language_label=LANGUAGE_LABELS[language],
         )
 
-    def wrap_model_call(self, request: ModelRequest, handler: Callable[[ModelRequest], ModelResponse]) -> ModelResponse:
+    def before_agent(self, state: UserProfileState, runtime) -> UserProfileStateUpdate | None:  # type: ignore[override]
         section = self._build_section()
         if not section:
-            return handler(request)
-        system_prompt = section
-        if request.system_prompt:
-            system_prompt = section + "\n\n" + request.system_prompt
-        return handler(request.override(system_prompt=system_prompt))
-
-    async def awrap_model_call(
-        self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
-    ) -> ModelResponse:
-        section = self._build_section()
-        if not section:
-            return await handler(request)
-        system_prompt = section
-        if request.system_prompt:
-            system_prompt = section + "\n\n" + request.system_prompt
-        return await handler(request.override(system_prompt=system_prompt))
+            return None
+        return UserProfileStateUpdate(user_profile_section=section)

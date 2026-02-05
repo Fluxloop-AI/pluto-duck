@@ -13,12 +13,11 @@ using virtual paths exposed by filesystem backend routes:
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import NotRequired, TypedDict, cast
+from typing import NotRequired, TypedDict
 
-from langchain.agents.middleware.types import AgentMiddleware, AgentState, ModelRequest, ModelResponse
+from langchain.agents.middleware.types import AgentMiddleware, AgentState
 
 from pluto_duck_backend.app.core.config import get_settings
 
@@ -137,6 +136,34 @@ DEFAULT_MEMORY_SNIPPET = """<user_memory>
 {project_memory}
 </project_memory>"""
 
+def build_memory_section(*, user_memory: str, project_memory: str) -> str:
+    return DEFAULT_MEMORY_SNIPPET.format(
+        user_memory=user_memory.strip(),
+        project_memory=project_memory.strip(),
+    ).strip()
+
+def build_longterm_memory_prompt(*, project_id: str | None, project_memory: str) -> str:
+    paths = resolve_memory_paths(project_id)
+    agent_dir_display = "/memories/user"
+    agent_dir_absolute = "/memories/user"
+    project_deepagents_dir = (
+        f"/memories/projects/{paths.project_id}" if paths.project_id else "/memories/projects/(none)"
+    )
+
+    if paths.project_id and project_memory.strip():
+        project_memory_info = f"`{project_deepagents_dir}` (detected)"
+    elif paths.project_id:
+        project_memory_info = f"`{project_deepagents_dir}` (no agent.md found yet)"
+    else:
+        project_memory_info = "None (conversation not linked to a project)"
+
+    return LONGTERM_MEMORY_SYSTEM_PROMPT.format(
+        agent_dir_absolute=agent_dir_absolute,
+        agent_dir_display=agent_dir_display,
+        project_memory_info=project_memory_info,
+        project_deepagents_dir=project_deepagents_dir,
+    )
+
 
 def _memory_root() -> Path:
     return get_settings().data_dir.root / "deepagents"
@@ -200,59 +227,3 @@ class AgentMemoryMiddleware(AgentMiddleware):
         elapsed_ms = (time.perf_counter() - start) * 1000
         print(f"[TIMING] AgentMemoryMiddleware.before_agent: {elapsed_ms:.3f}ms", flush=True)
         return update
-
-    def _build_system_prompt(self, request: ModelRequest) -> str:
-        state = cast("AgentMemoryState", request.state)
-        user_memory = state.get("user_memory") or ""
-        project_memory = state.get("project_memory") or ""
-
-        # Decide displayed locations (virtual)
-        paths = resolve_memory_paths(self._project_id)
-        agent_dir_display = "/memories/user"
-        agent_dir_absolute = "/memories/user"
-        project_deepagents_dir = (
-            f"/memories/projects/{paths.project_id}" if paths.project_id else "/memories/projects/(none)"
-        )
-
-        if paths.project_id and project_memory.strip():
-            project_memory_info = f"`{project_deepagents_dir}` (detected)"
-        elif paths.project_id:
-            project_memory_info = f"`{project_deepagents_dir}` (no agent.md found yet)"
-        else:
-            project_memory_info = "None (conversation not linked to a project)"
-
-        memory_section = self.system_prompt_template.format(
-            user_memory=user_memory.strip(),
-            project_memory=project_memory.strip(),
-        ).strip()
-
-        system_prompt = memory_section
-        if request.system_prompt:
-            system_prompt += "\n\n" + request.system_prompt
-
-        system_prompt += "\n\n" + LONGTERM_MEMORY_SYSTEM_PROMPT.format(
-            agent_dir_absolute=agent_dir_absolute,
-            agent_dir_display=agent_dir_display,
-            project_memory_info=project_memory_info,
-            project_deepagents_dir=project_deepagents_dir,
-        )
-        return system_prompt
-
-    def wrap_model_call(self, request: ModelRequest, handler: Callable[[ModelRequest], ModelResponse]) -> ModelResponse:
-        import time
-        start = time.perf_counter()
-        system_prompt = self._build_system_prompt(request)
-        elapsed_ms = (time.perf_counter() - start) * 1000
-        print(f"[TIMING] AgentMemoryMiddleware._build_system_prompt: {elapsed_ms:.3f}ms", flush=True)
-        return handler(request.override(system_prompt=system_prompt))
-
-    async def awrap_model_call(
-        self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
-    ) -> ModelResponse:
-        import time
-        start = time.perf_counter()
-        system_prompt = self._build_system_prompt(request)
-        elapsed_ms = (time.perf_counter() - start) * 1000
-        print(f"[TIMING] AgentMemoryMiddleware._build_system_prompt (async): {elapsed_ms:.3f}ms | prompt_len={len(system_prompt)} chars", flush=True)
-        return await handler(request.override(system_prompt=system_prompt))
-

@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
-from typing import NotRequired, TypedDict, cast
+from typing import NotRequired, TypedDict
 
-from langchain.agents.middleware.types import AgentMiddleware, AgentState, ModelRequest, ModelResponse
+from langchain.agents.middleware.types import AgentMiddleware, AgentState
 
 from pluto_duck_backend.app.services.asset import (
     FileAssetService,
@@ -106,35 +105,3 @@ class DatasetContextMiddleware(AgentMiddleware):
         elapsed_ms = (time.perf_counter() - start) * 1000
         print(f"[TIMING] DatasetContextMiddleware.before_agent: {elapsed_ms:.3f}ms ({total} assets)", flush=True)
         return DatasetContextStateUpdate(dataset_readiness_summary=readiness_summary)
-
-    def wrap_model_call(self, request: ModelRequest, handler: Callable[[ModelRequest], ModelResponse]) -> ModelResponse:
-        import time
-        start = time.perf_counter()
-
-        state = cast("DatasetContextState", request.state)
-        summary = state.get("dataset_readiness_summary") or ""
-
-        elapsed_ms = (time.perf_counter() - start) * 1000
-        print(f"[TIMING] DatasetContextMiddleware.wrap_model_call: {elapsed_ms:.3f}ms", flush=True)
-
-        if summary:
-            system_prompt = (request.system_prompt + "\n\n" + summary) if request.system_prompt else summary
-            return handler(request.override(system_prompt=system_prompt))
-        return handler(request)
-
-    async def awrap_model_call(
-        self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
-    ) -> ModelResponse:
-        import time
-        start = time.perf_counter()
-
-        state = cast("DatasetContextState", request.state)
-        summary = state.get("dataset_readiness_summary") or ""
-
-        elapsed_ms = (time.perf_counter() - start) * 1000
-        print(f"[TIMING] DatasetContextMiddleware.wrap_model_call (async): {elapsed_ms:.3f}ms", flush=True)
-
-        if summary:
-            system_prompt = (request.system_prompt + "\n\n" + summary) if request.system_prompt else summary
-            return await handler(request.override(system_prompt=system_prompt))
-        return await handler(request)

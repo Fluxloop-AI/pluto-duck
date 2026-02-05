@@ -29,6 +29,7 @@ from .context import RunContext, SessionContext
 from .middleware.approvals import ApprovalPersistenceMiddleware, PlutoDuckHITLConfig
 from .middleware.dataset_context import DatasetContextMiddleware
 from .middleware.memory import AgentMemoryMiddleware
+from .middleware.system_prompt_composer import SystemPromptComposerMiddleware
 from .middleware.user_profile import UserProfileMiddleware
 from .middleware.skills import SkillsMiddleware
 from .prompts import load_default_agent_prompt
@@ -117,6 +118,10 @@ def build_deep_agent(
         SkillsMiddleware(project_id=session_ctx.project_id),
         UserProfileMiddleware(),
         *list(extra_middleware),
+        SystemPromptComposerMiddleware(
+            project_id=session_ctx.project_id,
+            layout=session_ctx.prompt_layout,
+        ),
     ]
 
     system_prompt = get_runtime_system_prompt()

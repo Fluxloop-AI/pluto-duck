@@ -8,12 +8,11 @@ We use progressive disclosure:
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import NotRequired, TypedDict, cast
+from typing import NotRequired, TypedDict
 
-from langchain.agents.middleware.types import AgentMiddleware, AgentState, ModelRequest, ModelResponse
+from langchain.agents.middleware.types import AgentMiddleware, AgentState
 
 from pluto_duck_backend.app.core.config import get_settings
 
@@ -77,6 +76,71 @@ Remember: Skills are tools to make you more capable and consistent. When in doub
 def _skills_root() -> Path:
     return get_settings().data_dir.root / "deepagents"
 
+def format_skills_locations(paths: SkillsPaths) -> str:
+    locs = ["**User Skills**: `/skills/user/skills/`"]
+    if paths.project_id:
+        locs.append(
+            f"**Project Skills**: `/skills/projects/{paths.project_id}/skills/` (overrides user)"
+        )
+    return "\n".join(locs)
+
+def format_skills_list(skills: list[SkillMetadata], project_id: str | None) -> str:
+    if not skills:
+        locations = ["/skills/user/skills/"]
+        if project_id:
+            locations.append(f"/skills/projects/{project_id}/skills/")
+        return f"(No skills available yet. You can create skills in {' or '.join(locations)})"
+
+    # Group skills by source (CLI parity)
+    user_skills = [s for s in skills if s.get("source") == "user"]
+    project_skills = [s for s in skills if s.get("source") == "project"]
+
+    lines: list[str] = []
+    deepagents_root = _skills_root().resolve()
+    if user_skills:
+        lines.append("**User Skills:**")
+        for skill in sorted(user_skills, key=lambda s: s.get("name", "")):
+            name = skill["name"]
+            desc = skill["description"]
+
+            virt_path = f"/skills/user/skills/{name}/SKILL.md"
+            try:
+                real_path = Path(skill["path"]).resolve()
+                rel = real_path.relative_to(deepagents_root).as_posix()
+                virt_path = f"/skills/{rel}"
+            except Exception:
+                pass
+
+            lines.append(f"- **{name}**: {desc}")
+            lines.append(f"  → Read `{virt_path}` for full instructions")
+        lines.append("")
+
+    if project_skills:
+        lines.append("**Project Skills:**")
+        for skill in sorted(project_skills, key=lambda s: s.get("name", "")):
+            name = skill["name"]
+            desc = skill["description"]
+
+            virt_path = f"/skills/projects/{project_id}/skills/{name}/SKILL.md" if project_id else "/skills/"
+            try:
+                real_path = Path(skill["path"]).resolve()
+                rel = real_path.relative_to(deepagents_root).as_posix()
+                virt_path = f"/skills/{rel}"
+            except Exception:
+                pass
+
+            lines.append(f"- **{name}**: {desc}")
+            lines.append(f"  → Read `{virt_path}` for full instructions")
+
+    return "\n".join(lines).rstrip()
+
+def build_skills_section(*, skills_metadata: list[SkillMetadata], project_id: str | None) -> str:
+    paths = resolve_skills_paths(project_id)
+    return SKILLS_SYSTEM_PROMPT.format(
+        skills_locations=format_skills_locations(paths),
+        skills_list=format_skills_list(skills_metadata, paths.project_id),
+    ).strip()
+
 
 @dataclass(frozen=True)
 class SkillsPaths:
@@ -110,102 +174,3 @@ class SkillsMiddleware(AgentMiddleware):
         elapsed_ms = (time.perf_counter() - start) * 1000
         print(f"[TIMING] SkillsMiddleware.before_agent: {elapsed_ms:.3f}ms", flush=True)
         return SkillsStateUpdate(skills_metadata=skills)
-
-    def _format_skills_locations(self, paths: SkillsPaths) -> str:
-        locs = ["**User Skills**: `/skills/user/skills/`"]
-        if paths.project_id:
-            locs.append(
-                f"**Project Skills**: `/skills/projects/{paths.project_id}/skills/` (overrides user)"
-            )
-        return "\n".join(locs)
-
-    def _format_skills_list(self, skills: list[SkillMetadata], project_id: str | None) -> str:
-        if not skills:
-            locations = ["/skills/user/skills/"]
-            if project_id:
-                locations.append(f"/skills/projects/{project_id}/skills/")
-            return f"(No skills available yet. You can create skills in {' or '.join(locations)})"
-
-        # Group skills by source (CLI parity)
-        user_skills = [s for s in skills if s.get("source") == "user"]
-        project_skills = [s for s in skills if s.get("source") == "project"]
-
-        lines: list[str] = []
-        deepagents_root = _skills_root().resolve()
-        if user_skills:
-            lines.append("**User Skills:**")
-            for skill in sorted(user_skills, key=lambda s: s.get("name", "")):
-                name = skill["name"]
-                desc = skill["description"]
-
-                virt_path = f"/skills/user/skills/{name}/SKILL.md"
-                try:
-                    real_path = Path(skill["path"]).resolve()
-                    rel = real_path.relative_to(deepagents_root).as_posix()
-                    virt_path = f"/skills/{rel}"
-                except Exception:
-                    pass
-
-                lines.append(f"- **{name}**: {desc}")
-                lines.append(f"  → Read `{virt_path}` for full instructions")
-            lines.append("")
-
-        if project_skills:
-            lines.append("**Project Skills:**")
-            for skill in sorted(project_skills, key=lambda s: s.get("name", "")):
-                name = skill["name"]
-                desc = skill["description"]
-
-                virt_path = f"/skills/projects/{project_id}/skills/{name}/SKILL.md" if project_id else "/skills/"
-                try:
-                    real_path = Path(skill["path"]).resolve()
-                    rel = real_path.relative_to(deepagents_root).as_posix()
-                    virt_path = f"/skills/{rel}"
-                except Exception:
-                    pass
-
-                lines.append(f"- **{name}**: {desc}")
-                lines.append(f"  → Read `{virt_path}` for full instructions")
-
-        return "\n".join(lines).rstrip()
-
-    def wrap_model_call(self, request: ModelRequest, handler: Callable[[ModelRequest], ModelResponse]) -> ModelResponse:
-        import time
-        start = time.perf_counter()
-
-        paths = resolve_skills_paths(self._project_id)
-        state = cast("SkillsState", request.state)
-        skills_metadata = state.get("skills_metadata", [])
-
-        section = SKILLS_SYSTEM_PROMPT.format(
-            skills_locations=self._format_skills_locations(paths),
-            skills_list=self._format_skills_list(skills_metadata, paths.project_id),
-        ).strip()
-
-        system_prompt = (request.system_prompt + "\n\n" + section) if request.system_prompt else section
-
-        elapsed_ms = (time.perf_counter() - start) * 1000
-        print(f"[TIMING] SkillsMiddleware.wrap_model_call: {elapsed_ms:.3f}ms", flush=True)
-        return handler(request.override(system_prompt=system_prompt))
-
-    async def awrap_model_call(
-        self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
-    ) -> ModelResponse:
-        import time
-        start = time.perf_counter()
-
-        paths = resolve_skills_paths(self._project_id)
-        state = cast("SkillsState", request.state)
-        skills_metadata = state.get("skills_metadata", [])
-
-        section = SKILLS_SYSTEM_PROMPT.format(
-            skills_locations=self._format_skills_locations(paths),
-            skills_list=self._format_skills_list(skills_metadata, paths.project_id),
-        ).strip()
-
-        system_prompt = (request.system_prompt + "\n\n" + section) if request.system_prompt else section
-
-        elapsed_ms = (time.perf_counter() - start) * 1000
-        print(f"[TIMING] SkillsMiddleware.wrap_model_call (async): {elapsed_ms:.3f}ms", flush=True)
-        return await handler(request.override(system_prompt=system_prompt))
-

@@ -31,10 +31,19 @@ class EventSink:
 class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
     """Best-effort callback handler emitting Pluto Duck AgentEvents."""
 
-    def __init__(self, *, sink: EventSink, run_id: str) -> None:
+    def __init__(
+        self,
+        *,
+        sink: EventSink,
+        run_id: str,
+        conversation_id: str | None = None,
+        prompt_layout: str | None = None,
+    ) -> None:
         super().__init__()
         self._sink = sink
         self._run_id = run_id
+        self._conversation_id = conversation_id
+        self._prompt_layout = prompt_layout
         self._tool_stack: list[str] = []  # Track active tool names for matching start/end
 
     async def _emit(self, event: AgentEvent) -> None:
@@ -70,6 +79,91 @@ class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
         except TypeError:
             return repr(value)
 
+    def _coerce_int(self, value: Any) -> int | None:  # noqa: ANN401
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _extract_usage_from_mapping(self, mapping: Any) -> dict[str, Any] | None:  # noqa: ANN401
+        if not isinstance(mapping, dict):
+            return None
+        for key in ("token_usage", "usage", "usage_metadata"):
+            candidate = mapping.get(key)
+            if isinstance(candidate, dict):
+                return candidate
+        if any(k in mapping for k in ("prompt_tokens", "completion_tokens", "total_tokens", "input_tokens", "output_tokens")):
+            return mapping
+        return None
+
+    def _extract_cached_tokens(self, usage: dict[str, Any]) -> int | None:
+        details = None
+        for key in ("prompt_tokens_details", "input_token_details"):
+            value = usage.get(key)
+            if isinstance(value, dict):
+                details = value
+                break
+        if details:
+            for key in ("cached_tokens", "cache_read", "cache_read_input_tokens", "cache_read_tokens"):
+                value = details.get(key)
+                if value is not None:
+                    return self._coerce_int(value)
+        for key in ("cached_tokens", "cache_read_input_tokens", "cache_read_tokens"):
+            value = usage.get(key)
+            if value is not None:
+                return self._coerce_int(value)
+        return None
+
+    def _extract_model(self, response: Any) -> str | None:  # noqa: ANN401
+        llm_output = getattr(response, "llm_output", None)
+        if isinstance(llm_output, dict):
+            for key in ("model_name", "model", "model_id"):
+                value = llm_output.get(key)
+                if value:
+                    return str(value)
+        gens = getattr(response, "generations", None) or []
+        if gens and gens[0]:
+            msg = getattr(gens[0][0], "message", None)
+            if msg is not None:
+                for attr in ("response_metadata", "usage_metadata", "additional_kwargs"):
+                    mapping = getattr(msg, attr, None)
+                    if isinstance(mapping, dict):
+                        for key in ("model_name", "model", "model_id"):
+                            value = mapping.get(key)
+                            if value:
+                                return str(value)
+        return None
+
+    def _extract_usage(self, response: Any) -> dict[str, int | None]:  # noqa: ANN401
+        usage = None
+        llm_output = getattr(response, "llm_output", None)
+        usage = self._extract_usage_from_mapping(llm_output)
+        if usage is None:
+            usage = self._extract_usage_from_mapping(getattr(response, "response_metadata", None))
+        gens = getattr(response, "generations", None) or []
+        if usage is None and gens and gens[0]:
+            msg = getattr(gens[0][0], "message", None)
+            if msg is not None:
+                for attr in ("usage_metadata", "response_metadata", "additional_kwargs"):
+                    usage = self._extract_usage_from_mapping(getattr(msg, attr, None))
+                    if usage is not None:
+                        break
+        usage = usage or {}
+        prompt_tokens = self._coerce_int(usage.get("prompt_tokens") or usage.get("input_tokens"))
+        completion_tokens = self._coerce_int(usage.get("completion_tokens") or usage.get("output_tokens"))
+        total_tokens = self._coerce_int(usage.get("total_tokens"))
+        if total_tokens is None and prompt_tokens is not None and completion_tokens is not None:
+            total_tokens = prompt_tokens + completion_tokens
+        cached_tokens = self._extract_cached_tokens(usage) if isinstance(usage, dict) else None
+        return {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+            "cached_prompt_tokens": cached_tokens,
+        }
+
     async def on_llm_start(self, *args: Any, **kwargs: Any) -> None:  # noqa: ANN401
         await self._emit(
             AgentEvent(
@@ -100,6 +194,24 @@ class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
                 timestamp=self._ts(),
             )
         )
+        usage_payload = self._extract_usage(response)
+        await self._emit(
+            AgentEvent(
+                type=EventType.REASONING,
+                subtype=EventSubType.CHUNK,
+                content={
+                    "phase": "llm_usage",
+                    "usage": usage_payload,
+                    "model": self._extract_model(response),
+                },
+                metadata={
+                    "run_id": self._run_id,
+                    "conversation_id": self._conversation_id,
+                    "prompt_layout": self._prompt_layout,
+                },
+                timestamp=self._ts(),
+            )
+        )
 
     async def on_tool_start(self, serialized: dict[str, Any], input_str: str, **kwargs: Any) -> None:  # noqa: ANN401
         tool_name = serialized.get("name") or serialized.get("id") or "tool"
@@ -126,5 +238,4 @@ class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
                 timestamp=self._ts(),
             )
         )
-
 

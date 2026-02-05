@@ -16,6 +16,7 @@ class SessionContext:
     conversation_id: str
     project_id: str | None
     workspace_root: Path
+    prompt_layout: str
 
 
 @dataclass(frozen=True)
@@ -33,8 +34,10 @@ def get_workspace_root(conversation_id: str) -> Path:
 def build_session_context(*, conversation_id: str, project_id: str | None) -> SessionContext:
     workspace_root = get_workspace_root(conversation_id)
     workspace_root.mkdir(parents=True, exist_ok=True)
+    prompt_layout = "v1"
     return SessionContext(
         conversation_id=conversation_id,
         project_id=project_id,
         workspace_root=workspace_root,
+        prompt_layout=prompt_layout,
     )

@@ -43,6 +43,7 @@ def test_build_deep_agent_uses_context_values(tmp_path: Path, monkeypatch) -> No
         conversation_id="conv",
         project_id="project-123",
         workspace_root=workspace_root,
+        prompt_layout="v1",
     )
     run_ctx = RunContext(
         run_id="run",

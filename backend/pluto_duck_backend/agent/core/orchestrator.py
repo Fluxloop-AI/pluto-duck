@@ -217,6 +217,8 @@ class AgentRunManager:
             callback = PlutoDuckEventCallbackHandler(
                 sink=EventSink(emit=emit),
                 run_id=run.run_id,
+                conversation_id=run.conversation_id,
+                prompt_layout=session_ctx.prompt_layout,
             )
 
             _log("run_invoke_start", run_id=run.run_id, conversation_id=run.conversation_id)

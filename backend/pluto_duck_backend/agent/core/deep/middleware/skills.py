@@ -98,11 +98,17 @@ class SkillsMiddleware(AgentMiddleware):
         self._project_id = project_id
 
     def before_agent(self, state: SkillsState, runtime) -> SkillsStateUpdate | None:  # type: ignore[override]
+        import time
+        start = time.perf_counter()
+
         paths = resolve_skills_paths(self._project_id)
         paths.user_skills_dir.mkdir(parents=True, exist_ok=True)
         if paths.project_skills_dir is not None:
             paths.project_skills_dir.mkdir(parents=True, exist_ok=True)
         skills = list_skills(user_skills_dir=paths.user_skills_dir, project_skills_dir=paths.project_skills_dir)
+
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        print(f"[TIMING] SkillsMiddleware.before_agent: {elapsed_ms:.3f}ms", flush=True)
         return SkillsStateUpdate(skills_metadata=skills)
 
     def _format_skills_locations(self, paths: SkillsPaths) -> str:
@@ -164,6 +170,9 @@ class SkillsMiddleware(AgentMiddleware):
         return "\n".join(lines).rstrip()
 
     def wrap_model_call(self, request: ModelRequest, handler: Callable[[ModelRequest], ModelResponse]) -> ModelResponse:
+        import time
+        start = time.perf_counter()
+
         paths = resolve_skills_paths(self._project_id)
         state = cast("SkillsState", request.state)
         skills_metadata = state.get("skills_metadata", [])
@@ -174,11 +183,17 @@ class SkillsMiddleware(AgentMiddleware):
         ).strip()
 
         system_prompt = (request.system_prompt + "\n\n" + section) if request.system_prompt else section
+
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        print(f"[TIMING] SkillsMiddleware.wrap_model_call: {elapsed_ms:.3f}ms", flush=True)
         return handler(request.override(system_prompt=system_prompt))
 
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
     ) -> ModelResponse:
+        import time
+        start = time.perf_counter()
+
         paths = resolve_skills_paths(self._project_id)
         state = cast("SkillsState", request.state)
         skills_metadata = state.get("skills_metadata", [])
@@ -189,5 +204,8 @@ class SkillsMiddleware(AgentMiddleware):
         ).strip()
 
         system_prompt = (request.system_prompt + "\n\n" + section) if request.system_prompt else section
+
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        print(f"[TIMING] SkillsMiddleware.wrap_model_call (async): {elapsed_ms:.3f}ms", flush=True)
         return await handler(request.override(system_prompt=system_prompt))
 

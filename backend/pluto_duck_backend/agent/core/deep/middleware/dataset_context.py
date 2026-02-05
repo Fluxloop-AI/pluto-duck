@@ -66,12 +66,17 @@ class DatasetContextMiddleware(AgentMiddleware):
         state: DatasetContextState,
         runtime,
     ) -> DatasetContextStateUpdate | None:  # type: ignore[override]
+        import time
+        start = time.perf_counter()
+
         if self._project_id is None:
             readiness_summary = _format_dataset_readiness_summary(
                 total=0,
                 ready_count=0,
                 not_ready_count=0,
             )
+            elapsed_ms = (time.perf_counter() - start) * 1000
+            print(f"[TIMING] DatasetContextMiddleware.before_agent: {elapsed_ms:.3f}ms (no project)", flush=True)
             return DatasetContextStateUpdate(dataset_readiness_summary=readiness_summary)
 
         file_service: FileAssetService = get_file_asset_service(self._project_id)
@@ -98,11 +103,20 @@ class DatasetContextMiddleware(AgentMiddleware):
             not_ready_count=not_ready_count,
         )
 
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        print(f"[TIMING] DatasetContextMiddleware.before_agent: {elapsed_ms:.3f}ms ({total} assets)", flush=True)
         return DatasetContextStateUpdate(dataset_readiness_summary=readiness_summary)
 
     def wrap_model_call(self, request: ModelRequest, handler: Callable[[ModelRequest], ModelResponse]) -> ModelResponse:
+        import time
+        start = time.perf_counter()
+
         state = cast("DatasetContextState", request.state)
         summary = state.get("dataset_readiness_summary") or ""
+
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        print(f"[TIMING] DatasetContextMiddleware.wrap_model_call: {elapsed_ms:.3f}ms", flush=True)
+
         if summary:
             system_prompt = (request.system_prompt + "\n\n" + summary) if request.system_prompt else summary
             return handler(request.override(system_prompt=system_prompt))
@@ -111,8 +125,15 @@ class DatasetContextMiddleware(AgentMiddleware):
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
     ) -> ModelResponse:
+        import time
+        start = time.perf_counter()
+
         state = cast("DatasetContextState", request.state)
         summary = state.get("dataset_readiness_summary") or ""
+
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        print(f"[TIMING] DatasetContextMiddleware.wrap_model_call (async): {elapsed_ms:.3f}ms", flush=True)
+
         if summary:
             system_prompt = (request.system_prompt + "\n\n" + summary) if request.system_prompt else summary
             return await handler(request.override(system_prompt=system_prompt))

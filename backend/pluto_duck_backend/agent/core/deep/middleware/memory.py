@@ -178,6 +178,9 @@ class AgentMemoryMiddleware(AgentMiddleware):
         self.system_prompt_template = DEFAULT_MEMORY_SNIPPET
 
     def before_agent(self, state: AgentMemoryState, runtime) -> AgentMemoryStateUpdate:  # type: ignore[override]
+        import time
+        start = time.perf_counter()
+
         paths = resolve_memory_paths(self._project_id)
 
         # Ensure files exist (empty by default except user agent.md seeded with default prompt)
@@ -193,6 +196,9 @@ class AgentMemoryMiddleware(AgentMiddleware):
         if paths.project_agent_md and paths.project_agent_md.exists():
             with contextlib.suppress(OSError, UnicodeDecodeError):
                 update["project_memory"] = paths.project_agent_md.read_text(encoding="utf-8")
+
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        print(f"[TIMING] AgentMemoryMiddleware.before_agent: {elapsed_ms:.3f}ms", flush=True)
         return update
 
     def _build_system_prompt(self, request: ModelRequest) -> str:
@@ -233,12 +239,20 @@ class AgentMemoryMiddleware(AgentMiddleware):
         return system_prompt
 
     def wrap_model_call(self, request: ModelRequest, handler: Callable[[ModelRequest], ModelResponse]) -> ModelResponse:
+        import time
+        start = time.perf_counter()
         system_prompt = self._build_system_prompt(request)
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        print(f"[TIMING] AgentMemoryMiddleware._build_system_prompt: {elapsed_ms:.3f}ms", flush=True)
         return handler(request.override(system_prompt=system_prompt))
 
     async def awrap_model_call(
         self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
     ) -> ModelResponse:
+        import time
+        start = time.perf_counter()
         system_prompt = self._build_system_prompt(request)
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        print(f"[TIMING] AgentMemoryMiddleware._build_system_prompt (async): {elapsed_ms:.3f}ms | prompt_len={len(system_prompt)} chars", flush=True)
         return await handler(request.override(system_prompt=system_prompt))
 

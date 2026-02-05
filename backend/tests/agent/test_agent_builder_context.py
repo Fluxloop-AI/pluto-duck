@@ -1,4 +1,4 @@
-"""Tests for build_deep_agent project_id wiring."""
+"""Tests for build_deep_agent context wiring."""
 
 from __future__ import annotations
 
@@ -6,47 +6,54 @@ from pathlib import Path
 from typing import Any
 
 from pluto_duck_backend.agent.core.deep import agent as agent_module
-from pluto_duck_backend.agent.core.deep.context import RunContext, build_session_context
+from pluto_duck_backend.agent.core.deep.context import RunContext, SessionContext
 from pluto_duck_backend.agent.core.deep.hitl import ApprovalBroker
-from pluto_duck_backend.app.core.config import get_settings
 
 
 async def _emit(_event: Any) -> None:
     return None
 
 
-def _set_data_root(tmp_path: Path, monkeypatch) -> Path:
-    data_root = tmp_path / "root"
-    monkeypatch.setenv("PLUTODUCK_DATA_DIR__ROOT", str(data_root))
-    get_settings.cache_clear()
-    return data_root
-
-
-def test_build_deep_agent_passes_project_id(tmp_path: Path, monkeypatch) -> None:
-    _set_data_root(tmp_path, monkeypatch)
+def test_build_deep_agent_uses_context_values(tmp_path: Path, monkeypatch) -> None:
     captured: dict[str, Any] = {}
 
+    class FakeLLMService:
+        def __init__(self, model_override: str | None = None) -> None:
+            captured["model_override"] = model_override
+
+        def get_chat_model(self) -> object:
+            return object()
+
     def fake_build_default_tools(*, workspace_root: Path, project_id: str | None = None):
-        captured["project_id"] = project_id
         captured["workspace_root"] = workspace_root
+        captured["project_id"] = project_id
         return []
 
     def fake_create_deep_agent(**kwargs):
         captured["tools"] = kwargs.get("tools")
         return {"ok": True}
 
+    monkeypatch.setattr(agent_module, "LLMService", FakeLLMService)
     monkeypatch.setattr(agent_module, "build_default_tools", fake_build_default_tools)
     monkeypatch.setattr(agent_module, "create_deep_agent", fake_create_deep_agent)
-    monkeypatch.setattr(agent_module.LLMService, "get_chat_model", lambda self: object())
 
-    session_ctx = build_session_context(conversation_id="conv", project_id="project-123")
+    workspace_root = tmp_path / "workspace"
+    workspace_root.mkdir(parents=True, exist_ok=True)
+    session_ctx = SessionContext(
+        conversation_id="conv",
+        project_id="project-123",
+        workspace_root=workspace_root,
+    )
     run_ctx = RunContext(
         run_id="run",
         broker=ApprovalBroker(emit=_emit, run_id="run"),
-        model=None,
+        model="model-1",
     )
+
     result = agent_module.build_deep_agent(session_ctx=session_ctx, run_ctx=run_ctx)
 
     assert result == {"ok": True}
     assert captured["project_id"] == "project-123"
+    assert captured["workspace_root"] == session_ctx.workspace_root
+    assert captured["model_override"] == "model-1"
     assert captured["tools"] == []

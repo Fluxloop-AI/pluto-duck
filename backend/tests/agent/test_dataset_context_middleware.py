@@ -62,7 +62,7 @@ def test_format_summary_no_instruction_when_all_ready() -> None:
 def test_before_agent_returns_zero_summary_when_no_project() -> None:
     middleware = DatasetContextMiddleware(project_id=None)
 
-    update = middleware.before_agent({}, None)
+    update = middleware.before_agent({"messages": []}, None)
 
     assert update is not None
     summary = update["dataset_readiness_summary"]

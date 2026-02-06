@@ -67,11 +67,7 @@
       "modelReadyMsg": "\"{name}\" local model is ready.",
       "downloadInProgressMsg": "Model download is in progress in the background. It continues even if you close this window.",
       "confirmDelete": "Are you sure you want to delete local model \"{name}\"?",
-      "modelDeletedMsg": "Local model \"{name}\" has been deleted.",
-      "dbResetSuccess": "Database reset successfully! Please restart the application.",
-      "dbResetError": "Failed to reset database",
-      "workspaceResetSuccess": "Workspace reset successfully!",
-      "workspaceResetError": "Failed to reset workspace data"
+      "modelDeletedMsg": "Local model \"{name}\" has been deleted."
     },
     "updates": {
       "autoUpdates": "Auto Updates",
@@ -129,8 +125,7 @@
       "cancel": "Cancel",
       "save": "Save",
       "saveChanges": "Save Changes",
-      "saving": "Saving...",
-      "resetDatabase": "Reset Database"
+      "saving": "Saving..."
     }
   },
   "nav": {

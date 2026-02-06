@@ -67,11 +67,7 @@
       "modelReadyMsg": "\"{name}\" 로컬 모델이 준비되었습니다.",
       "downloadInProgressMsg": "모델 다운로드를 백그라운드에서 진행 중입니다. 설정 창을 닫아도 계속됩니다.",
       "confirmDelete": "정말로 로컬 모델 \"{name}\"을(를) 삭제할까요?",
-      "modelDeletedMsg": "로컬 모델 \"{name}\"을(를) 삭제했습니다.",
-      "dbResetSuccess": "데이터베이스가 초기화되었습니다! 애플리케이션을 다시 시작하세요.",
-      "dbResetError": "데이터베이스 초기화에 실패했습니다",
-      "workspaceResetSuccess": "워크스페이스가 초기화되었습니다!",
-      "workspaceResetError": "워크스페이스 데이터 초기화에 실패했습니다"
+      "modelDeletedMsg": "로컬 모델 \"{name}\"을(를) 삭제했습니다."
     },
     "updates": {
       "autoUpdates": "자동 업데이트",
@@ -129,8 +125,7 @@
       "cancel": "취소",
       "save": "저장",
       "saveChanges": "변경 사항 저장",
-      "saving": "저장 중...",
-      "resetDatabase": "데이터베이스 초기화"
+      "saving": "저장 중..."
     }
   },
   "nav": {

@@ -87,7 +87,7 @@ function WorkspacePageBody({
   const [sidebarTab, setSidebarTab] = useState<'boards' | 'datasets'>('boards');
   const [sidebarDatasets, setSidebarDatasets] = useState<(FileAsset | CachedTable)[]>([]);
   const [selectedDataset, setSelectedDataset] = useState<Dataset | null>(null);
-  const [workspaceResetCounter, setWorkspaceResetCounter] = useState(0);
+  const [projectDataResetCounter, setProjectDataResetCounter] = useState(0);
   const [userName, setUserName] = useState<string | null>(null);
   const datasetLoadIdRef = useRef(0);
 
@@ -190,9 +190,22 @@ function WorkspacePageBody({
         setCurrentProject(mergedProject);
       } catch (error) {
         console.error('Failed to load project detail', error);
+        const refreshedProjects = await reloadProjects();
+        const fallbackProject =
+          refreshedProjects.find(project => project.is_default) ??
+          refreshedProjects[0] ??
+          null;
+        if (!fallbackProject) {
+          setDefaultProjectId(null);
+          setCurrentProject(null);
+          return;
+        }
+        if (fallbackProject.id !== defaultProjectId) {
+          setDefaultProjectId(fallbackProject.id);
+        }
       }
     })();
-  }, [defaultProjectId, projects]);
+  }, [defaultProjectId, projects, reloadProjects]);
 
   // Auto-save project state when it changes
   useEffect(() => {
@@ -413,7 +426,7 @@ function WorkspacePageBody({
     void loadBoards();
     setChatTabs([]);
     setActiveChatTabId(null);
-    setWorkspaceResetCounter(prev => prev + 1);
+    setProjectDataResetCounter(prev => prev + 1);
   }, [loadBoards, selectBoard]);
 
   const handleProjectDeleted = useCallback(async () => {
@@ -425,7 +438,7 @@ function WorkspacePageBody({
     }
     setChatTabs([]);
     setActiveChatTabId(null);
-    setWorkspaceResetCounter(prev => prev + 1);
+    setProjectDataResetCounter(prev => prev + 1);
 
     const refreshedProjects = await reloadProjects();
     const fallbackProject =
@@ -911,7 +924,7 @@ function WorkspacePageBody({
               </div>
 
               <MultiTabChatPanel
-                key={`${defaultProjectId ?? 'none'}:${workspaceResetCounter}`}
+                key={`${defaultProjectId ?? 'none'}:${projectDataResetCounter}`}
                 selectedModel={selectedModel}
                 onModelChange={setSelectedModel}
                 selectedDataSource={selectedDataSource}

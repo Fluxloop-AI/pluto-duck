@@ -2,12 +2,87 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import duckdb
 from langchain_core.tools import StructuredTool
+
+_INTERNAL_TABLES = frozenset(
+    {
+        "main.projects",
+        "main.agent_conversations",
+        "main.agent_messages",
+        "main.agent_events",
+        "main.agent_tool_approvals",
+        "main.agent_checkpoints",
+        "main.user_settings",
+        "main.data_sources",
+        "main.data_source_tables",
+        "main.boards",
+        "main.board_items",
+        "main.board_queries",
+        "main.board_item_assets",
+        "main.query_history",
+        "_sources.attached",
+        "_sources.cached_tables",
+        "_duckpipe.run_history",
+        "_duckpipe.run_state",
+    }
+)
+_MAIN_INTERNAL_TABLES = frozenset(
+    qualified.split(".", 1)[1] for qualified in _INTERNAL_TABLES if qualified.startswith("main.")
+)
+_INTERNAL_TABLE_ACCESS_ERROR = (
+    "Access to internal metadata table '{table}' is blocked in schema tools. "
+    "Use run_sql for explicit inspection."
+)
+
+
+def _normalize_identifier_part(value: str) -> str:
+    return value.strip().strip('"').strip("'").strip("`").lower()
+
+
+def _normalize_table_identifier(table: str, schema: Optional[str] = None) -> str:
+    raw = table.strip()
+    if not raw:
+        return ""
+
+    parts = [part for part in raw.split(".") if part]
+    if len(parts) >= 2:
+        resolved_schema = _normalize_identifier_part(parts[-2])
+        resolved_table = _normalize_identifier_part(parts[-1])
+        return f"{resolved_schema}.{resolved_table}"
+
+    resolved_table = _normalize_identifier_part(parts[0])
+    resolved_schema = _normalize_identifier_part(schema) if schema else ""
+    return f"{resolved_schema}.{resolved_table}" if resolved_schema else resolved_table
+
+
+def _is_internal_table_identifier(table: str, schema: Optional[str] = None) -> bool:
+    normalized = _normalize_table_identifier(table, schema=schema)
+    if not normalized:
+        return False
+
+    if normalized in _INTERNAL_TABLES:
+        return True
+
+    if "." not in normalized:
+        return normalized in _MAIN_INTERNAL_TABLES
+
+    normalized_schema, normalized_table = normalized.split(".", 1)
+    return normalized_schema == "main" and normalized_table in _MAIN_INTERNAL_TABLES
+
+
+def _build_internal_table_access_error(table: str, schema: Optional[str] = None) -> str:
+    normalized = _normalize_table_identifier(table, schema=schema)
+    if normalized and "." in normalized:
+        table_name = normalized
+    elif normalized:
+        table_name = f"main.{normalized}"
+    else:
+        table_name = table
+    return _INTERNAL_TABLE_ACCESS_ERROR.format(table=table_name)
 
 
 def _jsonable(value: Any) -> Any:
@@ -125,5 +200,4 @@ def build_schema_tools(*, warehouse_path: Path) -> List[StructuredTool]:
             description="Fetch sample rows from a DuckDB table.",
         ),
     ]
-
 

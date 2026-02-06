@@ -5,10 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional
 
-from pluto_duck_backend.app.core.config import get_settings
-from pluto_duck_backend.app.services.execution.manager import get_execution_manager
-from pluto_duck_backend.app.services.duckdb_utils import connect_warehouse
 import duckdb
+
+from pluto_duck_backend.app.core.config import get_settings
+from pluto_duck_backend.app.services.duckdb_utils import connect_warehouse
+from pluto_duck_backend.app.services.execution.manager import get_execution_manager
 
 
 @dataclass
@@ -54,7 +55,8 @@ def _build_default_catalog() -> ActionCatalog:
     catalog = ActionCatalog()
 
     def query_handler(sql: str) -> dict:
-        manager = get_execution_manager()
+        settings = get_settings()
+        manager = get_execution_manager(warehouse_path=settings.duckdb.path)
         run_id = manager.submit_sql(sql)
         job = manager.wait_for(run_id)
         if not job:
@@ -113,4 +115,3 @@ _DEFAULT_CATALOG = _build_default_catalog()
 
 def get_action_catalog() -> ActionCatalog:
     return _DEFAULT_CATALOG
-

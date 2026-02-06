@@ -12,11 +12,10 @@ def test_action_catalog_contains_query_action(tmp_path: Path, monkeypatch) -> No
 
     monkeypatch.setattr(
         "pluto_duck_backend.app.services.actions.catalog.get_execution_manager",
-        lambda: manager,
+        lambda *args, **kwargs: manager,
     )
 
     catalog = get_action_catalog()
     action = catalog.get("query", "run")
     result = action.handler("select 1 as value")
     assert result["status"] == "success"
-

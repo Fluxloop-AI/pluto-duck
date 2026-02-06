@@ -8,6 +8,9 @@ from typing import Any, Dict, List, Optional
 import duckdb
 from langchain_core.tools import StructuredTool
 
+# Keep this set in sync with backend metadata DDL tables.
+# When a new internal metadata table is introduced, add its canonical
+# "schema.table" identifier here so schema tools keep hiding it.
 _INTERNAL_TABLES = frozenset(
     {
         "main.projects",

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-
 from pluto_duck_backend.app.api.router import api_router
 from pluto_duck_backend.app.core.config import get_settings
 from pluto_duck_backend.app.services.chat.repository import get_chat_repository
@@ -37,3 +36,21 @@ def test_settings_language_validation(tmp_path, monkeypatch) -> None:
 
     response = client.put("/api/v1/settings", json={"language": "jp"})
     assert response.status_code == 400
+
+
+def test_reset_workspace_data_alias_keeps_behavior_and_logs_warning(
+    tmp_path,
+    monkeypatch,
+    caplog,
+) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    settings_response = client.get("/api/v1/settings")
+    assert settings_response.status_code == 200
+    project_id = settings_response.json()["default_project_id"]
+
+    with caplog.at_level("WARNING"):
+        response = client.post(f"/api/v1/settings/reset-workspace-data?project_id={project_id}")
+
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert any("Deprecated endpoint used" in record.message for record in caplog.records)

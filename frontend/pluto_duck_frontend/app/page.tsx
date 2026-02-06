@@ -102,6 +102,7 @@ function WorkspacePageBody({
   const [projectDataResetCounter, setProjectDataResetCounter] = useState(0);
   const [userName, setUserName] = useState<string | null>(null);
   const datasetLoadIdRef = useRef(0);
+  const projectDetailRecoveryAttemptRef = useRef<string | null>(null);
 
   // Ref for BoardsView to access insertMarkdown
   const boardsViewRef = useRef<BoardsViewHandle>(null);
@@ -200,13 +201,25 @@ function WorkspacePageBody({
         };
 
         setCurrentProject(mergedProject);
+        projectDetailRecoveryAttemptRef.current = null;
       } catch (error) {
         console.error('Failed to load project detail', error);
-        const refreshedProjects = await reloadProjects();
-        const fallbackProject =
-          refreshedProjects.find(project => project.is_default) ??
-          refreshedProjects[0] ??
-          null;
+        let fallbackProject: ProjectListItem | null = null;
+
+        if (projectDetailRecoveryAttemptRef.current !== defaultProjectId) {
+          projectDetailRecoveryAttemptRef.current = defaultProjectId;
+          const refreshedProjects = await reloadProjects();
+          fallbackProject =
+            refreshedProjects.find(project => project.is_default) ??
+            refreshedProjects[0] ??
+            null;
+        } else {
+          fallbackProject =
+            projects.find(project => project.is_default) ??
+            projects[0] ??
+            null;
+        }
+
         if (!fallbackProject) {
           setDefaultProjectId(null);
           setCurrentProject(null);
@@ -214,7 +227,9 @@ function WorkspacePageBody({
         }
         if (fallbackProject.id !== defaultProjectId) {
           setDefaultProjectId(fallbackProject.id);
+          return;
         }
+        setCurrentProject(null);
       }
     })();
   }, [defaultProjectId, projects, reloadProjects]);

@@ -85,6 +85,21 @@ def _build_internal_table_access_error(table: str, schema: Optional[str] = None)
     return _INTERNAL_TABLE_ACCESS_ERROR.format(table=table_name)
 
 
+def _blocked_table_response(table: str, schema: Optional[str] = None) -> Dict[str, Any]:
+    normalized = _normalize_table_identifier(table, schema=schema)
+    if normalized and "." in normalized:
+        table_name = normalized
+    elif normalized:
+        table_name = f"{_normalize_identifier_part(schema) or 'main'}.{normalized}"
+    else:
+        table_name = table
+    return {
+        "status": "error",
+        "table": table_name,
+        "error": _build_internal_table_access_error(table, schema=schema),
+    }
+
+
 def _jsonable(value: Any) -> Any:
     # duckdb returns Python primitives usually; keep best-effort fallback.
     if value is None:
@@ -150,14 +165,21 @@ def build_schema_tools(*, warehouse_path: Path) -> List[StructuredTool]:
                 """,
                 [schema, table_types, int(limit)],
             ).fetchall()
+        visible_rows = [
+            (name, ttype)
+            for (name, ttype) in rows
+            if not _is_internal_table_identifier(name, schema=schema)
+        ]
         return {
             "schema": schema,
-            "tables": [{"name": name, "type": ttype} for (name, ttype) in rows],
+            "tables": [{"name": name, "type": ttype} for (name, ttype) in visible_rows],
         }
 
     def describe_table(table: str, schema: str = "main") -> Dict[str, Any]:
         with duckdb.connect(str(warehouse_path)) as con:
             qualified = resolve_table_identifier(con, table, schema)
+            if _is_internal_table_identifier(qualified):
+                return _blocked_table_response(qualified)
             info = con.execute(f"PRAGMA table_info('{qualified}')").fetchall()
             # (cid, name, type, notnull, dflt_value, pk)
             columns = [
@@ -179,6 +201,8 @@ def build_schema_tools(*, warehouse_path: Path) -> List[StructuredTool]:
     def sample_rows(table: str, schema: str = "main", limit: int = 5) -> Dict[str, Any]:
         with duckdb.connect(str(warehouse_path)) as con:
             qualified = resolve_table_identifier(con, table, schema)
+            if _is_internal_table_identifier(qualified):
+                return _blocked_table_response(qualified)
             cur = con.execute(f"SELECT * FROM {qualified} LIMIT ?", [int(limit)])
             cols = [d[0] for d in cur.description] if cur.description else []
             rows = cur.fetchall()
@@ -200,4 +224,3 @@ def build_schema_tools(*, warehouse_path: Path) -> List[StructuredTool]:
             description="Fetch sample rows from a DuckDB table.",
         ),
     ]
-

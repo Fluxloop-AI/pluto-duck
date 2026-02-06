@@ -111,6 +111,10 @@ function generateTableName(filename: string): string {
     .substring(0, 63); // Max length for identifiers
 }
 
+function buildMissingPathError(fileName: string): string {
+  return `${fileName}: Missing file path in selected entry (unexpected state). Remove and add again from From device.`;
+}
+
 interface AddDatasetModalProps {
   projectId: string;
   open: boolean;
@@ -655,7 +659,7 @@ export function AddDatasetModal({
 
     for (const file of selectedFiles) {
       if (!file.path) {
-        errors.push(`${file.name}: No file path available (web upload not supported yet)`);
+        errors.push(buildMissingPathError(file.name));
         continue;
       }
 
@@ -800,7 +804,7 @@ export function AddDatasetModal({
       const firstFile = selectedFiles[0];
 
       if (!firstFile.path) {
-        errors.push(`${firstFile.name}: No file path available (web upload not supported yet)`);
+        errors.push(buildMissingPathError(firstFile.name));
         setIsImporting(false);
         console.error('First file has no path:', errors);
         return;
@@ -846,7 +850,7 @@ export function AddDatasetModal({
         const file = selectedFiles[i];
 
         if (!file.path) {
-          errors.push(`${file.name}: No file path available`);
+          errors.push(buildMissingPathError(file.name));
           console.warn(`Skipping file without path: ${file.name}`);
           continue;
         }
@@ -899,7 +903,7 @@ export function AddDatasetModal({
 
       // Only Tauri files with paths can be imported
       if (!file.path) {
-        errors.push(`${file.name}: No file path available (web upload not supported yet)`);
+        errors.push(buildMissingPathError(file.name));
         failCount++;
         continue;
       }

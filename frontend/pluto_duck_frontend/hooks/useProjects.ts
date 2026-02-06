@@ -18,16 +18,18 @@ export function useProjects(options: UseProjectsOptions = {}) {
   const [error, setError] = useState<Error | null>(null);
 
   const loadProjects = useCallback(async () => {
-    if (!enabled) return;
+    if (!enabled) return [] as ProjectListItem[];
     
     try {
       setLoading(true);
       setError(null);
       const data = await fetchProjects();
       setProjects(data);
+      return data;
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Failed to load projects'));
       console.error('Failed to load projects:', err);
+      return [] as ProjectListItem[];
     } finally {
       setLoading(false);
     }
@@ -58,4 +60,3 @@ export function useProjects(options: UseProjectsOptions = {}) {
     createProject,
   };
 }
-

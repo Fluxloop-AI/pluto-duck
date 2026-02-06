@@ -36,7 +36,12 @@ import { loadLocalModel, unloadLocalModel } from '../lib/modelsApi';
 import { fetchDataSources, fetchDataSourceDetail, type DataSource, type DataSourceTable } from '../lib/dataSourcesApi';
 import { listFileAssets, deleteFileAsset, type FileAsset } from '../lib/fileAssetApi';
 import { fetchCachedTables, dropCache, type CachedTable } from '../lib/sourceApi';
-import { fetchProject, type Project, type ProjectListItem } from '../lib/projectsApi';
+import {
+  fetchProject,
+  fetchProjects,
+  type Project,
+  type ProjectListItem,
+} from '../lib/projectsApi';
 import { useBackendStatus } from '../hooks/useBackendStatus';
 
 type MainView = 'boards' | 'assets' | 'datasets';
@@ -397,7 +402,7 @@ function WorkspacePageBody({
     }
   }, []);
 
-  const handleWorkspaceReset = useCallback(() => {
+  const handleProjectDataReset = useCallback(() => {
     setDataSourcesRefresh(prev => prev + 1);
     setSidebarDatasets([]);
     setSelectedDataset(null);
@@ -410,6 +415,52 @@ function WorkspacePageBody({
     setActiveChatTabId(null);
     setWorkspaceResetCounter(prev => prev + 1);
   }, [loadBoards, selectBoard]);
+
+  const handleProjectDeleted = useCallback(async () => {
+    setDataSourcesRefresh(prev => prev + 1);
+    setSidebarDatasets([]);
+    setSelectedDataset(null);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(SELECTED_DATASET_ID_KEY);
+    }
+    setChatTabs([]);
+    setActiveChatTabId(null);
+    setWorkspaceResetCounter(prev => prev + 1);
+
+    const refreshedProjects = await reloadProjects();
+    const fallbackProject =
+      refreshedProjects.find(project => project.is_default) ??
+      refreshedProjects[0] ??
+      null;
+
+    if (!fallbackProject) {
+      setDefaultProjectId(null);
+      setCurrentProject(null);
+      return;
+    }
+
+    setDefaultProjectId(fallbackProject.id);
+
+    try {
+      const detail = await fetchProject(fallbackProject.id);
+      setCurrentProject({
+        ...detail,
+        board_count: fallbackProject.board_count,
+        conversation_count: fallbackProject.conversation_count,
+      });
+    } catch (error) {
+      console.error('Failed to load fallback project detail', error);
+      const latestProjects = await fetchProjects();
+      const latestFallback =
+        latestProjects.find(project => project.is_default) ?? latestProjects[0] ?? null;
+      if (!latestFallback) {
+        setCurrentProject(null);
+        return;
+      }
+      setDefaultProjectId(latestFallback.id);
+      setCurrentProject(latestFallback);
+    }
+  }, [reloadProjects]);
 
   const handleSelectProject = useCallback(async (project: ProjectListItem) => {
     // Save current project state before switching
@@ -889,8 +940,9 @@ function WorkspacePageBody({
           onLanguageChange(nextLanguage === 'ko' ? 'ko' : 'en')
         }
         initialMenu="profile"
-        projectId={defaultProjectId || null}
-        onWorkspaceReset={handleWorkspaceReset}
+        currentProject={currentProject}
+        onProjectDataReset={handleProjectDataReset}
+        onProjectDeleted={handleProjectDeleted}
       />
       <DataSourcesModal
         projectId={defaultProjectId || ''}

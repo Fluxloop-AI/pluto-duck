@@ -37,6 +37,15 @@ export interface ResetWorkspaceDataResponse {
   message: string;
 }
 
+export interface ProjectDangerOperationRequest {
+  confirmation: string;
+}
+
+export interface ProjectDangerOperationResponse {
+  success: boolean;
+  message: string;
+}
+
 export async function fetchSettings(): Promise<UserSettings> {
   return apiJson<UserSettings>('/api/v1/settings');
 }
@@ -62,6 +71,36 @@ export async function resetDatabase(): Promise<ResetDatabaseResponse> {
   });
 }
 
+export async function resetProjectData(
+  projectId: string,
+  confirmation: string
+): Promise<ProjectDangerOperationResponse> {
+  return apiJson<ProjectDangerOperationResponse>(`/api/v1/projects/${projectId}/reset-data`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ confirmation } satisfies ProjectDangerOperationRequest),
+  });
+}
+
+export async function deleteProjectPermanently(
+  projectId: string,
+  confirmation: string
+): Promise<ProjectDangerOperationResponse> {
+  return apiJson<ProjectDangerOperationResponse>(
+    `/api/v1/projects/${projectId}/delete-permanently`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ confirmation } satisfies ProjectDangerOperationRequest),
+    }
+  );
+}
+
+/** @deprecated Use `resetProjectData(projectId, confirmation)` instead. */
 export async function resetWorkspaceData(projectId: string): Promise<ResetWorkspaceDataResponse> {
   return apiJson<ResetWorkspaceDataResponse>('/api/v1/settings/reset-workspace-data', {
     method: 'POST',

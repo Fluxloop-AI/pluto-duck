@@ -38,10 +38,12 @@ import { Avatar, AvatarFallback } from '../ui/avatar';
 import {
   fetchSettings,
   updateSettings,
-  resetDatabase,
-  resetWorkspaceData,
+  resetProjectData,
+  deleteProjectPermanently,
   type UpdateSettingsRequest,
 } from '../../lib/settingsApi';
+import type { ApiError } from '../../lib/apiClient';
+import type { ProjectListItem } from '../../lib/projectsApi';
 import {
   downloadLocalModel,
   listLocalModels,
@@ -66,8 +68,9 @@ interface SettingsModalProps {
   onProfileSaved?: (name: string | null) => void;
   onPreferencesSaved?: (language: string) => void;
   initialMenu?: SettingsMenu;
-  projectId?: string | null;
-  onWorkspaceReset?: () => void;
+  currentProject?: ProjectListItem | null;
+  onProjectDataReset?: () => void;
+  onProjectDeleted?: (projectId: string) => Promise<void> | void;
 }
 
 type SettingsMenu = 'profile' | 'preferences' | 'notifications' | 'models' | 'updates' | 'data';
@@ -99,8 +102,9 @@ export function SettingsModal({
   onProfileSaved,
   onPreferencesSaved,
   initialMenu,
-  projectId,
-  onWorkspaceReset,
+  currentProject,
+  onProjectDataReset,
+  onProjectDeleted,
 }: SettingsModalProps) {
   const t = useTranslations('settings');
   const [activeMenu, setActiveMenu] = useState<SettingsMenu>('profile');
@@ -123,11 +127,13 @@ export function SettingsModal({
   const [googleFullName, setGoogleFullName] = useState('');
   const [googleEmail, setGoogleEmail] = useState('');
 
-  // DB Reset states
-  const [showResetDialog, setShowResetDialog] = useState(false);
-  const [resetting, setResetting] = useState(false);
-  const [showResetWorkspaceDialog, setShowResetWorkspaceDialog] = useState(false);
-  const [resettingWorkspace, setResettingWorkspace] = useState(false);
+  // Project danger action states
+  const [showProjectResetDialog, setShowProjectResetDialog] = useState(false);
+  const [resettingProjectData, setResettingProjectData] = useState(false);
+  const [showProjectDeleteDialog, setShowProjectDeleteDialog] = useState(false);
+  const [deletingProject, setDeletingProject] = useState(false);
+  const [projectResetConfirmation, setProjectResetConfirmation] = useState('');
+  const [projectDeleteConfirmation, setProjectDeleteConfirmation] = useState('');
 
   // Auto Update
   const {
@@ -150,6 +156,7 @@ export function SettingsModal({
   const isAnyDownloadInProgress = Object.values(localDownloadStates).some(
     state => state.status === 'queued' || state.status === 'downloading',
   );
+  const isProjectActionInProgress = resettingProjectData || deletingProject;
 
   useEffect(() => {
     if (open) {
@@ -170,6 +177,11 @@ export function SettingsModal({
       }
     };
   }, []);
+
+  useEffect(() => {
+    setProjectResetConfirmation('');
+    setProjectDeleteConfirmation('');
+  }, [currentProject?.id]);
 
   const fetchLocalModels = async () => {
     setLoadingLocalModels(true);
@@ -226,6 +238,45 @@ export function SettingsModal({
     } finally {
       setLoading(false);
     }
+  };
+
+  const toProjectSlug = (name: string): string => {
+    const slug = name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    return slug || 'project';
+  };
+
+  const resetConfirmationPhrase = currentProject
+    ? `reset-${toProjectSlug(currentProject.name)}`
+    : '';
+  const deleteConfirmationPhrase = currentProject
+    ? `delete-${toProjectSlug(currentProject.name)}-permanently`
+    : '';
+
+  const resolveDangerActionError = (
+    error: unknown,
+    action: 'reset' | 'delete'
+  ): string => {
+    const apiError = error as ApiError;
+    const detail = typeof apiError?.detail === 'string' ? apiError.detail : apiError?.message;
+    const status = apiError?.status;
+    if (status === 400 && detail?.includes('Confirmation phrase mismatch')) {
+      return t('data.error.confirmationMismatch');
+    }
+    if (status === 409 && detail?.includes('Cannot delete the default project')) {
+      return t('data.error.defaultDeleteBlocked');
+    }
+    if (status === 404 || detail?.includes('Project not found')) {
+      return t('data.error.projectNotFound');
+    }
+    if (typeof detail === 'string' && detail.trim().length > 0) {
+      return detail;
+    }
+    return action === 'reset'
+      ? t('data.error.projectResetFailed')
+      : t('data.error.projectDeleteFailed');
   };
 
   const scheduleStatusPolling = (modelId: string) => {
@@ -393,49 +444,52 @@ export function SettingsModal({
     onOpenChange(false);
   };
 
-  const handleResetDatabase = async () => {
-    setResetting(true);
+  const handleResetProjectData = async () => {
+    if (!currentProject) {
+      setError(t('data.noProject'));
+      return;
+    }
+    setResettingProjectData(true);
     setError(null);
     setSuccessMessage(null);
 
     try {
-      await resetDatabase();
-      setSuccessMessage(t('models.dbResetSuccess'));
-      setShowResetDialog(false);
-
-      // Close the settings modal after a delay
-      setTimeout(() => {
-        onOpenChange(false);
-        setSuccessMessage(null);
-      }, 2000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('models.dbResetError'));
-      setShowResetDialog(false);
+      await resetProjectData(currentProject.id, projectResetConfirmation);
+      setSuccessMessage(t('data.projectResetSuccess'));
+      setShowProjectResetDialog(false);
+      setProjectResetConfirmation('');
+      onProjectDataReset?.();
+    } catch (error) {
+      setError(resolveDangerActionError(error, 'reset'));
     } finally {
-      setResetting(false);
+      setResettingProjectData(false);
     }
   };
 
-  const handleResetWorkspaceData = async () => {
-    if (!projectId) {
-      setError(t('data.noWorkspace'));
+  const handleDeleteProject = async () => {
+    if (!currentProject) {
+      setError(t('data.noProject'));
+      return;
+    }
+    if (currentProject.is_default) {
+      setError(t('data.error.defaultDeleteBlocked'));
       return;
     }
 
-    setResettingWorkspace(true);
+    setDeletingProject(true);
     setError(null);
     setSuccessMessage(null);
 
     try {
-      await resetWorkspaceData(projectId);
-      setSuccessMessage(t('models.workspaceResetSuccess'));
-      setShowResetWorkspaceDialog(false);
-      onWorkspaceReset?.();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('models.workspaceResetError'));
-      setShowResetWorkspaceDialog(false);
+      await deleteProjectPermanently(currentProject.id, projectDeleteConfirmation);
+      setSuccessMessage(t('data.projectDeleteSuccess'));
+      setShowProjectDeleteDialog(false);
+      setProjectDeleteConfirmation('');
+      await onProjectDeleted?.(currentProject.id);
+    } catch (error) {
+      setError(resolveDangerActionError(error, 'delete'));
     } finally {
-      setResettingWorkspace(false);
+      setDeletingProject(false);
     }
   };
 
@@ -654,7 +708,7 @@ export function SettingsModal({
                           (isAnyDownloadInProgress && !isDownloading) ||
                           loading ||
                           saving ||
-                          resetting ||
+                          isProjectActionInProgress ||
                           deletingModelId !== null
                         }
                       >
@@ -715,7 +769,7 @@ export function SettingsModal({
                         disabled={
                           loading ||
                           saving ||
-                          resetting ||
+                          isProjectActionInProgress ||
                           isAnyDownloadInProgress ||
                           deletingModelId === localModel.id
                         }
@@ -862,27 +916,27 @@ export function SettingsModal({
       <div className="flex items-start gap-3">
         <AlertTriangleIcon className="h-5 w-5 text-amber-500 mt-0.5 shrink-0" />
         <div className="grid gap-2 flex-1">
-          <h4 className="text-sm font-medium">{t('data.workspaceReset')}</h4>
+          <h4 className="text-sm font-medium">{t('data.projectDataReset')}</h4>
           <div className="grid gap-2">
             <p className="text-sm text-muted-foreground">
-              {t('data.workspaceResetDesc')}
+              {t('data.projectDataResetDesc')}
             </p>
             <p className="text-xs text-muted-foreground">
-              {t('data.workspaceResetDetail')}
+              {t('data.projectDataResetDetail')}
             </p>
           </div>
           <Button
             variant="destructive"
             size="sm"
-            onClick={() => setShowResetWorkspaceDialog(true)}
-            disabled={loading || saving || resetting || resettingWorkspace || !projectId}
+            onClick={() => setShowProjectResetDialog(true)}
+            disabled={loading || saving || isProjectActionInProgress || !currentProject}
             className="w-fit"
           >
-            {t('data.resetWorkspace')}
+            {t('data.resetProjectData')}
           </Button>
-          {!projectId && (
+          {!currentProject && (
             <p className="text-xs text-muted-foreground">
-              {t('data.noWorkspace')}
+              {t('data.noProject')}
             </p>
           )}
         </div>
@@ -890,24 +944,40 @@ export function SettingsModal({
       <div className="flex items-start gap-3">
         <AlertTriangleIcon className="h-5 w-5 text-destructive mt-0.5 shrink-0" />
         <div className="grid gap-2 flex-1">
-          <h4 className="text-sm font-medium">{t('data.dangerZone')}</h4>
+          <h4 className="text-sm font-medium">{t('data.deleteProjectPermanently')}</h4>
           <div className="grid gap-2">
             <p className="text-sm text-muted-foreground">
-              {t('data.dbResetDesc')}
+              {t('data.deleteProjectDesc')}
             </p>
             <p className="text-xs text-muted-foreground">
-              {t('data.dbResetWarning')}
+              {t('data.deleteProjectWarning')}
             </p>
           </div>
           <Button
             variant="destructive"
             size="sm"
-            onClick={() => setShowResetDialog(true)}
-            disabled={loading || saving || resetting || resettingWorkspace}
+            onClick={() => setShowProjectDeleteDialog(true)}
+            disabled={
+              loading ||
+              saving ||
+              isProjectActionInProgress ||
+              !currentProject ||
+              currentProject.is_default
+            }
             className="w-fit"
           >
-            {t('button.resetDatabase')}
+            {t('data.deleteProjectButton')}
           </Button>
+          {!currentProject && (
+            <p className="text-xs text-muted-foreground">
+              {t('data.noProject')}
+            </p>
+          )}
+          {currentProject?.is_default && (
+            <p className="text-xs text-muted-foreground">
+              {t('data.defaultDeleteDisabled')}
+            </p>
+          )}
         </div>
       </div>
     </div>
@@ -1174,95 +1244,134 @@ export function SettingsModal({
         </DialogContent>
       </Dialog>
 
-      {/* Confirmation Dialog for Database Reset */}
-      <Dialog open={showResetDialog} onOpenChange={setShowResetDialog}>
+      {/* Confirmation Dialog for Project Data Reset */}
+      <Dialog
+        open={showProjectResetDialog}
+        onOpenChange={(nextOpen) => {
+          setShowProjectResetDialog(nextOpen);
+          if (!nextOpen) {
+            setProjectResetConfirmation('');
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-[450px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-destructive">
               <AlertTriangleIcon className="h-5 w-5" />
-              {t('dialog.resetDbTitle')}
+              {t('dialog.resetProjectTitle')}
             </DialogTitle>
             <DialogDescription>
-              {t('dialog.resetDbDesc')}
+              {t('dialog.resetProjectDesc', {
+                projectName: currentProject?.name ?? '-',
+              })}
             </DialogDescription>
           </DialogHeader>
 
           <div className="py-4">
             <ul className="list-disc list-inside space-y-2 text-sm text-muted-foreground">
-              <li>{t('dialog.resetDbItem1')}</li>
-              <li>{t('dialog.resetDbItem2')}</li>
-              <li>{t('dialog.resetDbItem3')}</li>
-              <li>{t('dialog.resetDbItem4')}</li>
+              <li>{t('dialog.resetProjectItem1')}</li>
+              <li>{t('dialog.resetProjectItem2')}</li>
+              <li>{t('dialog.resetProjectItem3')}</li>
+              <li>{t('dialog.resetProjectItem4')}</li>
             </ul>
 
-            <div className="mt-4 p-3 bg-destructive/10 rounded-md border border-destructive/20">
-              <p className="text-sm font-medium text-destructive">
-                {t('dialog.resetDbConfirm')}
+            <div className="mt-4 grid gap-2 rounded-md border border-destructive/20 bg-destructive/10 p-3">
+              <p className="text-xs text-destructive">
+                {t('dialog.typePhrase', { phrase: resetConfirmationPhrase })}
               </p>
+              <Input
+                value={projectResetConfirmation}
+                onChange={(event) => setProjectResetConfirmation(event.target.value)}
+                placeholder={t('dialog.typePhrasePlaceholder')}
+              />
             </div>
           </div>
 
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => setShowResetDialog(false)}
-              disabled={resetting}
+              onClick={() => setShowProjectResetDialog(false)}
+              disabled={resettingProjectData}
             >
               {t('button.cancel')}
             </Button>
             <Button
               variant="destructive"
-              onClick={handleResetDatabase}
-              disabled={resetting}
+              onClick={handleResetProjectData}
+              disabled={
+                resettingProjectData ||
+                !currentProject ||
+                projectResetConfirmation !== resetConfirmationPhrase
+              }
             >
-              {resetting ? t('dialog.resetting') : t('dialog.yesResetDb')}
+              {resettingProjectData ? t('dialog.processing') : t('dialog.confirmProjectReset')}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Confirmation Dialog for Workspace Data Reset */}
-      <Dialog open={showResetWorkspaceDialog} onOpenChange={setShowResetWorkspaceDialog}>
+      {/* Confirmation Dialog for Project Delete */}
+      <Dialog
+        open={showProjectDeleteDialog}
+        onOpenChange={(nextOpen) => {
+          setShowProjectDeleteDialog(nextOpen);
+          if (!nextOpen) {
+            setProjectDeleteConfirmation('');
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-[450px]">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-amber-600">
+            <DialogTitle className="flex items-center gap-2 text-destructive">
               <AlertTriangleIcon className="h-5 w-5" />
-              {t('dialog.resetWsTitle')}
+              {t('dialog.deleteProjectTitle')}
             </DialogTitle>
             <DialogDescription>
-              {t('dialog.resetWsDesc')}
+              {t('dialog.deleteProjectDesc', {
+                projectName: currentProject?.name ?? '-',
+              })}
             </DialogDescription>
           </DialogHeader>
 
           <div className="py-4">
             <ul className="list-disc list-inside space-y-2 text-sm text-muted-foreground">
-              <li>{t('dialog.resetWsItem1')}</li>
-              <li>{t('dialog.resetWsItem2')}</li>
-              <li>{t('dialog.resetWsItem3')}</li>
-              <li>{t('dialog.resetWsItem4')}</li>
+              <li>{t('dialog.deleteProjectItem1')}</li>
+              <li>{t('dialog.deleteProjectItem2')}</li>
+              <li>{t('dialog.deleteProjectItem3')}</li>
+              <li>{t('dialog.deleteProjectItem4')}</li>
             </ul>
 
-            <div className="mt-4 p-3 bg-amber-500/10 rounded-md border border-amber-500/20">
-              <p className="text-sm font-medium text-amber-700">
-                {t('dialog.resetWsNote')}
+            <div className="mt-4 grid gap-2 rounded-md border border-destructive/20 bg-destructive/10 p-3">
+              <p className="text-xs text-destructive">
+                {t('dialog.typePhrase', { phrase: deleteConfirmationPhrase })}
               </p>
+              <Input
+                value={projectDeleteConfirmation}
+                onChange={(event) => setProjectDeleteConfirmation(event.target.value)}
+                placeholder={t('dialog.typePhrasePlaceholder')}
+              />
             </div>
           </div>
 
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => setShowResetWorkspaceDialog(false)}
-              disabled={resettingWorkspace}
+              onClick={() => setShowProjectDeleteDialog(false)}
+              disabled={deletingProject}
             >
               {t('button.cancel')}
             </Button>
             <Button
               variant="destructive"
-              onClick={handleResetWorkspaceData}
-              disabled={resettingWorkspace}
+              onClick={handleDeleteProject}
+              disabled={
+                deletingProject ||
+                !currentProject ||
+                currentProject.is_default ||
+                projectDeleteConfirmation !== deleteConfirmationPhrase
+              }
             >
-              {resettingWorkspace ? t('dialog.resetting') : t('dialog.yesResetWs')}
+              {deletingProject ? t('dialog.processing') : t('dialog.confirmProjectDelete')}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -14,6 +14,7 @@ from pluto_duck_backend.app.services.asset import file_service as file_service_m
 from pluto_duck_backend.app.services.asset.errors import AssetValidationError
 from pluto_duck_backend.app.services.chat import get_chat_repository
 from pluto_duck_backend.app.services.projects import get_project_repository
+from pluto_duck_backend.app.services.projects.danger_operations import expected_confirmation_phrase
 
 
 @pytest.fixture
@@ -83,7 +84,7 @@ def test_import_blocks_cross_project_table_collision(
         )
 
 
-def test_reset_workspace_skips_drop_for_shared_table_collision(
+def test_reset_project_data_skips_drop_for_shared_table_collision(
     configured_workspace: Path,
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
@@ -91,7 +92,9 @@ def test_reset_workspace_skips_drop_for_shared_table_collision(
     settings = get_settings()
     repo = get_chat_repository()
     project_a = repo._default_project_id
-    project_b = get_project_repository().create_project("project-b")
+    project_repo = get_project_repository()
+    project_b = project_repo.create_project("project-b")
+    project_a_name = project_repo.get_project(project_a)["name"]
 
     file_a = tmp_path / "a.csv"
     _write_csv(file_a, "id,amount\n1,100\n")
@@ -125,7 +128,12 @@ def test_reset_workspace_skips_drop_for_shared_table_collision(
     client = TestClient(app)
 
     with caplog.at_level(logging.WARNING):
-        response = client.post(f"/api/v1/settings/reset-workspace-data?project_id={project_a}")
+        response = client.post(
+            f"/api/v1/projects/{project_a}/reset-data",
+            json={
+                "confirmation": expected_confirmation_phrase(project_a_name, "reset"),
+            },
+        )
 
     assert response.status_code == 200
     assert "skipping table drop for shared table 'orders'" in caplog.text.lower()
@@ -149,4 +157,3 @@ def test_reset_workspace_skips_drop_for_shared_table_collision(
             """
         ).fetchall()
         assert [row[0] for row in remaining_rows] == [project_b]
-

@@ -8,7 +8,8 @@ export function cn(...inputs: ClassValue[]) {
 export function formatRelativeTime(dateString: string | null): string {
   if (!dateString) return '-';
   const date = new Date(dateString);
-  const diffMs = Math.abs(Date.now() - date.getTime());
+  const rawDiffMs = Date.now() - date.getTime();
+  const diffMs = rawDiffMs < 0 ? 0 : rawDiffMs;
   const diffMins = Math.floor(diffMs / 60000);
   const diffHours = Math.floor(diffMs / 3600000);
   const diffDays = Math.floor(diffMs / 86400000);
@@ -26,4 +27,3 @@ export function formatRelativeTime(dateString: string | null): string {
     minute: '2-digit',
   });
 }
-

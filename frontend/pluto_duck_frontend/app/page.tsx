@@ -52,6 +52,18 @@ const SIDEBAR_COLLAPSED_KEY = 'pluto-duck-sidebar-collapsed';
 const SELECTED_DATASET_ID_KEY = 'pluto_selected_dataset_id';
 const MESSAGES = { en: enMessages, ko: koMessages } as const;
 
+function resolveClientTimeZone(): string {
+  try {
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (timeZone && timeZone.trim().length > 0) {
+      return timeZone;
+    }
+  } catch {
+    // Fallback for environments without Intl timezone support
+  }
+  return 'UTC';
+}
+
 function WorkspacePageBody({
   language,
   onLanguageChange,
@@ -1050,14 +1062,19 @@ function WorkspacePageBody({
 
 export default function WorkspacePage() {
   const [language, setLanguage] = useState<Locale>('en');
+  const [timeZone, setTimeZone] = useState<string>('UTC');
   const messages = MESSAGES[language] ?? MESSAGES.en;
 
   useEffect(() => {
     document.documentElement.lang = language;
   }, [language]);
 
+  useEffect(() => {
+    setTimeZone(resolveClientTimeZone());
+  }, []);
+
   return (
-    <NextIntlClientProvider locale={language} messages={messages}>
+    <NextIntlClientProvider locale={language} messages={messages} timeZone={timeZone}>
       <WorkspacePageBody
         language={language}
         onLanguageChange={setLanguage}

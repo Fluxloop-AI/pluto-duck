@@ -8,6 +8,8 @@ from typing import Any, Dict, List, Optional
 import duckdb
 from langchain_core.tools import StructuredTool
 
+from .project_scope import resolve_project_table_scope
+
 # Keep this set in sync with backend metadata DDL tables.
 # When a new internal metadata table is introduced, add its canonical
 # "schema.table" identifier here so schema tools keep hiding it.
@@ -40,6 +42,7 @@ _INTERNAL_TABLE_ACCESS_ERROR = (
     "Access to internal metadata table '{table}' is blocked in schema tools. "
     "Use run_sql for explicit inspection."
 )
+_UNAUTHORIZED_TABLE_ACCESS_ERROR = "Access to table '{table}' is not allowed for this project."
 
 
 def _normalize_identifier_part(value: str) -> str:
@@ -103,6 +106,21 @@ def _blocked_table_response(table: str, schema: Optional[str] = None) -> Dict[st
     }
 
 
+def _unauthorized_table_response(table: str, schema: Optional[str] = None) -> Dict[str, Any]:
+    normalized = _normalize_table_identifier(table, schema=schema)
+    if normalized and "." in normalized:
+        table_name = normalized
+    elif normalized:
+        table_name = f"{_normalize_identifier_part(schema) or 'main'}.{normalized}"
+    else:
+        table_name = table
+    return {
+        "status": "error",
+        "table": table_name,
+        "error": _UNAUTHORIZED_TABLE_ACCESS_ERROR.format(table=table_name),
+    }
+
+
 def _jsonable(value: Any) -> Any:
     # duckdb returns Python primitives usually; keep best-effort fallback.
     if value is None:
@@ -118,6 +136,20 @@ def build_schema_tools(
     project_id: Optional[str] = None,
 ) -> List[StructuredTool]:
     """Return schema tools bound to a specific DuckDB warehouse."""
+
+    def _resolve_project_allowlist() -> Optional[set[str]]:
+        if project_id is None:
+            return None
+        return resolve_project_table_scope(
+            warehouse_path=warehouse_path,
+            project_id=project_id,
+        )
+
+    def _is_project_table_allowed(qualified: str) -> bool:
+        allowlist = _resolve_project_allowlist()
+        if allowlist is None:
+            return True
+        return _normalize_table_identifier(qualified) in allowlist
 
     def resolve_table_identifier(
         con: duckdb.DuckDBPyConnection, table: str, schema: Optional[str]
@@ -177,6 +209,13 @@ def build_schema_tools(
             for (name, ttype) in rows
             if not _is_internal_table_identifier(name, schema=schema)
         ]
+        allowlist = _resolve_project_allowlist()
+        if allowlist is not None:
+            visible_rows = [
+                (name, ttype)
+                for (name, ttype) in visible_rows
+                if _normalize_table_identifier(name, schema=schema) in allowlist
+            ]
         return {
             "schema": schema,
             "tables": [{"name": name, "type": ttype} for (name, ttype) in visible_rows],
@@ -187,6 +226,8 @@ def build_schema_tools(
             qualified = resolve_table_identifier(con, table, schema)
             if _is_internal_table_identifier(qualified):
                 return _blocked_table_response(qualified)
+            if not _is_project_table_allowed(qualified):
+                return _unauthorized_table_response(qualified)
             info = con.execute(f"PRAGMA table_info('{qualified}')").fetchall()
             # (cid, name, type, notnull, dflt_value, pk)
             columns = [
@@ -210,6 +251,8 @@ def build_schema_tools(
             qualified = resolve_table_identifier(con, table, schema)
             if _is_internal_table_identifier(qualified):
                 return _blocked_table_response(qualified)
+            if not _is_project_table_allowed(qualified):
+                return _unauthorized_table_response(qualified)
             cur = con.execute(f"SELECT * FROM {qualified} LIMIT ?", [int(limit)])
             cols = [d[0] for d in cur.description] if cur.description else []
             rows = cur.fetchall()

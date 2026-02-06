@@ -229,6 +229,43 @@ class FileAssetService:
         with connect_warehouse(self.warehouse_path) as conn:
             yield conn
 
+    def _find_foreign_table_owner(
+        self,
+        conn: duckdb.DuckDBPyConnection,
+        table_name: str,
+    ) -> Optional[str]:
+        row = conn.execute(
+            f"""
+            SELECT project_id
+            FROM {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
+            WHERE table_name = ?
+              AND project_id <> ?
+            LIMIT 1
+            """,
+            [table_name, self.project_id],
+        ).fetchone()
+        return str(row[0]) if row else None
+
+    def _ensure_table_not_owned_by_other_project(
+        self,
+        conn: duckdb.DuckDBPyConnection,
+        table_name: str,
+    ) -> None:
+        owner_project_id = self._find_foreign_table_owner(conn, table_name)
+        if owner_project_id is None:
+            return
+
+        logger.warning(
+            "[FileAssetService.import_file] Blocked cross-project table collision: table=%s owner=%s requester=%s",
+            table_name,
+            owner_project_id,
+            self.project_id,
+        )
+        raise AssetValidationError(
+            f"Table '{table_name}' is already used by another project. "
+            "Choose a different table name and retry."
+        )
+
     def _ensure_metadata_tables(self) -> None:
         """Ensure metadata tables exist."""
         with self._get_connection() as conn:
@@ -481,6 +518,8 @@ class FileAssetService:
 
         with self._get_connection() as conn:
             try:
+                self._ensure_table_not_owned_by_other_project(conn, safe_table)
+
                 if mode in ("append", "merge"):
                     # Check table exists early for append/merge
                     result = conn.execute(f"""

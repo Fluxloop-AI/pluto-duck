@@ -234,8 +234,41 @@ def reset_workspace_data(
         # Delete file assets (and their tables) for this project.
         file_service = get_file_asset_service(project_id)
         assets = file_service.list_files()
+        shared_table_names: set[str] = set()
+        if assets:
+            candidate_table_names = sorted(
+                {
+                    asset.table_name
+                    for asset in assets
+                    if asset.table_name
+                }
+            )
+            if candidate_table_names:
+                placeholders = ", ".join(["?"] * len(candidate_table_names))
+                with repo._connect() as con:
+                    rows = con.execute(
+                        f"""
+                        SELECT DISTINCT table_name
+                        FROM _file_assets.files
+                        WHERE project_id <> ?
+                          AND table_name IN ({placeholders})
+                        """,
+                        [project_id, *candidate_table_names],
+                    ).fetchall()
+                    shared_table_names = {
+                        str(row[0])
+                        for row in rows
+                        if row and row[0]
+                    }
         for asset in assets:
-            file_service.delete_file(asset.id, drop_table=True)
+            drop_table = asset.table_name not in shared_table_names
+            if not drop_table:
+                logger.warning(
+                    "Workspace reset: skipping table drop for shared table '%s' (project_id=%s)",
+                    asset.table_name,
+                    project_id,
+                )
+            file_service.delete_file(asset.id, drop_table=drop_table)
 
         # Clear cached diagnoses for this project.
         diagnosis_service = get_file_diagnosis_service(project_id)

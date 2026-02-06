@@ -53,7 +53,7 @@ _UNAUTHORIZED_TABLE_ACCESS_ERROR = "Access to table '{table}' is not allowed for
 
 def _quote_identifier(identifier: str) -> str:
     parts = [part for part in identifier.split(".") if part]
-    return ".".join(f'"{part.replace("\"", "\"\"")}"' for part in parts)
+    return ".".join('"' + part.replace('"', '""') + '"' for part in parts)
 
 
 def _is_internal_table_identifier(table: str, schema: Optional[str] = None) -> bool:

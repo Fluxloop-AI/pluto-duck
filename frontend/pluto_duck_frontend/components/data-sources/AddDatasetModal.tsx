@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Upload, Folder, FileSpreadsheet, Database, FileText, Trash2, X } from 'lucide-react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
@@ -17,7 +17,6 @@ interface SelectedFile {
   id: string;
   name: string;
   path: string | null;
-  file?: File;
 }
 
 // Allowed file extensions
@@ -436,9 +435,6 @@ export function AddDatasetModal({
   const [pendingPath, setPendingPath] = useState('');
   const [pathInputError, setPathInputError] = useState<string | null>(null);
 
-  // Ref for hidden file input (web fallback)
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
   // Reset state when modal closes
   useEffect(() => {
     if (!open) {
@@ -561,21 +557,9 @@ export function AddDatasetModal({
 
     setIsDragOver(false);
 
-    // Web environment: handle File objects (no path available)
-    const files = Array.from(e.dataTransfer.files);
-    const newFiles: SelectedFile[] = files
-      .filter(f => isAllowedFile(f.name))
-      .map(f => ({
-        id: generateId(),
-        name: f.name,
-        path: null, // Web doesn't have access to file paths
-        file: f,
-      }));
-
-    if (newFiles.length > 0) {
-      addFiles(newFiles);
-    }
-  }, [addFiles]);
+    setShowPathInput(true);
+    setPathInputError('Drag and drop is not supported in web mode. Paste an absolute file path.');
+  }, []);
 
   // From device button handler
   const handleFromDeviceClick = useCallback(async () => {
@@ -643,28 +627,6 @@ export function AddDatasetModal({
       path: trimmedPath,
     }]);
   }, [pendingPath, addFiles]);
-
-  // Handle file input change (web fallback)
-  const handleFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
-
-    const newFiles: SelectedFile[] = Array.from(files)
-      .filter(f => isAllowedFile(f.name))
-      .map(f => ({
-        id: generateId(),
-        name: f.name,
-        path: null,
-        file: f,
-      }));
-
-    if (newFiles.length > 0) {
-      addFiles(newFiles);
-    }
-
-    // Reset input so same file can be selected again
-    e.target.value = '';
-  }, [addFiles]);
 
   const handleGoogleSheetsClick = useCallback(() => {
     // Coming soon - no action
@@ -1011,16 +973,6 @@ export function AddDatasetModal({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="p-0 gap-0 sm:max-w-[600px] h-[580px] rounded-3xl overflow-hidden">
-        {/* Hidden file input for web fallback */}
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".csv,.parquet"
-          multiple
-          className="hidden"
-          onChange={handleFileInputChange}
-        />
-
         {step === 'select' && (
           <SelectSourceView
             onFromDeviceClick={handleFromDeviceClick}

@@ -39,22 +39,17 @@ def test_settings_language_validation(tmp_path, monkeypatch) -> None:
     assert response.status_code == 400
 
 
-def test_reset_workspace_data_alias_keeps_behavior_and_logs_warning(
-    tmp_path,
-    monkeypatch,
-    caplog,
-) -> None:
+def test_removed_deprecated_reset_endpoints_return_404(tmp_path, monkeypatch) -> None:
     client = create_client(tmp_path, monkeypatch)
     settings_response = client.get("/api/v1/settings")
     assert settings_response.status_code == 200
     project_id = settings_response.json()["default_project_id"]
 
-    with caplog.at_level("WARNING"):
-        response = client.post(f"/api/v1/settings/reset-workspace-data?project_id={project_id}")
+    reset_database = client.post("/api/v1/settings/reset-database")
+    assert reset_database.status_code == 404
 
-    assert response.status_code == 200
-    assert response.json()["success"] is True
-    assert any("Deprecated endpoint used" in record.message for record in caplog.records)
+    reset_workspace = client.post(f"/api/v1/settings/reset-workspace-data?project_id={project_id}")
+    assert reset_workspace.status_code == 404
 
 
 def test_settings_default_project_id_remains_valid_after_project_delete(

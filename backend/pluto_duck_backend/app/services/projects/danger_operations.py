@@ -14,6 +14,9 @@ from pluto_duck_backend.app.services.asset import (
     get_file_diagnosis_service,
 )
 from pluto_duck_backend.app.services.chat import get_chat_repository
+from pluto_duck_backend.app.services.projects.analysis_ownership import (
+    resolve_owned_and_shared_analysis_ids,
+)
 from pluto_duck_backend.app.services.source import get_source_service
 from pluto_duck_backend.app.services.workzone import get_work_zone_service
 
@@ -50,10 +53,12 @@ def reset_project_data(project_id: str) -> str:
     repo = get_chat_repository()
 
     # Gather analysis IDs before deleting analysis files.
-    analyses_dir = settings.duckdb.path.parent / "analyses" / project_id
-    analysis_ids = []
-    if analyses_dir.exists():
-        analysis_ids = [path.stem for path in analyses_dir.glob("*.yaml")]
+    analyses_root = settings.duckdb.path.parent / "analyses"
+    analyses_dir = analyses_root / project_id
+    owned_analysis_ids, shared_analysis_ids = resolve_owned_and_shared_analysis_ids(
+        project_id=project_id,
+        analyses_root=analyses_root,
+    )
 
     # Gather conversation IDs to clean up runtime work zones.
     with repo._connect() as con:
@@ -212,27 +217,34 @@ def reset_project_data(project_id: str) -> str:
         )
         con.execute("DELETE FROM data_sources WHERE project_id = ?", [project_id])
 
-        # Duckpipe run history/state for this project's analyses
-        if analysis_ids:
-            placeholders = ", ".join(["?"] * len(analysis_ids))
+        # Duckpipe run history/state for this project's analyses.
+        # Shared IDs are skipped to avoid cross-project data loss.
+        if owned_analysis_ids:
+            placeholders = ", ".join(["?"] * len(owned_analysis_ids))
             con.execute(
                 f"DELETE FROM _duckpipe.run_history WHERE analysis_id IN ({placeholders})",
-                analysis_ids,
+                owned_analysis_ids,
             )
             con.execute(
                 f"DELETE FROM _duckpipe.run_state WHERE analysis_id IN ({placeholders})",
-                analysis_ids,
+                owned_analysis_ids,
             )
-            for analysis_id in analysis_ids:
-                safe_id = _quote_identifier(analysis_id)
-                try:
-                    con.execute(f"DROP VIEW IF EXISTS analysis.{safe_id}")
-                except Exception:
-                    pass
-                try:
-                    con.execute(f"DROP TABLE IF EXISTS analysis.{safe_id}")
-                except Exception:
-                    pass
+        for analysis_id in owned_analysis_ids:
+            safe_id = _quote_identifier(analysis_id)
+            try:
+                con.execute(f"DROP VIEW IF EXISTS analysis.{safe_id}")
+            except Exception:
+                pass
+            try:
+                con.execute(f"DROP TABLE IF EXISTS analysis.{safe_id}")
+            except Exception:
+                pass
+        for analysis_id in shared_analysis_ids:
+            logger.warning(
+                "Project reset: skipping shared analysis cleanup for id='%s' (project_id=%s)",
+                analysis_id,
+                project_id,
+            )
 
         # Reset project settings metadata
         con.execute(

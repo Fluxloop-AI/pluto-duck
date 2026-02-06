@@ -29,6 +29,8 @@ _INTERNAL_TABLES = frozenset(
         "main.board_queries",
         "main.board_item_assets",
         "main.query_history",
+        "_file_assets.files",
+        "_file_assets.file_sources",
         "_sources.attached",
         "_sources.cached_tables",
         "_duckpipe.run_history",

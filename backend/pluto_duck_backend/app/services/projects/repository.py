@@ -10,6 +10,9 @@ from typing import Any, Dict, List, Optional
 
 from pluto_duck_backend.app.core.config import get_settings
 from pluto_duck_backend.app.services.duckdb_utils import connect_warehouse
+from pluto_duck_backend.app.services.projects.analysis_ownership import (
+    resolve_owned_and_shared_analysis_ids,
+)
 from pluto_duck_backend.app.services.source import get_source_service
 from pluto_duck_backend.app.services.workzone import get_work_zone_service
 
@@ -173,10 +176,12 @@ class ProjectRepository:
     def delete_project(self, project_id: str) -> None:
         """Delete a project and all associated data (except default project)."""
         warehouse_data_dir = self.warehouse_path.parent
-        analyses_dir = warehouse_data_dir / "analyses" / project_id
-        analysis_ids = []
-        if analyses_dir.exists():
-            analysis_ids = [path.stem for path in analyses_dir.glob("*.yaml")]
+        analyses_root = warehouse_data_dir / "analyses"
+        analyses_dir = analyses_root / project_id
+        owned_analysis_ids, shared_analysis_ids = resolve_owned_and_shared_analysis_ids(
+            project_id=project_id,
+            analyses_root=analyses_root,
+        )
 
         conversation_ids: List[str] = []
 
@@ -294,19 +299,20 @@ class ProjectRepository:
                 )
 
             # Duckpipe history/state for analysis files in this project.
-            if analysis_ids and self._table_exists(con, "_duckpipe", "run_history"):
-                placeholders = ", ".join(["?"] * len(analysis_ids))
+            # Shared IDs are skipped to avoid cross-project data loss.
+            if owned_analysis_ids and self._table_exists(con, "_duckpipe", "run_history"):
+                placeholders = ", ".join(["?"] * len(owned_analysis_ids))
                 con.execute(
                     f"DELETE FROM _duckpipe.run_history WHERE analysis_id IN ({placeholders})",
-                    analysis_ids,
+                    owned_analysis_ids,
                 )
-            if analysis_ids and self._table_exists(con, "_duckpipe", "run_state"):
-                placeholders = ", ".join(["?"] * len(analysis_ids))
+            if owned_analysis_ids and self._table_exists(con, "_duckpipe", "run_state"):
+                placeholders = ", ".join(["?"] * len(owned_analysis_ids))
                 con.execute(
                     f"DELETE FROM _duckpipe.run_state WHERE analysis_id IN ({placeholders})",
-                    analysis_ids,
+                    owned_analysis_ids,
                 )
-            for analysis_id in analysis_ids:
+            for analysis_id in owned_analysis_ids:
                 safe_id = _quote_identifier(analysis_id)
                 try:
                     con.execute(f"DROP VIEW IF EXISTS analysis.{safe_id}")
@@ -316,6 +322,12 @@ class ProjectRepository:
                     con.execute(f"DROP TABLE IF EXISTS analysis.{safe_id}")
                 except Exception:
                     pass
+            for analysis_id in shared_analysis_ids:
+                logger.warning(
+                    "Project delete: skipping shared analysis cleanup for id='%s' (project_id=%s)",
+                    analysis_id,
+                    project_id,
+                )
 
             # Project row
             con.execute("DELETE FROM projects WHERE id = ?", [project_id])

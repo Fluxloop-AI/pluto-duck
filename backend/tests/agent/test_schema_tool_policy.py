@@ -9,6 +9,8 @@ def test_is_internal_table_identifier_matches_qualified_and_unqualified() -> Non
     assert _is_internal_table_identifier("projects", schema="main")
     assert _is_internal_table_identifier("main.projects")
     assert _is_internal_table_identifier('"main"."projects"')
+    assert _is_internal_table_identifier("files", schema="_file_assets")
+    assert _is_internal_table_identifier("_file_assets.files")
 
 
 def test_is_internal_table_identifier_respects_schema_boundary() -> None:

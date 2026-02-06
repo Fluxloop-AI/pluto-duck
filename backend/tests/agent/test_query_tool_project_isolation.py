@@ -66,6 +66,19 @@ def test_run_sql_blocks_cross_project_table_reference(tmp_path: Path) -> None:
     assert result["error"] == "SQL references unauthorized table(s): main.orders_b"
 
 
+def test_run_sql_blocks_qualified_table_even_with_same_named_cte(tmp_path: Path) -> None:
+    warehouse = tmp_path / "warehouse.duckdb"
+    _create_test_warehouse(warehouse)
+    run_sql = _run_sql_tool(warehouse, project_id="proj-a")
+
+    result = run_sql(
+        "WITH orders_b AS (SELECT 0 AS id, 0 AS amount) SELECT * FROM main.orders_b"
+    )
+
+    assert result["status"] == "error"
+    assert result["error"] == "SQL references unauthorized table(s): main.orders_b"
+
+
 def test_run_sql_blocks_non_read_only_statements(tmp_path: Path) -> None:
     warehouse = tmp_path / "warehouse.duckdb"
     _create_test_warehouse(warehouse)
@@ -75,4 +88,3 @@ def test_run_sql_blocks_non_read_only_statements(tmp_path: Path) -> None:
 
     assert result["status"] == "error"
     assert result["error"] == "Only read-only SQL queries (SELECT / WITH ... SELECT) are allowed."
-

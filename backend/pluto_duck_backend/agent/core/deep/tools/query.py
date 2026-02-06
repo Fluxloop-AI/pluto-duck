@@ -93,10 +93,10 @@ def _extract_referenced_tables(sql: str) -> Optional[Set[str]]:
         table_name = table.name
         if not table_name:
             continue
-        if table_name.lower() in cte_names:
-            continue
 
         schema_name = table.db
+        if table_name.lower() in cte_names and not schema_name:
+            continue
         if schema_name:
             normalized = normalize_table_identifier(f"{schema_name}.{table_name}")
         else:

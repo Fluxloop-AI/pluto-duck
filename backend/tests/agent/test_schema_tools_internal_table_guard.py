@@ -1,16 +1,17 @@
 from pathlib import Path
 
 import duckdb
-
 from pluto_duck_backend.agent.core.deep.tools.schema import build_schema_tools
 
 
 def _create_test_warehouse(path: Path) -> None:
     with duckdb.connect(str(path)) as con:
         con.execute("CREATE SCHEMA IF NOT EXISTS analysis")
+        con.execute("CREATE SCHEMA IF NOT EXISTS _file_assets")
         con.execute("CREATE TABLE projects (id INTEGER)")
         con.execute("CREATE TABLE agent_messages (id INTEGER)")
         con.execute("CREATE TABLE query_history (id INTEGER)")
+        con.execute("CREATE TABLE _file_assets.files (id INTEGER)")
         con.execute("CREATE TABLE orders (id INTEGER, amount INTEGER)")
         con.execute("CREATE TABLE analysis.sales (id INTEGER, amount INTEGER)")
         con.execute("CREATE TABLE analysis.projects (id INTEGER)")
@@ -39,6 +40,17 @@ def test_list_tables_hides_internal_tables(tmp_path: Path) -> None:
     assert "projects" not in names
     assert "agent_messages" not in names
     assert "query_history" not in names
+
+
+def test_list_tables_hides_internal_metadata_schema_tables(tmp_path: Path) -> None:
+    warehouse = tmp_path / "warehouse.duckdb"
+    _create_test_warehouse(warehouse)
+    list_tables, _, _ = _schema_tool_funcs(warehouse)
+
+    result = list_tables(schema="_file_assets")
+    names = [item["name"] for item in result["tables"]]
+
+    assert "files" not in names
 
 
 def test_describe_and_sample_block_internal_table(tmp_path: Path) -> None:

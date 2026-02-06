@@ -313,3 +313,77 @@ def test_delete_project_permanently_cleans_related_data_and_directories(tmp_path
     assert run_history_count == 0
     assert not project_dir.exists()
     assert not analyses_dir.exists()
+
+
+def test_delete_project_permanently_skips_shared_analysis_cleanup(tmp_path):
+    warehouse = tmp_path / "warehouse.duckdb"
+    app, _, project_repo = create_app(warehouse)
+    client = TestClient(app)
+
+    project_a_name = "Project A"
+    project_b_name = "Project B"
+    project_a_id = project_repo.create_project(name=project_a_name, description=None)
+    project_b_id = project_repo.create_project(name=project_b_name, description=None)
+    shared_analysis_id = "sales"
+
+    analyses_dir_a = warehouse.parent / "analyses" / project_a_id
+    analyses_dir_b = warehouse.parent / "analyses" / project_b_id
+    analyses_dir_a.mkdir(parents=True, exist_ok=True)
+    analyses_dir_b.mkdir(parents=True, exist_ok=True)
+    (analyses_dir_a / f"{shared_analysis_id}.yaml").write_text("id: sales\n", encoding="utf-8")
+    (analyses_dir_b / f"{shared_analysis_id}.yaml").write_text("id: sales\n", encoding="utf-8")
+
+    with project_repo._connect() as con:
+        con.execute("CREATE SCHEMA IF NOT EXISTS analysis")
+        con.execute("CREATE TABLE IF NOT EXISTS analysis.sales (amount INTEGER)")
+        con.execute(
+            """
+            INSERT INTO _duckpipe.run_history (run_id, analysis_id, started_at, status)
+            VALUES (?, ?, CURRENT_TIMESTAMP, 'success')
+            """,
+            [str(uuid4()), shared_analysis_id],
+        )
+        con.execute(
+            """
+            INSERT INTO _duckpipe.run_state (analysis_id, last_run_id, last_run_at, last_run_status)
+            VALUES (?, ?, CURRENT_TIMESTAMP, 'success')
+            ON CONFLICT (analysis_id) DO UPDATE SET
+                last_run_id = EXCLUDED.last_run_id,
+                last_run_at = EXCLUDED.last_run_at,
+                last_run_status = EXCLUDED.last_run_status
+            """,
+            [shared_analysis_id, str(uuid4())],
+        )
+
+    response = client.post(
+        f"/api/v1/projects/{project_a_id}/delete-permanently",
+        json={
+            "confirmation": expected_confirmation_phrase(project_a_name, "delete"),
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+
+    with project_repo._connect() as con:
+        run_history_count = con.execute(
+            "SELECT COUNT(*) FROM _duckpipe.run_history WHERE analysis_id = ?",
+            [shared_analysis_id],
+        ).fetchone()[0]
+        run_state_count = con.execute(
+            "SELECT COUNT(*) FROM _duckpipe.run_state WHERE analysis_id = ?",
+            [shared_analysis_id],
+        ).fetchone()[0]
+        analysis_table_exists = con.execute(
+            """
+            SELECT COUNT(*)
+            FROM information_schema.tables
+            WHERE table_schema = 'analysis' AND table_name = ?
+            """,
+            [shared_analysis_id],
+        ).fetchone()[0]
+
+    assert run_history_count == 1
+    assert run_state_count == 1
+    assert analysis_table_exists == 1
+    assert not analyses_dir_a.exists()
+    assert analyses_dir_b.exists()

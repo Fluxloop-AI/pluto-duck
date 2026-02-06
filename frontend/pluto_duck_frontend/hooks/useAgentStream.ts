@@ -17,6 +17,9 @@ export interface UseAgentStreamResult {
   events: AgentEventAny[];
   status: 'idle' | 'connecting' | 'streaming' | 'error';
   error?: string;
+  chunkText: string;
+  chunkIsFinal: boolean;
+  chunkRunId: string | null;
   reset: () => void;
 }
 
@@ -30,12 +33,18 @@ export function useAgentStream({
   const [events, setEvents] = useState<AgentEventAny[]>([]);
   const [status, setStatus] = useState<'idle' | 'connecting' | 'streaming' | 'error'>(runId ? 'connecting' : 'idle');
   const [error, setError] = useState<string | undefined>();
+  const [chunkText, setChunkText] = useState('');
+  const [chunkIsFinal, setChunkIsFinal] = useState(false);
+  const [chunkRunId, setChunkRunId] = useState<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const reset = useCallback(() => {
     setEvents([]);
     setError(undefined);
+    setChunkText('');
+    setChunkIsFinal(false);
+    setChunkRunId(null);
     setStatus(runId ? 'connecting' : 'idle');
   }, [runId]);
 
@@ -53,6 +62,9 @@ export function useAgentStream({
   useEffect(() => {
     if (!runId || !eventsPath || !enabled) {
       cleanup();
+      setChunkText('');
+      setChunkIsFinal(false);
+      setChunkRunId(null);
       setStatus('idle');
       return;
     }
@@ -72,6 +84,22 @@ export function useAgentStream({
     source.onmessage = event => {
       try {
         const parsed = JSON.parse(event.data) as AgentEventAny;
+        if (parsed.type === 'message' && parsed.subtype === 'chunk') {
+          const content = parsed.content as { text_delta?: string; is_final?: boolean } | null;
+          const delta = content?.text_delta;
+          if (typeof delta === 'string' && delta.length > 0) {
+            setChunkText(prev => prev + delta);
+          }
+          if (content?.is_final) {
+            setChunkIsFinal(true);
+          }
+          const eventRunId = (parsed.metadata as Record<string, unknown> | undefined)?.run_id;
+          setChunkRunId(prev => {
+            if (prev) return prev;
+            if (typeof eventRunId === 'string') return eventRunId;
+            return runId ?? null;
+          });
+        }
         setEvents(prev => {
           const updated = [...prev, parsed];
           // Keep only last 150 events to prevent memory issues
@@ -107,5 +135,5 @@ export function useAgentStream({
     };
   }, [runId, eventsPath, enabled, autoReconnect, reconnectIntervalMs, cleanup, reset]);
 
-  return { events, status, error, reset };
+  return { events, status, error, chunkText, chunkIsFinal, chunkRunId, reset };
 }

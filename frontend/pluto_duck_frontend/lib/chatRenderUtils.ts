@@ -99,7 +99,21 @@ export function flattenTurnsToRenderItems(turns: ChatTurn[]): ChatRenderItem[] {
       items.push(item);
     });
 
-    // 4. Assistant Messages
+    // 4. Assistant Messages (streaming fallback first)
+    if (!turn.assistantMessages.length && turn.streamingAssistantText) {
+      const item: AssistantMessageItem = {
+        id: `assistant-stream-${baseRunId || turn.key}`,
+        type: 'assistant-message',
+        runId: baseRunId,
+        seq: globalSeq++,
+        timestamp: new Date().toISOString(),
+        content: turn.streamingAssistantText,
+        messageId: `stream-${baseRunId || turn.key}`,
+        isStreaming: isActive && !turn.streamingAssistantFinal,
+      };
+      items.push(item);
+    }
+
     turn.assistantMessages.forEach(msg => {
       const item: AssistantMessageItem = {
         id: `assistant-${msg.id}`,

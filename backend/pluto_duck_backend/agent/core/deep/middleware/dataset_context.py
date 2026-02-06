@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
-from typing import NotRequired, TypedDict, cast
+from typing import NotRequired, TypedDict
 
-from langchain.agents.middleware.types import AgentMiddleware, AgentState, ModelRequest, ModelResponse
+from langchain.agents.middleware.types import AgentMiddleware, AgentState
 
 from pluto_duck_backend.app.services.asset import (
     FileAssetService,
@@ -13,7 +12,6 @@ from pluto_duck_backend.app.services.asset import (
     get_file_asset_service,
     get_file_preprocessing_service,
 )
-from pluto_duck_backend.app.services.chat import get_chat_repository
 
 
 DATASET_READINESS_INSTRUCTION = """
@@ -59,28 +57,29 @@ class DatasetContextMiddleware(AgentMiddleware):
 
     state_schema = DatasetContextState
 
-    def __init__(self, *, conversation_id: str) -> None:
-        self._conversation_id = conversation_id
+    def __init__(self, *, project_id: str | None) -> None:
+        self._project_id = project_id
 
     def before_agent(
         self,
         state: DatasetContextState,
         runtime,
     ) -> DatasetContextStateUpdate | None:  # type: ignore[override]
-        repo = get_chat_repository()
-        summary = repo.get_conversation_summary(self._conversation_id)
-        project_id = getattr(summary, "project_id", None) if summary is not None else None
+        import time
+        start = time.perf_counter()
 
-        if project_id is None:
+        if self._project_id is None:
             readiness_summary = _format_dataset_readiness_summary(
                 total=0,
                 ready_count=0,
                 not_ready_count=0,
             )
+            elapsed_ms = (time.perf_counter() - start) * 1000
+            print(f"[TIMING] DatasetContextMiddleware.before_agent: {elapsed_ms:.3f}ms (no project)", flush=True)
             return DatasetContextStateUpdate(dataset_readiness_summary=readiness_summary)
 
-        file_service: FileAssetService = get_file_asset_service(project_id)
-        preprocessing_service: FilePreprocessingService = get_file_preprocessing_service(project_id)
+        file_service: FileAssetService = get_file_asset_service(self._project_id)
+        preprocessing_service: FilePreprocessingService = get_file_preprocessing_service(self._project_id)
         assets = file_service.list_files()
 
         total = len(assets)
@@ -103,22 +102,6 @@ class DatasetContextMiddleware(AgentMiddleware):
             not_ready_count=not_ready_count,
         )
 
+        elapsed_ms = (time.perf_counter() - start) * 1000
+        print(f"[TIMING] DatasetContextMiddleware.before_agent: {elapsed_ms:.3f}ms ({total} assets)", flush=True)
         return DatasetContextStateUpdate(dataset_readiness_summary=readiness_summary)
-
-    def wrap_model_call(self, request: ModelRequest, handler: Callable[[ModelRequest], ModelResponse]) -> ModelResponse:
-        state = cast("DatasetContextState", request.state)
-        summary = state.get("dataset_readiness_summary") or ""
-        if summary:
-            system_prompt = (request.system_prompt + "\n\n" + summary) if request.system_prompt else summary
-            return handler(request.override(system_prompt=system_prompt))
-        return handler(request)
-
-    async def awrap_model_call(
-        self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
-    ) -> ModelResponse:
-        state = cast("DatasetContextState", request.state)
-        summary = state.get("dataset_readiness_summary") or ""
-        if summary:
-            system_prompt = (request.system_prompt + "\n\n" + summary) if request.system_prompt else summary
-            return await handler(request.override(system_prompt=system_prompt))
-        return await handler(request)

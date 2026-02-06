@@ -23,6 +23,7 @@ from pluto_duck_backend.agent.core import (
     EventType,
 )
 from pluto_duck_backend.agent.core.deep.agent import build_deep_agent
+from pluto_duck_backend.agent.core.deep.context import RunContext, build_session_context
 from pluto_duck_backend.agent.core.deep.event_mapper import EventSink, PlutoDuckEventCallbackHandler
 from pluto_duck_backend.agent.core.deep.hitl import ApprovalBroker, ApprovalDecision
 from pluto_duck_backend.app.services.chat import get_chat_repository
@@ -47,6 +48,10 @@ def _serialize(value: Any) -> Any:
     if is_dataclass(value):
         return asdict(value)
     return value
+
+
+def _should_persist_event(event: AgentEvent) -> bool:
+    return not (event.type == EventType.MESSAGE and event.subtype == EventSubType.CHUNK)
 
 
 def safe_dump_event(event: Dict[str, Any]) -> str:
@@ -156,7 +161,8 @@ class AgentRunManager:
         async def emit(event: AgentEvent) -> None:
             payload = event.to_dict()
             await run.queue.put(payload)
-            repo.log_event(run.conversation_id, payload)
+            if _should_persist_event(event):
+                repo.log_event(run.conversation_id, payload)
 
         run.broker = ApprovalBroker(emit=emit, run_id=run.run_id)
 
@@ -193,16 +199,31 @@ class AgentRunManager:
 
         final_state: Dict[str, Any] = {"finished": False}
         try:
-            _log("run_build_agent", run_id=run.run_id, conversation_id=run.conversation_id, model=run.model)
-            agent = build_deep_agent(
+            summary = repo.get_conversation_summary(run.conversation_id)
+            project_id = summary.project_id if summary else None
+            if project_id is None:
+                _log("project_id_missing", run_id=run.run_id, conversation_id=run.conversation_id)
+
+            session_ctx = build_session_context(
                 conversation_id=run.conversation_id,
+                project_id=project_id,
+            )
+            run_ctx = RunContext(
                 run_id=run.run_id,
                 broker=run.broker,
                 model=run.model,
             )
+
+            _log("run_build_agent", run_id=run.run_id, conversation_id=run.conversation_id, model=run.model)
+            agent = build_deep_agent(
+                session_ctx=session_ctx,
+                run_ctx=run_ctx,
+            )
             callback = PlutoDuckEventCallbackHandler(
                 sink=EventSink(emit=emit),
                 run_id=run.run_id,
+                conversation_id=run.conversation_id,
+                prompt_layout=session_ctx.prompt_layout,
             )
 
             _log("run_invoke_start", run_id=run.run_id, conversation_id=run.conversation_id)
@@ -436,5 +457,3 @@ def _extract_final_answer(result: Any) -> str:
         if isinstance(text, str):
             return text
     return str(result)
-
-

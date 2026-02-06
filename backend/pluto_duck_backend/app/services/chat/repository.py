@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
+import threading
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -9,15 +13,16 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import duckdb
-import threading
-import time
-from contextlib import contextmanager
 
 from pluto_duck_backend.app.core.config import get_settings
+from pluto_duck_backend.app.services.chat.board_timestamp_migration import (
+    ensure_board_timestamp_columns_timestamptz,
+)
 from pluto_duck_backend.app.services.duckdb_utils import connect_warehouse
 
 _table_init_lock = threading.Lock()
 _duckdb_write_lock = threading.RLock()
+logger = logging.getLogger(__name__)
 
 # Retry settings for occasional DuckDB write-write conflicts (e.g., concurrent writers)
 _WRITE_RETRY_ATTEMPTS = 5
@@ -178,8 +183,8 @@ DDL_STATEMENTS = [
         name VARCHAR NOT NULL,
         description VARCHAR,
         position INTEGER DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
         settings JSON
     )
     """,
@@ -198,8 +203,8 @@ DDL_STATEMENTS = [
         height INTEGER DEFAULT 1,
         payload JSON NOT NULL,
         render_config JSON,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
     )
     """,
     """
@@ -213,13 +218,13 @@ DDL_STATEMENTS = [
         data_source_tables JSON,
         refresh_mode VARCHAR DEFAULT 'manual',
         refresh_interval_seconds INTEGER,
-        last_executed_at TIMESTAMP,
+        last_executed_at TIMESTAMPTZ,
         last_result_snapshot JSON,
         last_result_rows INTEGER,
         execution_status VARCHAR DEFAULT 'pending',
         error_message VARCHAR,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
     )
     """,
     """
@@ -378,6 +383,8 @@ class ChatRepository:
             with self._connect() as con:
                 for statement in DDL_STATEMENTS:
                     con.execute(statement)
+                for warning in ensure_board_timestamp_columns_timestamptz(con):
+                    logger.warning(warning)
 
     def _ensure_default_project(self) -> str:
         """Ensure a default project exists and return its ID."""

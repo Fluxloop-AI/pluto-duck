@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import shutil
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pluto_duck_backend.app.core.config import get_settings as get_app_settings
 from pluto_duck_backend.app.services.asset import (
@@ -119,8 +119,8 @@ def reset_project_data(project_id: str) -> str:
         source_service.drop_cache(cached.local_table)
 
     # Clear board data, chats, and project-scoped metadata from main warehouse.
-    with repo._write_connection() as con:
-        con: Any
+    with repo._write_connection() as connection:
+        con = cast(Any, connection)
         # Boards
         con.execute(
             """

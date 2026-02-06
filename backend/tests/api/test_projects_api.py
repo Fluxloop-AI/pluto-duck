@@ -1,5 +1,7 @@
 import importlib
+import json
 from pathlib import Path
+from uuid import uuid4
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -126,5 +128,188 @@ def test_delete_project_permanently_rejects_default_project(tmp_path):
         },
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 409
     assert response.json()["detail"] == "Cannot delete the default project"
+
+
+def test_delete_project_permanently_cleans_related_data_and_directories(tmp_path):
+    warehouse = tmp_path / "warehouse.duckdb"
+    app, _, project_repo = create_app(warehouse)
+    client = TestClient(app)
+
+    project_id = project_repo.create_project(name="Sales Project", description=None)
+    analysis_id = "sales-report"
+    board_id = str(uuid4())
+    board_item_id = str(uuid4())
+    board_query_id = str(uuid4())
+    board_asset_id = str(uuid4())
+    data_source_id = str(uuid4())
+    data_source_table_id = str(uuid4())
+    conversation_id = str(uuid4())
+    run_id = str(uuid4())
+    message_id = str(uuid4())
+    event_id = str(uuid4())
+    approval_id = str(uuid4())
+    checkpoint_id = str(uuid4())
+
+    analyses_dir = warehouse.parent / "analyses" / project_id
+    analyses_dir.mkdir(parents=True, exist_ok=True)
+    (analyses_dir / f"{analysis_id}.yaml").write_text("id: sales-report\n", encoding="utf-8")
+
+    project_dir = warehouse.parent / "projects" / project_id
+    project_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / "warehouse.duckdb").write_text("temp", encoding="utf-8")
+
+    with project_repo._connect() as con:
+        con.execute(
+            """
+            INSERT INTO boards (id, project_id, name, description, position, settings)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            [board_id, project_id, "Board A", None, 0, json.dumps({})],
+        )
+        con.execute(
+            """
+            INSERT INTO board_items (id, board_id, item_type, title, payload, render_config)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            [board_item_id, board_id, "table", "Item A", json.dumps({}), json.dumps({})],
+        )
+        con.execute(
+            """
+            INSERT INTO board_queries (id, board_item_id, query_text, data_source_tables)
+            VALUES (?, ?, ?, ?)
+            """,
+            [board_query_id, board_item_id, "select 1", json.dumps([])],
+        )
+        con.execute(
+            """
+            INSERT INTO board_item_assets (id, board_item_id, asset_type, file_name, file_path)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            [board_asset_id, board_item_id, "image", "a.png", "/tmp/a.png"],
+        )
+        con.execute(
+            """
+            INSERT INTO data_sources (id, project_id, name, connector_type, source_config)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            [data_source_id, project_id, "Sales Source", "duckdb", json.dumps({})],
+        )
+        con.execute(
+            """
+            INSERT INTO data_source_tables (id, data_source_id, target_table)
+            VALUES (?, ?, ?)
+            """,
+            [data_source_table_id, data_source_id, "sales_table"],
+        )
+        con.execute(
+            """
+            INSERT INTO agent_conversations (id, project_id, title, status, run_id, metadata)
+            VALUES (?, ?, ?, 'active', ?, ?)
+            """,
+            [conversation_id, project_id, "Sales Chat", run_id, json.dumps({})],
+        )
+        con.execute(
+            """
+            INSERT INTO agent_messages (id, conversation_id, role, content, seq, run_id)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            [message_id, conversation_id, "user", json.dumps({"text": "hi"}), 1, run_id],
+        )
+        con.execute(
+            """
+            INSERT INTO agent_events (id, conversation_id, type, payload, metadata)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            [event_id, conversation_id, "message", json.dumps({}), json.dumps({})],
+        )
+        con.execute(
+            """
+            INSERT INTO agent_tool_approvals (
+                id,
+                conversation_id,
+                run_id,
+                status,
+                tool_name,
+                request_args,
+                request_preview,
+                policy
+            )
+            VALUES (?, ?, ?, 'pending', ?, ?, ?, ?)
+            """,
+            [
+                approval_id,
+                conversation_id,
+                run_id,
+                "list_tables",
+                json.dumps({}),
+                json.dumps({}),
+                json.dumps({}),
+            ],
+        )
+        con.execute(
+            """
+            INSERT INTO agent_checkpoints (id, run_id, checkpoint_key, payload)
+            VALUES (?, ?, ?, ?)
+            """,
+            [checkpoint_id, run_id, "k1", json.dumps({})],
+        )
+        con.execute(
+            """
+            INSERT INTO _duckpipe.run_history (run_id, analysis_id, started_at, status)
+            VALUES (?, ?, CURRENT_TIMESTAMP, 'success')
+            """,
+            [str(uuid4()), analysis_id],
+        )
+        con.execute(
+            """
+            INSERT INTO _duckpipe.run_state (analysis_id, last_run_id, last_run_at, last_run_status)
+            VALUES (?, ?, CURRENT_TIMESTAMP, 'success')
+            """,
+            [analysis_id, run_id],
+        )
+
+    response = client.post(
+        f"/api/v1/projects/{project_id}/delete-permanently",
+        json={
+            "confirmation": expected_confirmation_phrase("Sales Project", "delete"),
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+
+    with project_repo._connect() as con:
+        project_row = con.execute("SELECT id FROM projects WHERE id = ?", [project_id]).fetchone()
+        boards_count = con.execute(
+            "SELECT COUNT(*) FROM boards WHERE project_id = ?",
+            [project_id],
+        ).fetchone()[0]
+        conversations_count = con.execute(
+            "SELECT COUNT(*) FROM agent_conversations WHERE project_id = ?",
+            [project_id],
+        ).fetchone()[0]
+        approvals_count = con.execute(
+            """
+            SELECT COUNT(*) FROM agent_tool_approvals
+            WHERE conversation_id = ?
+            """,
+            [conversation_id],
+        ).fetchone()[0]
+        checkpoints_count = con.execute(
+            "SELECT COUNT(*) FROM agent_checkpoints WHERE run_id = ?",
+            [run_id],
+        ).fetchone()[0]
+        run_history_count = con.execute(
+            "SELECT COUNT(*) FROM _duckpipe.run_history WHERE analysis_id = ?",
+            [analysis_id],
+        ).fetchone()[0]
+
+    assert project_row is None
+    assert boards_count == 0
+    assert conversations_count == 0
+    assert approvals_count == 0
+    assert checkpoints_count == 0
+    assert run_history_count == 0
+    assert not project_dir.exists()
+    assert not analyses_dir.exists()

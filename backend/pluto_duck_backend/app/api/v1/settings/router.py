@@ -70,6 +70,28 @@ def mask_api_key(api_key: Optional[str]) -> Optional[str]:
     return f"{api_key[:7]}***{api_key[-4:]}"
 
 
+def _resolve_default_project_id() -> Optional[str]:
+    """Return a valid default project id, restoring if stale."""
+    repo = get_chat_repository()
+    default_project_id = repo._default_project_id
+    with repo._connect() as con:
+        if default_project_id:
+            row = con.execute(
+                "SELECT id FROM projects WHERE id = ?",
+                [default_project_id],
+            ).fetchone()
+            if row:
+                return str(row[0])
+
+        row = con.execute("SELECT id FROM projects WHERE is_default = TRUE").fetchone()
+        if row:
+            repo._default_project_id = str(row[0])
+            return str(row[0])
+
+    repo._default_project_id = repo._ensure_default_project()
+    return repo._default_project_id
+
+
 @router.get("", response_model=SettingsResponse)
 def get_settings() -> SettingsResponse:
     """Retrieve current user settings."""
@@ -82,7 +104,7 @@ def get_settings() -> SettingsResponse:
         llm_model=settings.get("llm_model"),
         data_sources=settings.get("data_sources"),
         ui_preferences=settings.get("ui_preferences") or {"theme": "dark"},
-        default_project_id=repo._default_project_id,
+        default_project_id=_resolve_default_project_id(),
         user_name=settings.get("user_name"),
         language=settings.get("language") or "en",
     )

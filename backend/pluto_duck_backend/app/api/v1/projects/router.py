@@ -165,7 +165,8 @@ def delete_project_permanently(
             message="Project deleted permanently.",
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        status_code = 409 if str(exc) == "Cannot delete the default project" else 400
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
 @router.delete("/{project_id}")

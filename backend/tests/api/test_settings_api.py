@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from pluto_duck_backend.app.api.router import api_router
 from pluto_duck_backend.app.core.config import get_settings
 from pluto_duck_backend.app.services.chat.repository import get_chat_repository
+from pluto_duck_backend.app.services.projects.danger_operations import expected_confirmation_phrase
 
 
 def create_client(tmp_path, monkeypatch) -> TestClient:
@@ -54,3 +55,34 @@ def test_reset_workspace_data_alias_keeps_behavior_and_logs_warning(
     assert response.status_code == 200
     assert response.json()["success"] is True
     assert any("Deprecated endpoint used" in record.message for record in caplog.records)
+
+
+def test_settings_default_project_id_remains_valid_after_project_delete(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    client = create_client(tmp_path, monkeypatch)
+    bootstrap = client.get("/api/v1/settings")
+    assert bootstrap.status_code == 200
+
+    create_response = client.post(
+        "/api/v1/projects",
+        json={"name": "Sales Project", "description": None},
+    )
+    assert create_response.status_code == 200
+    project_id = create_response.json()["id"]
+
+    delete_response = client.post(
+        f"/api/v1/projects/{project_id}/delete-permanently",
+        json={"confirmation": expected_confirmation_phrase("Sales Project", "delete")},
+    )
+    assert delete_response.status_code == 200
+
+    settings_response = client.get("/api/v1/settings")
+    assert settings_response.status_code == 200
+    default_project_id = settings_response.json()["default_project_id"]
+    assert default_project_id is not None
+
+    default_project_response = client.get(f"/api/v1/projects/{default_project_id}")
+    assert default_project_response.status_code == 200
+    assert default_project_response.json()["is_default"] is True

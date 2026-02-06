@@ -33,7 +33,7 @@ _MAIN_INTERNAL_TABLES = frozenset(
 )
 
 
-def _normalize_identifier_part(value: str) -> str:
+def normalize_identifier_part(value: str) -> str:
     return value.strip().strip('"').strip("'").strip("`").lower()
 
 
@@ -45,12 +45,12 @@ def normalize_table_identifier(table: str, schema: Optional[str] = None) -> str:
 
     parts = [part for part in raw.split(".") if part]
     if len(parts) >= 2:
-        resolved_schema = _normalize_identifier_part(parts[-2])
-        resolved_table = _normalize_identifier_part(parts[-1])
+        resolved_schema = normalize_identifier_part(parts[-2])
+        resolved_table = normalize_identifier_part(parts[-1])
         return f"{resolved_schema}.{resolved_table}"
 
-    resolved_table = _normalize_identifier_part(parts[0])
-    resolved_schema = _normalize_identifier_part(schema) if schema else ""
+    resolved_table = normalize_identifier_part(parts[0])
+    resolved_schema = normalize_identifier_part(schema) if schema else ""
     return f"{resolved_schema}.{resolved_table}" if resolved_schema else resolved_table
 
 
@@ -181,4 +181,3 @@ def resolve_project_table_scope(
             _SCOPE_CACHE[cache_key] = (now + cache_ttl_seconds, frozenset(scope))
 
     return scope
-

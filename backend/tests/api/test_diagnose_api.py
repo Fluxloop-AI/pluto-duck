@@ -143,6 +143,32 @@ class TestDiagnoseFilesEndpoint:
         assert response.status_code == 404
         assert "not found" in response.json()["detail"].lower()
 
+    def test_diagnose_rejects_relative_path(self, client: TestClient):
+        response = client.post(
+            "/api/v1/asset/files/diagnose",
+            json={
+                "files": [
+                    {"file_path": "./sample.csv", "file_type": "csv"}
+                ]
+            },
+        )
+
+        assert response.status_code == 400
+        assert "absolute path is required" in response.json()["detail"].lower()
+
+    def test_diagnose_rejects_parent_traversal_path(self, client: TestClient):
+        response = client.post(
+            "/api/v1/asset/files/diagnose",
+            json={
+                "files": [
+                    {"file_path": "/tmp/../secret.csv", "file_type": "csv"}
+                ]
+            },
+        )
+
+        assert response.status_code == 400
+        assert "parent traversal" in response.json()["detail"].lower()
+
     def test_diagnose_empty_files_list(self, client: TestClient):
         """Test diagnosing with empty files list."""
         response = client.post(

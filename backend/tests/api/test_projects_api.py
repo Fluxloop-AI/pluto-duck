@@ -112,6 +112,18 @@ def test_delete_project_permanently_success(tmp_path):
     assert deleted.status_code == 404
 
 
+def test_delete_project_endpoint_is_deprecated(tmp_path):
+    warehouse = tmp_path / "warehouse.duckdb"
+    app, default_project_id, _ = create_app(warehouse)
+    client = TestClient(app)
+
+    response = client.delete(f"/api/v1/projects/{default_project_id}")
+
+    assert response.status_code == 410
+    assert "deprecated" in response.json()["detail"].lower()
+    assert "/delete-permanently" in response.json()["detail"]
+
+
 def test_delete_project_permanently_rejects_default_project(tmp_path):
     warehouse = tmp_path / "warehouse.duckdb"
     app, default_project_id, _ = create_app(warehouse)

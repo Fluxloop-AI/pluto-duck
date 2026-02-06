@@ -8,7 +8,11 @@ from typing import Any, Dict, List, Optional
 import duckdb
 from langchain_core.tools import StructuredTool
 
-from .project_scope import resolve_project_table_scope
+from .project_scope import (
+    normalize_identifier_part,
+    normalize_table_identifier,
+    resolve_project_table_scope,
+)
 
 # Keep this set in sync with backend metadata DDL tables.
 # When a new internal metadata table is introduced, add its canonical
@@ -47,28 +51,13 @@ _INTERNAL_TABLE_ACCESS_ERROR = (
 _UNAUTHORIZED_TABLE_ACCESS_ERROR = "Access to table '{table}' is not allowed for this project."
 
 
-def _normalize_identifier_part(value: str) -> str:
-    return value.strip().strip('"').strip("'").strip("`").lower()
-
-
-def _normalize_table_identifier(table: str, schema: Optional[str] = None) -> str:
-    raw = table.strip()
-    if not raw:
-        return ""
-
-    parts = [part for part in raw.split(".") if part]
-    if len(parts) >= 2:
-        resolved_schema = _normalize_identifier_part(parts[-2])
-        resolved_table = _normalize_identifier_part(parts[-1])
-        return f"{resolved_schema}.{resolved_table}"
-
-    resolved_table = _normalize_identifier_part(parts[0])
-    resolved_schema = _normalize_identifier_part(schema) if schema else ""
-    return f"{resolved_schema}.{resolved_table}" if resolved_schema else resolved_table
+def _quote_identifier(identifier: str) -> str:
+    parts = [part for part in identifier.split(".") if part]
+    return ".".join(f'"{part.replace("\"", "\"\"")}"' for part in parts)
 
 
 def _is_internal_table_identifier(table: str, schema: Optional[str] = None) -> bool:
-    normalized = _normalize_table_identifier(table, schema=schema)
+    normalized = normalize_table_identifier(table, schema=schema)
     if not normalized:
         return False
 
@@ -83,7 +72,7 @@ def _is_internal_table_identifier(table: str, schema: Optional[str] = None) -> b
 
 
 def _build_internal_table_access_error(table: str, schema: Optional[str] = None) -> str:
-    normalized = _normalize_table_identifier(table, schema=schema)
+    normalized = normalize_table_identifier(table, schema=schema)
     if normalized and "." in normalized:
         table_name = normalized
     elif normalized:
@@ -94,11 +83,12 @@ def _build_internal_table_access_error(table: str, schema: Optional[str] = None)
 
 
 def _blocked_table_response(table: str, schema: Optional[str] = None) -> Dict[str, Any]:
-    normalized = _normalize_table_identifier(table, schema=schema)
+    normalized = normalize_table_identifier(table, schema=schema)
     if normalized and "." in normalized:
         table_name = normalized
     elif normalized:
-        table_name = f"{_normalize_identifier_part(schema) or 'main'}.{normalized}"
+        schema_part = normalize_identifier_part(schema) if schema else "main"
+        table_name = f"{schema_part}.{normalized}"
     else:
         table_name = table
     return {
@@ -109,11 +99,12 @@ def _blocked_table_response(table: str, schema: Optional[str] = None) -> Dict[st
 
 
 def _unauthorized_table_response(table: str, schema: Optional[str] = None) -> Dict[str, Any]:
-    normalized = _normalize_table_identifier(table, schema=schema)
+    normalized = normalize_table_identifier(table, schema=schema)
     if normalized and "." in normalized:
         table_name = normalized
     elif normalized:
-        table_name = f"{_normalize_identifier_part(schema) or 'main'}.{normalized}"
+        schema_part = normalize_identifier_part(schema) if schema else "main"
+        table_name = f"{schema_part}.{normalized}"
     else:
         table_name = table
     return {
@@ -151,7 +142,7 @@ def build_schema_tools(
         allowlist = _resolve_project_allowlist()
         if allowlist is None:
             return True
-        return _normalize_table_identifier(qualified) in allowlist
+        return normalize_table_identifier(qualified) in allowlist
 
     def resolve_table_identifier(
         con: duckdb.DuckDBPyConnection, table: str, schema: Optional[str]
@@ -216,7 +207,7 @@ def build_schema_tools(
             visible_rows = [
                 (name, ttype)
                 for (name, ttype) in visible_rows
-                if _normalize_table_identifier(name, schema=schema) in allowlist
+                if normalize_table_identifier(name, schema=schema) in allowlist
             ]
         return {
             "schema": schema,
@@ -230,7 +221,7 @@ def build_schema_tools(
                 return _blocked_table_response(qualified)
             if not _is_project_table_allowed(qualified):
                 return _unauthorized_table_response(qualified)
-            info = con.execute(f"PRAGMA table_info('{qualified}')").fetchall()
+            info = con.execute("SELECT * FROM pragma_table_info(?)", [qualified]).fetchall()
             # (cid, name, type, notnull, dflt_value, pk)
             columns = [
                 {
@@ -243,7 +234,9 @@ def build_schema_tools(
                 for row in info
             ]
             try:
-                row_count = con.execute(f"SELECT COUNT(*) FROM {qualified}").fetchone()[0]
+                table_ref = _quote_identifier(qualified)
+                row = con.execute(f"SELECT COUNT(*) FROM {table_ref}").fetchone()
+                row_count = row[0] if row else None
             except Exception:
                 row_count = None
         return {"table": qualified, "columns": columns, "row_count": row_count}
@@ -255,7 +248,8 @@ def build_schema_tools(
                 return _blocked_table_response(qualified)
             if not _is_project_table_allowed(qualified):
                 return _unauthorized_table_response(qualified)
-            cur = con.execute(f"SELECT * FROM {qualified} LIMIT ?", [int(limit)])
+            table_ref = _quote_identifier(qualified)
+            cur = con.execute(f"SELECT * FROM {table_ref} LIMIT ?", [int(limit)])
             cols = [d[0] for d in cur.description] if cur.description else []
             rows = cur.fetchall()
         return {

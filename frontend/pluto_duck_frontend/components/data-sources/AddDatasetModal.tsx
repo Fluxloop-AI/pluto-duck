@@ -46,6 +46,14 @@ function getFileType(filename: string): FileType | null {
   return null;
 }
 
+function isAbsolutePath(path: string): boolean {
+  return path.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(path) || /^\\\\[^\\]/.test(path);
+}
+
+function hasParentTraversal(path: string): boolean {
+  return path.split(/[\\/]+/).some(segment => segment === '..');
+}
+
 // Helper to check if all file diagnoses have identical schemas
 // Returns true only when: 2+ files, same file_type, identical columns (name case-insensitive, type)
 function areSchemasIdentical(diagnoses: FileDiagnosis[]): boolean {
@@ -492,8 +500,8 @@ export function AddDatasetModal({
             setIsDragOver(false);
           }
         });
-      } catch (error) {
-        console.error('Failed to setup drag drop listener:', error);
+      } catch {
+        setPathInputError('Failed to set up drag and drop listener.');
       }
     };
 
@@ -592,8 +600,8 @@ export function AddDatasetModal({
         if (newFiles.length > 0) {
           addFiles(newFiles);
         }
-      } catch (error) {
-        console.error('Failed to open file dialog:', error);
+      } catch {
+        setPathInputError('Failed to open file picker.');
       }
     } else {
       setShowPathInput(true);
@@ -616,6 +624,14 @@ export function AddDatasetModal({
     const trimmedPath = pendingPath.trim();
     if (!trimmedPath) {
       setPathInputError('File path is required');
+      return;
+    }
+    if (!isAbsolutePath(trimmedPath)) {
+      setPathInputError('Absolute file path is required');
+      return;
+    }
+    if (hasParentTraversal(trimmedPath)) {
+      setPathInputError("Parent traversal ('..') is not allowed");
       return;
     }
 
@@ -702,9 +718,8 @@ export function AddDatasetModal({
         try {
           dupResponse = await countDuplicateRows(projectId, filesToDiagnose);
           setDuplicateInfo(dupResponse);
-        } catch (dupError) {
+        } catch {
           // Duplicate count failure is not critical
-          console.warn('Duplicate count failed:', dupError);
         }
       }
 
@@ -767,15 +782,13 @@ export function AddDatasetModal({
               if (!stillPending) {
                 break;
               }
-            } catch (pollError) {
-              console.warn('LLM analysis polling failed:', pollError);
+            } catch {
               break;
             }
           }
         }
-      } catch (llmError) {
+      } catch {
         // LLM failure is not critical - we already have the fast diagnosis
-        console.warn('LLM analysis failed, using basic diagnosis:', llmError);
       }
 
       setLlmReady(true);
@@ -784,7 +797,6 @@ export function AddDatasetModal({
       const message = error instanceof Error ? error.message : 'Failed to diagnose files';
       setDiagnosisError(message);
       setStep('preview');
-      console.error('Diagnosis failed:', error);
     } finally {
       setIsDiagnosing(false);
     }
@@ -806,7 +818,6 @@ export function AddDatasetModal({
       if (!firstFile.path) {
         errors.push(buildMissingPathError(firstFile.name));
         setIsImporting(false);
-        console.error('First file has no path:', errors);
         return;
       }
 
@@ -814,7 +825,6 @@ export function AddDatasetModal({
       if (!fileType) {
         errors.push(`${firstFile.name}: Unsupported file type`);
         setIsImporting(false);
-        console.error('First file has unsupported type:', errors);
         return;
       }
 
@@ -841,7 +851,6 @@ export function AddDatasetModal({
         const message = error instanceof Error ? error.message : 'Unknown error';
         errors.push(`${firstFile.name}: ${message}`);
         setIsImporting(false);
-        console.error('First file failed to import:', errors);
         return; // First file failure means entire merge fails
       }
 
@@ -851,14 +860,12 @@ export function AddDatasetModal({
 
         if (!file.path) {
           errors.push(buildMissingPathError(file.name));
-          console.warn(`Skipping file without path: ${file.name}`);
           continue;
         }
 
         const appendFileType = getFileType(file.name);
         if (!appendFileType) {
           errors.push(`${file.name}: Unsupported file type`);
-          console.warn(`Skipping file with unsupported type: ${file.name}`);
           continue;
         }
 
@@ -876,7 +883,6 @@ export function AddDatasetModal({
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Unknown error';
           errors.push(`${file.name}: ${message}`);
-          console.warn(`Append failed for ${file.name}:`, message);
           // Continue with remaining files (partial success allowed)
         }
       }
@@ -884,9 +890,6 @@ export function AddDatasetModal({
       setIsImporting(false);
       onImportSuccess?.(createdAsset);
 
-      if (errors.length > 0) {
-        console.warn('Some files failed during merge:', errors);
-      }
       onOpenChange(false);
       return;
     }
@@ -952,12 +955,11 @@ export function AddDatasetModal({
       // All files imported successfully
       onOpenChange(false);
     } else if (successCount > 0) {
-      // Partial success - log errors but close modal
-      console.warn('Some files failed to import:', errors);
+      // Partial success - close modal to keep current UX
       onOpenChange(false);
     } else {
-      // All files failed
-      console.error('All files failed to import:', errors);
+      // All files failed; keep modal open so user can retry
+      setDiagnosisError(errors.join('\n'));
       // Keep modal open so user can see the files and retry
     }
   }, [projectId, selectedFiles, mergeFiles, schemasMatch, removeDuplicates, diagnosisResults, mergedAnalysis, onImportSuccess, onOpenChange]);

@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 from pluto_duck_backend.app.core.config import get_settings
 from pluto_duck_backend.app.services.duckdb_utils import connect_warehouse
 from .errors import DiagnosisError
+from .path_validation import normalize_and_validate_user_file_path
 
 
 # =============================================================================
@@ -1302,10 +1303,17 @@ class FileDiagnosisService:
         Raises:
             DiagnosisError: If diagnosis fails (file not found, parse error, etc.)
         """
+        try:
+            normalized_file_path = normalize_and_validate_user_file_path(file_path)
+        except ValueError as exc:
+            raise DiagnosisError(str(exc)) from exc
+
         # Validate file exists
-        path = Path(file_path)
+        path = Path(normalized_file_path)
         if not path.exists():
-            raise DiagnosisError(f"File not found: {file_path}")
+            raise DiagnosisError(f"File not found: {normalized_file_path}")
+        if not path.is_file():
+            raise DiagnosisError(f"Invalid file path: expected a file, got directory: {normalized_file_path}")
 
         # Get file size
         try:
@@ -1317,11 +1325,11 @@ class FileDiagnosisService:
         encoding_info: Optional[EncodingInfo] = None
         detected_encoding: Optional[str] = None
         if file_type == "csv":
-            encoding_info = self._detect_encoding(file_path)
+            encoding_info = self._detect_encoding(normalized_file_path)
             detected_encoding = encoding_info.detected
 
         # Build read expression with encoding
-        read_expr = self._build_read_expr(file_path, file_type, encoding=detected_encoding)
+        read_expr = self._build_read_expr(normalized_file_path, file_type, encoding=detected_encoding)
 
         # Initialize optional fields
         parsing_integrity: Optional[ParsingIntegrity] = None
@@ -1333,7 +1341,7 @@ class FileDiagnosisService:
                 # Check parsing integrity for CSV files
                 if file_type == "csv":
                     parsing_integrity = self._check_parsing_integrity(
-                        conn, file_path, detected_encoding
+                        conn, normalized_file_path, detected_encoding
                     )
 
                 # Extract schema
@@ -1361,7 +1369,7 @@ class FileDiagnosisService:
                 raise DiagnosisError(f"Failed to diagnose file: {e}")
 
         diagnosis = FileDiagnosis(
-            file_path=file_path,
+            file_path=normalized_file_path,
             file_type=file_type,
             schema=schema,
             missing_values=missing_values,

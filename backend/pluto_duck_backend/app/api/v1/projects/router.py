@@ -169,14 +169,15 @@ def delete_project_permanently(
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
-@router.delete("/{project_id}")
+@router.delete("/{project_id}", deprecated=True)
 def delete_project(
     project_id: Annotated[str, Depends(get_project_id_path)],
-    repo: Annotated[ProjectRepository, Depends(get_project_repository)],
 ) -> Dict[str, str]:
-    """Delete a project and all associated data."""
-    try:
-        repo.delete_project(project_id)
-        return {"status": "success"}
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    """Deprecated: use typed-confirmation endpoint for destructive deletes."""
+    raise HTTPException(
+        status_code=410,
+        detail=(
+            "DELETE /api/v1/projects/{project_id} is deprecated. "
+            "Use POST /api/v1/projects/{project_id}/delete-permanently with confirmation."
+        ),
+    )

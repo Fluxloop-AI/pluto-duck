@@ -430,6 +430,8 @@ async def diagnose_files(
         error_message = str(e)
         if "File not found" in error_message:
             raise HTTPException(status_code=404, detail=error_message)
+        if "Invalid file path" in error_message:
+            raise HTTPException(status_code=400, detail=error_message)
         raise HTTPException(status_code=500, detail=f"Diagnosis failed: {e}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Diagnosis failed: {e}")

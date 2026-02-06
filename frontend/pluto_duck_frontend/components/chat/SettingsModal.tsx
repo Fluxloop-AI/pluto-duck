@@ -123,9 +123,6 @@ export function SettingsModal({
   const [loadingLocalModels, setLoadingLocalModels] = useState(false);
   const [localDownloadStates, setLocalDownloadStates] = useState<Record<string, LocalDownloadStatus>>({});
   const [deletingModelId, setDeletingModelId] = useState<string | null>(null);
-  const [googleStatus, setGoogleStatus] = useState<'idle' | 'loading' | 'connected'>('idle');
-  const [googleFullName, setGoogleFullName] = useState('');
-  const [googleEmail, setGoogleEmail] = useState('');
 
   // Project danger action states
   const [showProjectResetDialog, setShowProjectResetDialog] = useState(false);
@@ -151,7 +148,6 @@ export function SettingsModal({
   } = useAutoUpdate();
 
   const downloadPollRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  const googleConnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isAnyDownloadInProgress = Object.values(localDownloadStates).some(
     state => state.status === 'queued' || state.status === 'downloading',
@@ -168,15 +164,6 @@ export function SettingsModal({
       downloadPollRef.current = {};
     };
   }, [open, initialMenu]);
-
-  useEffect(() => {
-    return () => {
-      if (googleConnectTimerRef.current) {
-        clearTimeout(googleConnectTimerRef.current);
-        googleConnectTimerRef.current = null;
-      }
-    };
-  }, []);
 
   useEffect(() => {
     setProjectResetConfirmation('');
@@ -494,17 +481,7 @@ export function SettingsModal({
   };
 
   const handleGoogleConnect = () => {
-    if (googleStatus === 'loading') return;
-    setGoogleStatus('loading');
-    if (googleConnectTimerRef.current) {
-      clearTimeout(googleConnectTimerRef.current);
-    }
-    googleConnectTimerRef.current = setTimeout(() => {
-      setGoogleStatus('connected');
-      setGoogleFullName('Yoojung Kim');
-      setGoogleEmail('you@gmail.com');
-      googleConnectTimerRef.current = null;
-    }, 900);
+    setError(t('comingSoon'));
   };
 
   const renderSidebar = () => (
@@ -1110,67 +1087,37 @@ export function SettingsModal({
           {/* Google Login (UI only) */}
           <div className="grid gap-2">
             <label className="text-sm font-medium">{t('profile.googleAccount')}</label>
-            {googleStatus !== 'connected' ? (
-              <Button
-                type="button"
-                onClick={handleGoogleConnect}
-                disabled={googleStatus === 'loading'}
-                  className="w-1/2 h-auto justify-center gap-3 rounded-full border border-black/10 bg-white py-[12px] text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-black/5 disabled:opacity-70"
-                >
-                  {googleStatus === 'loading' ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      {t('profile.connecting')}
-                    </>
-                  ) : (
-                    <>
-                      <svg
-                        aria-hidden="true"
-                        className="h-5 w-5"
-                        viewBox="0 0 48 48"
-                      >
-                        <path
-                          fill="#EA4335"
-                          d="M24 9.5c3.24 0 6.14 1.1 8.42 2.89l6.24-6.24C35.03 3.02 29.77.5 24 .5 14.7.5 6.84 5.86 3.24 13.64l7.3 5.66C12.32 13.48 17.7 9.5 24 9.5z"
-                        />
-                        <path
-                          fill="#4285F4"
-                          d="M46.5 24.5c0-1.62-.14-2.78-.44-3.98H24v7.53h12.9c-.26 2.08-1.66 5.22-4.77 7.32l7.33 5.68c4.38-4.04 6.94-9.98 6.94-16.55z"
-                        />
-                        <path
-                          fill="#FBBC05"
-                          d="M10.54 28.3A14.7 14.7 0 0 1 9.7 24c0-1.5.25-2.96.82-4.3l-7.3-5.66A23.99 23.99 0 0 0 .5 24c0 3.84.92 7.47 2.72 10.64l7.32-5.66z"
-                        />
-                        <path
-                          fill="#34A853"
-                          d="M24 47.5c5.76 0 10.59-1.9 14.12-5.45l-7.33-5.68c-1.95 1.36-4.58 2.3-6.79 2.3-6.3 0-11.68-3.98-13.46-9.5l-7.3 5.66C6.84 42.14 14.7 47.5 24 47.5z"
-                        />
-                      </svg>
-                      {t('profile.continueWithGoogle')}
-                    </>
-                  )}
-                </Button>
-              ) : (
-                <div className="grid gap-3">
-                  <div className="grid gap-2">
-                    <label className="text-sm font-medium">{t('profile.userName')}</label>
-                    <Input
-                      value={googleFullName}
-                      readOnly
-                      className="bg-muted/40"
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <label className="text-sm font-medium">{t('profile.email')}</label>
-                    <Input
-                      value={googleEmail}
-                      readOnly
-                      className="bg-muted/40"
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
+            <Button
+              type="button"
+              onClick={handleGoogleConnect}
+              className="w-1/2 h-auto justify-center gap-3 rounded-full border border-black/10 bg-white py-[12px] text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-black/5"
+            >
+              <svg
+                aria-hidden="true"
+                className="h-5 w-5"
+                viewBox="0 0 48 48"
+              >
+                <path
+                  fill="#EA4335"
+                  d="M24 9.5c3.24 0 6.14 1.1 8.42 2.89l6.24-6.24C35.03 3.02 29.77.5 24 .5 14.7.5 6.84 5.86 3.24 13.64l7.3 5.66C12.32 13.48 17.7 9.5 24 9.5z"
+                />
+                <path
+                  fill="#4285F4"
+                  d="M46.5 24.5c0-1.62-.14-2.78-.44-3.98H24v7.53h12.9c-.26 2.08-1.66 5.22-4.77 7.32l7.33 5.68c4.38-4.04 6.94-9.98 6.94-16.55z"
+                />
+                <path
+                  fill="#FBBC05"
+                  d="M10.54 28.3A14.7 14.7 0 0 1 9.7 24c0-1.5.25-2.96.82-4.3l-7.3-5.66A23.99 23.99 0 0 0 .5 24c0 3.84.92 7.47 2.72 10.64l7.32-5.66z"
+                />
+                <path
+                  fill="#34A853"
+                  d="M24 47.5c5.76 0 10.59-1.9 14.12-5.45l-7.33-5.68c-1.95 1.36-4.58 2.3-6.79 2.3-6.3 0-11.68-3.98-13.46-9.5l-7.3 5.66C6.84 42.14 14.7 47.5 24 47.5z"
+                />
+              </svg>
+              {t('profile.continueWithGoogle')}
+            </Button>
+            <p className="text-xs text-muted-foreground">{t('comingSoon')}</p>
+          </div>
 
             {/* Error Message */}
             {error && (

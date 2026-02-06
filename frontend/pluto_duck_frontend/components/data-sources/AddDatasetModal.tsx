@@ -7,6 +7,7 @@ import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 import { Dialog, DialogContent } from '../ui/dialog';
 import { Button } from '../ui/button';
+import { Input } from '../ui/input';
 import { isTauriRuntime } from '../../lib/tauriRuntime';
 import { importFile, diagnoseFiles, countDuplicateRows, type FileType, type FileDiagnosis, type DiagnoseFileRequest, type DuplicateCountResponse, type MergedAnalysis, type FileAsset } from '../../lib/fileAssetApi';
 import { DiagnosisResultView } from './DiagnosisResultView';
@@ -122,6 +123,49 @@ interface AddDatasetModalProps {
 
 type Step = 'select' | 'preview' | 'analyzing' | 'diagnose';
 
+interface WebPathInputPanelProps {
+  pendingPath: string;
+  pathInputError: string | null;
+  onPathChange: (value: string) => void;
+  onPathSubmit: () => void;
+  onPathCancel: () => void;
+}
+
+function WebPathInputPanel({
+  pendingPath,
+  pathInputError,
+  onPathChange,
+  onPathSubmit,
+  onPathCancel,
+}: WebPathInputPanelProps) {
+  return (
+    <div className="rounded-xl border border-border bg-muted/30 p-4">
+      <p className="text-sm font-medium text-foreground mb-2">Absolute file path</p>
+      <div className="flex items-center gap-2">
+        <Input
+          value={pendingPath}
+          onChange={(e) => onPathChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              onPathSubmit();
+            }
+          }}
+          placeholder="/absolute/path/to/data.csv"
+          className="flex-1"
+        />
+        <Button type="button" onClick={onPathSubmit} className="px-4">
+          Add
+        </Button>
+        <Button type="button" variant="secondary" onClick={onPathCancel} className="px-4">
+          Cancel
+        </Button>
+      </div>
+      {pathInputError && <p className="text-sm text-destructive mt-2">{pathInputError}</p>}
+    </div>
+  );
+}
+
 // ============================================================================
 // SelectSourceView - Initial view with dropzone and options
 // ============================================================================
@@ -135,6 +179,12 @@ interface SelectSourceViewProps {
   onDragOver: (e: React.DragEvent) => void;
   onDragLeave: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
+  showPathInput: boolean;
+  pendingPath: string;
+  pathInputError: string | null;
+  onPathChange: (value: string) => void;
+  onPathSubmit: () => void;
+  onPathCancel: () => void;
 }
 
 function SelectSourceView({
@@ -146,6 +196,12 @@ function SelectSourceView({
   onDragOver,
   onDragLeave,
   onDrop,
+  showPathInput,
+  pendingPath,
+  pathInputError,
+  onPathChange,
+  onPathSubmit,
+  onPathCancel,
 }: SelectSourceViewProps) {
   return (
     <div className="flex flex-col h-full p-8">
@@ -194,6 +250,18 @@ function SelectSourceView({
         </button>
       </div>
 
+      {showPathInput && (
+        <div className="mb-6">
+          <WebPathInputPanel
+            pendingPath={pendingPath}
+            pathInputError={pathInputError}
+            onPathChange={onPathChange}
+            onPathSubmit={onPathSubmit}
+            onPathCancel={onPathCancel}
+          />
+        </div>
+      )}
+
       {/* Cancel Button */}
       <Button
         variant="secondary"
@@ -219,6 +287,12 @@ interface FilePreviewViewProps {
   onClose: () => void;
   isDiagnosing: boolean;
   diagnosisError: string | null;
+  showPathInput: boolean;
+  pendingPath: string;
+  pathInputError: string | null;
+  onPathChange: (value: string) => void;
+  onPathSubmit: () => void;
+  onPathCancel: () => void;
 }
 
 function FilePreviewView({
@@ -230,6 +304,12 @@ function FilePreviewView({
   onClose,
   isDiagnosing,
   diagnosisError,
+  showPathInput,
+  pendingPath,
+  pathInputError,
+  onPathChange,
+  onPathSubmit,
+  onPathCancel,
 }: FilePreviewViewProps) {
   return (
     <div className="flex flex-col h-full">
@@ -274,6 +354,18 @@ function FilePreviewView({
           </div>
         ))}
       </div>
+
+      {showPathInput && (
+        <div className="px-8 pb-4">
+          <WebPathInputPanel
+            pendingPath={pendingPath}
+            pathInputError={pathInputError}
+            onPathChange={onPathChange}
+            onPathSubmit={onPathSubmit}
+            onPathCancel={onPathCancel}
+          />
+        </div>
+      )}
 
       {/* Error message */}
       {diagnosisError && (
@@ -340,6 +432,9 @@ export function AddDatasetModal({
   const [llmReady, setLlmReady] = useState(false);
   const [duplicateInfo, setDuplicateInfo] = useState<DuplicateCountResponse | null>(null);
   const [mergedAnalysis, setMergedAnalysis] = useState<MergedAnalysis | null>(null);
+  const [showPathInput, setShowPathInput] = useState(false);
+  const [pendingPath, setPendingPath] = useState('');
+  const [pathInputError, setPathInputError] = useState<string | null>(null);
 
   // Ref for hidden file input (web fallback)
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -360,6 +455,9 @@ export function AddDatasetModal({
       setLlmReady(false);
       setDuplicateInfo(null);
       setMergedAnalysis(null);
+      setShowPathInput(false);
+      setPendingPath('');
+      setPathInputError(null);
     }
   }, [open]);
 
@@ -412,6 +510,9 @@ export function AddDatasetModal({
   const addFiles = useCallback((newFiles: SelectedFile[]) => {
     setSelectedFiles(prev => [...prev, ...newFiles]);
     if (newFiles.length > 0) {
+      setShowPathInput(false);
+      setPendingPath('');
+      setPathInputError(null);
       setStep('preview');
     }
   }, []);
@@ -428,6 +529,9 @@ export function AddDatasetModal({
 
   const clearFiles = useCallback(() => {
     setSelectedFiles([]);
+    setShowPathInput(false);
+    setPendingPath('');
+    setPathInputError(null);
     setStep('select');
   }, []);
 
@@ -504,10 +608,41 @@ export function AddDatasetModal({
         console.error('Failed to open file dialog:', error);
       }
     } else {
-      // Web environment: use hidden file input
-      fileInputRef.current?.click();
+      setShowPathInput(true);
+      setPathInputError(null);
     }
   }, [addFiles]);
+
+  const handleWebPathChange = useCallback((value: string) => {
+    setPendingPath(value);
+    setPathInputError(null);
+  }, []);
+
+  const handleWebPathCancel = useCallback(() => {
+    setShowPathInput(false);
+    setPendingPath('');
+    setPathInputError(null);
+  }, []);
+
+  const handleWebPathSubmit = useCallback(() => {
+    const trimmedPath = pendingPath.trim();
+    if (!trimmedPath) {
+      setPathInputError('File path is required');
+      return;
+    }
+
+    const fileName = getFileName(trimmedPath);
+    if (!isAllowedFile(fileName)) {
+      setPathInputError('Only .csv and .parquet files are supported');
+      return;
+    }
+
+    addFiles([{
+      id: generateId(),
+      name: fileName,
+      path: trimmedPath,
+    }]);
+  }, [pendingPath, addFiles]);
 
   // Handle file input change (web fallback)
   const handleFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -896,6 +1031,12 @@ export function AddDatasetModal({
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
+            showPathInput={showPathInput}
+            pendingPath={pendingPath}
+            pathInputError={pathInputError}
+            onPathChange={handleWebPathChange}
+            onPathSubmit={handleWebPathSubmit}
+            onPathCancel={handleWebPathCancel}
           />
         )}
         {step === 'preview' && (
@@ -908,6 +1049,12 @@ export function AddDatasetModal({
             onClose={handleCancel}
             isDiagnosing={isDiagnosing}
             diagnosisError={diagnosisError}
+            showPathInput={showPathInput}
+            pendingPath={pendingPath}
+            pathInputError={pathInputError}
+            onPathChange={handleWebPathChange}
+            onPathSubmit={handleWebPathSubmit}
+            onPathCancel={handleWebPathCancel}
           />
         )}
         {step === 'analyzing' && (

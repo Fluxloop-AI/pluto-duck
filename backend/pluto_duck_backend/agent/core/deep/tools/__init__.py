@@ -21,7 +21,11 @@ from .schema import build_schema_tools
 from .source import build_source_tools
 
 
-def build_default_tools(*, workspace_root: Path, project_id: Optional[str] = None) -> List[BaseTool]:
+def build_default_tools(
+    *,
+    workspace_root: Path,
+    project_id: Optional[str] = None,
+) -> List[BaseTool]:
     """Build default tools for the agent.
     
     Args:
@@ -32,9 +36,12 @@ def build_default_tools(*, workspace_root: Path, project_id: Optional[str] = Non
     warehouse_path = settings.duckdb.path
     
     tools = [
-        *build_schema_tools(warehouse_path=warehouse_path),
-        *build_query_tools(warehouse_path=warehouse_path),
-        *build_asset_tools(warehouse_path=warehouse_path, project_id=project_id),  # Saved Analysis tools
+        *build_schema_tools(warehouse_path=warehouse_path, project_id=project_id),
+        *build_query_tools(warehouse_path=warehouse_path, project_id=project_id),
+        *build_asset_tools(
+            warehouse_path=warehouse_path,
+            project_id=project_id,
+        ),  # Saved Analysis tools
     ]
     
     # Add source tools only if project_id is provided
@@ -42,5 +49,3 @@ def build_default_tools(*, workspace_root: Path, project_id: Optional[str] = Non
         tools.extend(build_source_tools(project_id=project_id))  # ATTACH + cache tools
     
     return tools
-
-

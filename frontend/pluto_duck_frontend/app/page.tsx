@@ -36,7 +36,12 @@ import { loadLocalModel, unloadLocalModel } from '../lib/modelsApi';
 import { fetchDataSources, fetchDataSourceDetail, type DataSource, type DataSourceTable } from '../lib/dataSourcesApi';
 import { listFileAssets, deleteFileAsset, type FileAsset } from '../lib/fileAssetApi';
 import { fetchCachedTables, dropCache, type CachedTable } from '../lib/sourceApi';
-import { fetchProject, type Project, type ProjectListItem } from '../lib/projectsApi';
+import {
+  fetchProject,
+  fetchProjects,
+  type Project,
+  type ProjectListItem,
+} from '../lib/projectsApi';
 import { useBackendStatus } from '../hooks/useBackendStatus';
 
 type MainView = 'boards' | 'assets' | 'datasets';
@@ -46,6 +51,18 @@ type Locale = 'en' | 'ko';
 const SIDEBAR_COLLAPSED_KEY = 'pluto-duck-sidebar-collapsed';
 const SELECTED_DATASET_ID_KEY = 'pluto_selected_dataset_id';
 const MESSAGES = { en: enMessages, ko: koMessages } as const;
+
+function resolveClientTimeZone(): string {
+  try {
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (timeZone && timeZone.trim().length > 0) {
+      return timeZone;
+    }
+  } catch {
+    // Fallback for environments without Intl timezone support
+  }
+  return 'UTC';
+}
 
 function WorkspacePageBody({
   language,
@@ -82,9 +99,10 @@ function WorkspacePageBody({
   const [sidebarTab, setSidebarTab] = useState<'boards' | 'datasets'>('boards');
   const [sidebarDatasets, setSidebarDatasets] = useState<(FileAsset | CachedTable)[]>([]);
   const [selectedDataset, setSelectedDataset] = useState<Dataset | null>(null);
-  const [workspaceResetCounter, setWorkspaceResetCounter] = useState(0);
+  const [projectDataResetCounter, setProjectDataResetCounter] = useState(0);
   const [userName, setUserName] = useState<string | null>(null);
   const datasetLoadIdRef = useRef(0);
+  const projectDetailRecoveryAttemptRef = useRef<string | null>(null);
 
   // Ref for BoardsView to access insertMarkdown
   const boardsViewRef = useRef<BoardsViewHandle>(null);
@@ -183,11 +201,38 @@ function WorkspacePageBody({
         };
 
         setCurrentProject(mergedProject);
+        projectDetailRecoveryAttemptRef.current = null;
       } catch (error) {
         console.error('Failed to load project detail', error);
+        let fallbackProject: ProjectListItem | null = null;
+
+        if (projectDetailRecoveryAttemptRef.current !== defaultProjectId) {
+          projectDetailRecoveryAttemptRef.current = defaultProjectId;
+          const refreshedProjects = await reloadProjects();
+          fallbackProject =
+            refreshedProjects.find(project => project.is_default) ??
+            refreshedProjects[0] ??
+            null;
+        } else {
+          fallbackProject =
+            projects.find(project => project.is_default) ??
+            projects[0] ??
+            null;
+        }
+
+        if (!fallbackProject) {
+          setDefaultProjectId(null);
+          setCurrentProject(null);
+          return;
+        }
+        if (fallbackProject.id !== defaultProjectId) {
+          setDefaultProjectId(fallbackProject.id);
+          return;
+        }
+        setCurrentProject(null);
       }
     })();
-  }, [defaultProjectId, projects]);
+  }, [defaultProjectId, projects, reloadProjects]);
 
   // Auto-save project state when it changes
   useEffect(() => {
@@ -397,7 +442,7 @@ function WorkspacePageBody({
     }
   }, []);
 
-  const handleWorkspaceReset = useCallback(() => {
+  const handleProjectDataReset = useCallback(() => {
     setDataSourcesRefresh(prev => prev + 1);
     setSidebarDatasets([]);
     setSelectedDataset(null);
@@ -408,8 +453,54 @@ function WorkspacePageBody({
     void loadBoards();
     setChatTabs([]);
     setActiveChatTabId(null);
-    setWorkspaceResetCounter(prev => prev + 1);
+    setProjectDataResetCounter(prev => prev + 1);
   }, [loadBoards, selectBoard]);
+
+  const handleProjectDeleted = useCallback(async () => {
+    setDataSourcesRefresh(prev => prev + 1);
+    setSidebarDatasets([]);
+    setSelectedDataset(null);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(SELECTED_DATASET_ID_KEY);
+    }
+    setChatTabs([]);
+    setActiveChatTabId(null);
+    setProjectDataResetCounter(prev => prev + 1);
+
+    const refreshedProjects = await reloadProjects();
+    const fallbackProject =
+      refreshedProjects.find(project => project.is_default) ??
+      refreshedProjects[0] ??
+      null;
+
+    if (!fallbackProject) {
+      setDefaultProjectId(null);
+      setCurrentProject(null);
+      return;
+    }
+
+    setDefaultProjectId(fallbackProject.id);
+
+    try {
+      const detail = await fetchProject(fallbackProject.id);
+      setCurrentProject({
+        ...detail,
+        board_count: fallbackProject.board_count,
+        conversation_count: fallbackProject.conversation_count,
+      });
+    } catch (error) {
+      console.error('Failed to load fallback project detail', error);
+      const latestProjects = await fetchProjects();
+      const latestFallback =
+        latestProjects.find(project => project.is_default) ?? latestProjects[0] ?? null;
+      if (!latestFallback) {
+        setCurrentProject(null);
+        return;
+      }
+      setDefaultProjectId(latestFallback.id);
+      setCurrentProject(latestFallback);
+    }
+  }, [reloadProjects]);
 
   const handleSelectProject = useCallback(async (project: ProjectListItem) => {
     // Save current project state before switching
@@ -860,7 +951,7 @@ function WorkspacePageBody({
               </div>
 
               <MultiTabChatPanel
-                key={`${defaultProjectId ?? 'none'}:${workspaceResetCounter}`}
+                key={`${defaultProjectId ?? 'none'}:${projectDataResetCounter}`}
                 selectedModel={selectedModel}
                 onModelChange={setSelectedModel}
                 selectedDataSource={selectedDataSource}
@@ -889,8 +980,9 @@ function WorkspacePageBody({
           onLanguageChange(nextLanguage === 'ko' ? 'ko' : 'en')
         }
         initialMenu="profile"
-        projectId={defaultProjectId || null}
-        onWorkspaceReset={handleWorkspaceReset}
+        currentProject={currentProject}
+        onProjectDataReset={handleProjectDataReset}
+        onProjectDeleted={handleProjectDeleted}
       />
       <DataSourcesModal
         projectId={defaultProjectId || ''}
@@ -985,14 +1077,19 @@ function WorkspacePageBody({
 
 export default function WorkspacePage() {
   const [language, setLanguage] = useState<Locale>('en');
+  const [timeZone, setTimeZone] = useState<string>('UTC');
   const messages = MESSAGES[language] ?? MESSAGES.en;
 
   useEffect(() => {
     document.documentElement.lang = language;
   }, [language]);
 
+  useEffect(() => {
+    setTimeZone(resolveClientTimeZone());
+  }, []);
+
   return (
-    <NextIntlClientProvider locale={language} messages={messages}>
+    <NextIntlClientProvider locale={language} messages={messages} timeZone={timeZone}>
       <WorkspacePageBody
         language={language}
         onLanguageChange={setLanguage}

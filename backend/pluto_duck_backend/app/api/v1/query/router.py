@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -12,7 +11,9 @@ from pluto_duck_backend.app.core.config import get_settings
 from pluto_duck_backend.app.services.execution import QueryExecutionService
 from pluto_duck_backend.app.services.execution.manager import (
     QueryExecutionManager,
-    get_execution_manager,
+)
+from pluto_duck_backend.app.services.execution.manager import (
+    get_execution_manager as get_execution_manager_for_warehouse,
 )
 
 router = APIRouter()
@@ -21,6 +22,11 @@ router = APIRouter()
 def get_execution_service() -> QueryExecutionService:
     settings = get_settings()
     return QueryExecutionService(settings.duckdb.path)
+
+
+def get_execution_manager() -> QueryExecutionManager:
+    settings = get_settings()
+    return get_execution_manager_for_warehouse(warehouse_path=settings.duckdb.path)
 
 
 @router.post("", response_model=dict)
@@ -76,4 +82,3 @@ def stream_query_events(
             yield "data: " + json.dumps(payload) + "\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
-

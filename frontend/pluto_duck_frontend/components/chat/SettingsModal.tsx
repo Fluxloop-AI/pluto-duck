@@ -38,10 +38,12 @@ import { Avatar, AvatarFallback } from '../ui/avatar';
 import {
   fetchSettings,
   updateSettings,
-  resetDatabase,
-  resetWorkspaceData,
+  resetProjectData,
+  deleteProjectPermanently,
   type UpdateSettingsRequest,
 } from '../../lib/settingsApi';
+import type { ApiError } from '../../lib/apiClient';
+import type { ProjectListItem } from '../../lib/projectsApi';
 import {
   downloadLocalModel,
   listLocalModels,
@@ -66,8 +68,9 @@ interface SettingsModalProps {
   onProfileSaved?: (name: string | null) => void;
   onPreferencesSaved?: (language: string) => void;
   initialMenu?: SettingsMenu;
-  projectId?: string | null;
-  onWorkspaceReset?: () => void;
+  currentProject?: ProjectListItem | null;
+  onProjectDataReset?: () => void;
+  onProjectDeleted?: (projectId: string) => Promise<void> | void;
 }
 
 type SettingsMenu = 'profile' | 'preferences' | 'notifications' | 'models' | 'updates' | 'data';
@@ -99,8 +102,9 @@ export function SettingsModal({
   onProfileSaved,
   onPreferencesSaved,
   initialMenu,
-  projectId,
-  onWorkspaceReset,
+  currentProject,
+  onProjectDataReset,
+  onProjectDeleted,
 }: SettingsModalProps) {
   const t = useTranslations('settings');
   const [activeMenu, setActiveMenu] = useState<SettingsMenu>('profile');
@@ -119,15 +123,14 @@ export function SettingsModal({
   const [loadingLocalModels, setLoadingLocalModels] = useState(false);
   const [localDownloadStates, setLocalDownloadStates] = useState<Record<string, LocalDownloadStatus>>({});
   const [deletingModelId, setDeletingModelId] = useState<string | null>(null);
-  const [googleStatus, setGoogleStatus] = useState<'idle' | 'loading' | 'connected'>('idle');
-  const [googleFullName, setGoogleFullName] = useState('');
-  const [googleEmail, setGoogleEmail] = useState('');
 
-  // DB Reset states
-  const [showResetDialog, setShowResetDialog] = useState(false);
-  const [resetting, setResetting] = useState(false);
-  const [showResetWorkspaceDialog, setShowResetWorkspaceDialog] = useState(false);
-  const [resettingWorkspace, setResettingWorkspace] = useState(false);
+  // Project danger action states
+  const [showProjectResetDialog, setShowProjectResetDialog] = useState(false);
+  const [resettingProjectData, setResettingProjectData] = useState(false);
+  const [showProjectDeleteDialog, setShowProjectDeleteDialog] = useState(false);
+  const [deletingProject, setDeletingProject] = useState(false);
+  const [projectResetConfirmation, setProjectResetConfirmation] = useState('');
+  const [projectDeleteConfirmation, setProjectDeleteConfirmation] = useState('');
 
   // Auto Update
   const {
@@ -145,11 +148,11 @@ export function SettingsModal({
   } = useAutoUpdate();
 
   const downloadPollRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  const googleConnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isAnyDownloadInProgress = Object.values(localDownloadStates).some(
     state => state.status === 'queued' || state.status === 'downloading',
   );
+  const isProjectActionInProgress = resettingProjectData || deletingProject;
 
   useEffect(() => {
     if (open) {
@@ -163,13 +166,9 @@ export function SettingsModal({
   }, [open, initialMenu]);
 
   useEffect(() => {
-    return () => {
-      if (googleConnectTimerRef.current) {
-        clearTimeout(googleConnectTimerRef.current);
-        googleConnectTimerRef.current = null;
-      }
-    };
-  }, []);
+    setProjectResetConfirmation('');
+    setProjectDeleteConfirmation('');
+  }, [currentProject?.id]);
 
   const fetchLocalModels = async () => {
     setLoadingLocalModels(true);
@@ -226,6 +225,45 @@ export function SettingsModal({
     } finally {
       setLoading(false);
     }
+  };
+
+  const toProjectSlug = (name: string): string => {
+    const slug = name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    return slug || 'project';
+  };
+
+  const resetConfirmationPhrase = currentProject
+    ? `reset-${toProjectSlug(currentProject.name)}`
+    : '';
+  const deleteConfirmationPhrase = currentProject
+    ? `delete-${toProjectSlug(currentProject.name)}-permanently`
+    : '';
+
+  const resolveDangerActionError = (
+    error: unknown,
+    action: 'reset' | 'delete'
+  ): string => {
+    const apiError = error as ApiError;
+    const detail = typeof apiError?.detail === 'string' ? apiError.detail : apiError?.message;
+    const status = apiError?.status;
+    if (status === 400 && detail?.includes('Confirmation phrase mismatch')) {
+      return t('data.error.confirmationMismatch');
+    }
+    if (status === 409 && detail?.includes('Cannot delete the default project')) {
+      return t('data.error.defaultDeleteBlocked');
+    }
+    if (status === 404 || detail?.includes('Project not found')) {
+      return t('data.error.projectNotFound');
+    }
+    if (typeof detail === 'string' && detail.trim().length > 0) {
+      return detail;
+    }
+    return action === 'reset'
+      ? t('data.error.projectResetFailed')
+      : t('data.error.projectDeleteFailed');
   };
 
   const scheduleStatusPolling = (modelId: string) => {
@@ -393,64 +431,57 @@ export function SettingsModal({
     onOpenChange(false);
   };
 
-  const handleResetDatabase = async () => {
-    setResetting(true);
+  const handleResetProjectData = async () => {
+    if (!currentProject) {
+      setError(t('data.noProject'));
+      return;
+    }
+    setResettingProjectData(true);
     setError(null);
     setSuccessMessage(null);
 
     try {
-      await resetDatabase();
-      setSuccessMessage(t('models.dbResetSuccess'));
-      setShowResetDialog(false);
-
-      // Close the settings modal after a delay
-      setTimeout(() => {
-        onOpenChange(false);
-        setSuccessMessage(null);
-      }, 2000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('models.dbResetError'));
-      setShowResetDialog(false);
+      await resetProjectData(currentProject.id, projectResetConfirmation);
+      setSuccessMessage(t('data.projectResetSuccess'));
+      setShowProjectResetDialog(false);
+      setProjectResetConfirmation('');
+      onProjectDataReset?.();
+    } catch (error) {
+      setError(resolveDangerActionError(error, 'reset'));
     } finally {
-      setResetting(false);
+      setResettingProjectData(false);
     }
   };
 
-  const handleResetWorkspaceData = async () => {
-    if (!projectId) {
-      setError(t('data.noWorkspace'));
+  const handleDeleteProject = async () => {
+    if (!currentProject) {
+      setError(t('data.noProject'));
+      return;
+    }
+    if (currentProject.is_default) {
+      setError(t('data.error.defaultDeleteBlocked'));
       return;
     }
 
-    setResettingWorkspace(true);
+    setDeletingProject(true);
     setError(null);
     setSuccessMessage(null);
 
     try {
-      await resetWorkspaceData(projectId);
-      setSuccessMessage(t('models.workspaceResetSuccess'));
-      setShowResetWorkspaceDialog(false);
-      onWorkspaceReset?.();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('models.workspaceResetError'));
-      setShowResetWorkspaceDialog(false);
+      await deleteProjectPermanently(currentProject.id, projectDeleteConfirmation);
+      setSuccessMessage(t('data.projectDeleteSuccess'));
+      setShowProjectDeleteDialog(false);
+      setProjectDeleteConfirmation('');
+      await onProjectDeleted?.(currentProject.id);
+    } catch (error) {
+      setError(resolveDangerActionError(error, 'delete'));
     } finally {
-      setResettingWorkspace(false);
+      setDeletingProject(false);
     }
   };
 
   const handleGoogleConnect = () => {
-    if (googleStatus === 'loading') return;
-    setGoogleStatus('loading');
-    if (googleConnectTimerRef.current) {
-      clearTimeout(googleConnectTimerRef.current);
-    }
-    googleConnectTimerRef.current = setTimeout(() => {
-      setGoogleStatus('connected');
-      setGoogleFullName('Yoojung Kim');
-      setGoogleEmail('you@gmail.com');
-      googleConnectTimerRef.current = null;
-    }, 900);
+    setError(t('comingSoon'));
   };
 
   const renderSidebar = () => (
@@ -654,7 +685,7 @@ export function SettingsModal({
                           (isAnyDownloadInProgress && !isDownloading) ||
                           loading ||
                           saving ||
-                          resetting ||
+                          isProjectActionInProgress ||
                           deletingModelId !== null
                         }
                       >
@@ -715,7 +746,7 @@ export function SettingsModal({
                         disabled={
                           loading ||
                           saving ||
-                          resetting ||
+                          isProjectActionInProgress ||
                           isAnyDownloadInProgress ||
                           deletingModelId === localModel.id
                         }
@@ -862,27 +893,27 @@ export function SettingsModal({
       <div className="flex items-start gap-3">
         <AlertTriangleIcon className="h-5 w-5 text-amber-500 mt-0.5 shrink-0" />
         <div className="grid gap-2 flex-1">
-          <h4 className="text-sm font-medium">{t('data.workspaceReset')}</h4>
+          <h4 className="text-sm font-medium">{t('data.projectDataReset')}</h4>
           <div className="grid gap-2">
             <p className="text-sm text-muted-foreground">
-              {t('data.workspaceResetDesc')}
+              {t('data.projectDataResetDesc')}
             </p>
             <p className="text-xs text-muted-foreground">
-              {t('data.workspaceResetDetail')}
+              {t('data.projectDataResetDetail')}
             </p>
           </div>
           <Button
             variant="destructive"
             size="sm"
-            onClick={() => setShowResetWorkspaceDialog(true)}
-            disabled={loading || saving || resetting || resettingWorkspace || !projectId}
+            onClick={() => setShowProjectResetDialog(true)}
+            disabled={loading || saving || isProjectActionInProgress || !currentProject}
             className="w-fit"
           >
-            {t('data.resetWorkspace')}
+            {t('data.resetProjectData')}
           </Button>
-          {!projectId && (
+          {!currentProject && (
             <p className="text-xs text-muted-foreground">
-              {t('data.noWorkspace')}
+              {t('data.noProject')}
             </p>
           )}
         </div>
@@ -890,24 +921,40 @@ export function SettingsModal({
       <div className="flex items-start gap-3">
         <AlertTriangleIcon className="h-5 w-5 text-destructive mt-0.5 shrink-0" />
         <div className="grid gap-2 flex-1">
-          <h4 className="text-sm font-medium">{t('data.dangerZone')}</h4>
+          <h4 className="text-sm font-medium">{t('data.deleteProjectPermanently')}</h4>
           <div className="grid gap-2">
             <p className="text-sm text-muted-foreground">
-              {t('data.dbResetDesc')}
+              {t('data.deleteProjectDesc')}
             </p>
             <p className="text-xs text-muted-foreground">
-              {t('data.dbResetWarning')}
+              {t('data.deleteProjectWarning')}
             </p>
           </div>
           <Button
             variant="destructive"
             size="sm"
-            onClick={() => setShowResetDialog(true)}
-            disabled={loading || saving || resetting || resettingWorkspace}
+            onClick={() => setShowProjectDeleteDialog(true)}
+            disabled={
+              loading ||
+              saving ||
+              isProjectActionInProgress ||
+              !currentProject ||
+              currentProject.is_default
+            }
             className="w-fit"
           >
-            {t('button.resetDatabase')}
+            {t('data.deleteProjectButton')}
           </Button>
+          {!currentProject && (
+            <p className="text-xs text-muted-foreground">
+              {t('data.noProject')}
+            </p>
+          )}
+          {currentProject?.is_default && (
+            <p className="text-xs text-muted-foreground">
+              {t('data.defaultDeleteDisabled')}
+            </p>
+          )}
         </div>
       </div>
     </div>
@@ -1040,67 +1087,37 @@ export function SettingsModal({
           {/* Google Login (UI only) */}
           <div className="grid gap-2">
             <label className="text-sm font-medium">{t('profile.googleAccount')}</label>
-            {googleStatus !== 'connected' ? (
-              <Button
-                type="button"
-                onClick={handleGoogleConnect}
-                disabled={googleStatus === 'loading'}
-                  className="w-1/2 h-auto justify-center gap-3 rounded-full border border-black/10 bg-white py-[12px] text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-black/5 disabled:opacity-70"
-                >
-                  {googleStatus === 'loading' ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      {t('profile.connecting')}
-                    </>
-                  ) : (
-                    <>
-                      <svg
-                        aria-hidden="true"
-                        className="h-5 w-5"
-                        viewBox="0 0 48 48"
-                      >
-                        <path
-                          fill="#EA4335"
-                          d="M24 9.5c3.24 0 6.14 1.1 8.42 2.89l6.24-6.24C35.03 3.02 29.77.5 24 .5 14.7.5 6.84 5.86 3.24 13.64l7.3 5.66C12.32 13.48 17.7 9.5 24 9.5z"
-                        />
-                        <path
-                          fill="#4285F4"
-                          d="M46.5 24.5c0-1.62-.14-2.78-.44-3.98H24v7.53h12.9c-.26 2.08-1.66 5.22-4.77 7.32l7.33 5.68c4.38-4.04 6.94-9.98 6.94-16.55z"
-                        />
-                        <path
-                          fill="#FBBC05"
-                          d="M10.54 28.3A14.7 14.7 0 0 1 9.7 24c0-1.5.25-2.96.82-4.3l-7.3-5.66A23.99 23.99 0 0 0 .5 24c0 3.84.92 7.47 2.72 10.64l7.32-5.66z"
-                        />
-                        <path
-                          fill="#34A853"
-                          d="M24 47.5c5.76 0 10.59-1.9 14.12-5.45l-7.33-5.68c-1.95 1.36-4.58 2.3-6.79 2.3-6.3 0-11.68-3.98-13.46-9.5l-7.3 5.66C6.84 42.14 14.7 47.5 24 47.5z"
-                        />
-                      </svg>
-                      {t('profile.continueWithGoogle')}
-                    </>
-                  )}
-                </Button>
-              ) : (
-                <div className="grid gap-3">
-                  <div className="grid gap-2">
-                    <label className="text-sm font-medium">{t('profile.userName')}</label>
-                    <Input
-                      value={googleFullName}
-                      readOnly
-                      className="bg-muted/40"
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <label className="text-sm font-medium">{t('profile.email')}</label>
-                    <Input
-                      value={googleEmail}
-                      readOnly
-                      className="bg-muted/40"
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
+            <Button
+              type="button"
+              onClick={handleGoogleConnect}
+              className="w-1/2 h-auto justify-center gap-3 rounded-full border border-black/10 bg-white py-[12px] text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-black/5"
+            >
+              <svg
+                aria-hidden="true"
+                className="h-5 w-5"
+                viewBox="0 0 48 48"
+              >
+                <path
+                  fill="#EA4335"
+                  d="M24 9.5c3.24 0 6.14 1.1 8.42 2.89l6.24-6.24C35.03 3.02 29.77.5 24 .5 14.7.5 6.84 5.86 3.24 13.64l7.3 5.66C12.32 13.48 17.7 9.5 24 9.5z"
+                />
+                <path
+                  fill="#4285F4"
+                  d="M46.5 24.5c0-1.62-.14-2.78-.44-3.98H24v7.53h12.9c-.26 2.08-1.66 5.22-4.77 7.32l7.33 5.68c4.38-4.04 6.94-9.98 6.94-16.55z"
+                />
+                <path
+                  fill="#FBBC05"
+                  d="M10.54 28.3A14.7 14.7 0 0 1 9.7 24c0-1.5.25-2.96.82-4.3l-7.3-5.66A23.99 23.99 0 0 0 .5 24c0 3.84.92 7.47 2.72 10.64l7.32-5.66z"
+                />
+                <path
+                  fill="#34A853"
+                  d="M24 47.5c5.76 0 10.59-1.9 14.12-5.45l-7.33-5.68c-1.95 1.36-4.58 2.3-6.79 2.3-6.3 0-11.68-3.98-13.46-9.5l-7.3 5.66C6.84 42.14 14.7 47.5 24 47.5z"
+                />
+              </svg>
+              {t('profile.continueWithGoogle')}
+            </Button>
+            <p className="text-xs text-muted-foreground">{t('comingSoon')}</p>
+          </div>
 
             {/* Error Message */}
             {error && (
@@ -1174,95 +1191,134 @@ export function SettingsModal({
         </DialogContent>
       </Dialog>
 
-      {/* Confirmation Dialog for Database Reset */}
-      <Dialog open={showResetDialog} onOpenChange={setShowResetDialog}>
+      {/* Confirmation Dialog for Project Data Reset */}
+      <Dialog
+        open={showProjectResetDialog}
+        onOpenChange={(nextOpen) => {
+          setShowProjectResetDialog(nextOpen);
+          if (!nextOpen) {
+            setProjectResetConfirmation('');
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-[450px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-destructive">
               <AlertTriangleIcon className="h-5 w-5" />
-              {t('dialog.resetDbTitle')}
+              {t('dialog.resetProjectTitle')}
             </DialogTitle>
             <DialogDescription>
-              {t('dialog.resetDbDesc')}
+              {t('dialog.resetProjectDesc', {
+                projectName: currentProject?.name ?? '-',
+              })}
             </DialogDescription>
           </DialogHeader>
 
           <div className="py-4">
             <ul className="list-disc list-inside space-y-2 text-sm text-muted-foreground">
-              <li>{t('dialog.resetDbItem1')}</li>
-              <li>{t('dialog.resetDbItem2')}</li>
-              <li>{t('dialog.resetDbItem3')}</li>
-              <li>{t('dialog.resetDbItem4')}</li>
+              <li>{t('dialog.resetProjectItem1')}</li>
+              <li>{t('dialog.resetProjectItem2')}</li>
+              <li>{t('dialog.resetProjectItem3')}</li>
+              <li>{t('dialog.resetProjectItem4')}</li>
             </ul>
 
-            <div className="mt-4 p-3 bg-destructive/10 rounded-md border border-destructive/20">
-              <p className="text-sm font-medium text-destructive">
-                {t('dialog.resetDbConfirm')}
+            <div className="mt-4 grid gap-2 rounded-md border border-destructive/20 bg-destructive/10 p-3">
+              <p className="text-xs text-destructive">
+                {t('dialog.typePhrase', { phrase: resetConfirmationPhrase })}
               </p>
+              <Input
+                value={projectResetConfirmation}
+                onChange={(event) => setProjectResetConfirmation(event.target.value)}
+                placeholder={t('dialog.typePhrasePlaceholder')}
+              />
             </div>
           </div>
 
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => setShowResetDialog(false)}
-              disabled={resetting}
+              onClick={() => setShowProjectResetDialog(false)}
+              disabled={resettingProjectData}
             >
               {t('button.cancel')}
             </Button>
             <Button
               variant="destructive"
-              onClick={handleResetDatabase}
-              disabled={resetting}
+              onClick={handleResetProjectData}
+              disabled={
+                resettingProjectData ||
+                !currentProject ||
+                projectResetConfirmation !== resetConfirmationPhrase
+              }
             >
-              {resetting ? t('dialog.resetting') : t('dialog.yesResetDb')}
+              {resettingProjectData ? t('dialog.processing') : t('dialog.confirmProjectReset')}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Confirmation Dialog for Workspace Data Reset */}
-      <Dialog open={showResetWorkspaceDialog} onOpenChange={setShowResetWorkspaceDialog}>
+      {/* Confirmation Dialog for Project Delete */}
+      <Dialog
+        open={showProjectDeleteDialog}
+        onOpenChange={(nextOpen) => {
+          setShowProjectDeleteDialog(nextOpen);
+          if (!nextOpen) {
+            setProjectDeleteConfirmation('');
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-[450px]">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-amber-600">
+            <DialogTitle className="flex items-center gap-2 text-destructive">
               <AlertTriangleIcon className="h-5 w-5" />
-              {t('dialog.resetWsTitle')}
+              {t('dialog.deleteProjectTitle')}
             </DialogTitle>
             <DialogDescription>
-              {t('dialog.resetWsDesc')}
+              {t('dialog.deleteProjectDesc', {
+                projectName: currentProject?.name ?? '-',
+              })}
             </DialogDescription>
           </DialogHeader>
 
           <div className="py-4">
             <ul className="list-disc list-inside space-y-2 text-sm text-muted-foreground">
-              <li>{t('dialog.resetWsItem1')}</li>
-              <li>{t('dialog.resetWsItem2')}</li>
-              <li>{t('dialog.resetWsItem3')}</li>
-              <li>{t('dialog.resetWsItem4')}</li>
+              <li>{t('dialog.deleteProjectItem1')}</li>
+              <li>{t('dialog.deleteProjectItem2')}</li>
+              <li>{t('dialog.deleteProjectItem3')}</li>
+              <li>{t('dialog.deleteProjectItem4')}</li>
             </ul>
 
-            <div className="mt-4 p-3 bg-amber-500/10 rounded-md border border-amber-500/20">
-              <p className="text-sm font-medium text-amber-700">
-                {t('dialog.resetWsNote')}
+            <div className="mt-4 grid gap-2 rounded-md border border-destructive/20 bg-destructive/10 p-3">
+              <p className="text-xs text-destructive">
+                {t('dialog.typePhrase', { phrase: deleteConfirmationPhrase })}
               </p>
+              <Input
+                value={projectDeleteConfirmation}
+                onChange={(event) => setProjectDeleteConfirmation(event.target.value)}
+                placeholder={t('dialog.typePhrasePlaceholder')}
+              />
             </div>
           </div>
 
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => setShowResetWorkspaceDialog(false)}
-              disabled={resettingWorkspace}
+              onClick={() => setShowProjectDeleteDialog(false)}
+              disabled={deletingProject}
             >
               {t('button.cancel')}
             </Button>
             <Button
               variant="destructive"
-              onClick={handleResetWorkspaceData}
-              disabled={resettingWorkspace}
+              onClick={handleDeleteProject}
+              disabled={
+                deletingProject ||
+                !currentProject ||
+                currentProject.is_default ||
+                projectDeleteConfirmation !== deleteConfirmationPhrase
+              }
             >
-              {resettingWorkspace ? t('dialog.resetting') : t('dialog.yesResetWs')}
+              {deletingProject ? t('dialog.processing') : t('dialog.confirmProjectDelete')}
             </Button>
           </DialogFooter>
         </DialogContent>

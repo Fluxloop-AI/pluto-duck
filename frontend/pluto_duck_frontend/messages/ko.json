@@ -67,11 +67,7 @@
       "modelReadyMsg": "\"{name}\" 로컬 모델이 준비되었습니다.",
       "downloadInProgressMsg": "모델 다운로드를 백그라운드에서 진행 중입니다. 설정 창을 닫아도 계속됩니다.",
       "confirmDelete": "정말로 로컬 모델 \"{name}\"을(를) 삭제할까요?",
-      "modelDeletedMsg": "로컬 모델 \"{name}\"을(를) 삭제했습니다.",
-      "dbResetSuccess": "데이터베이스가 초기화되었습니다! 애플리케이션을 다시 시작하세요.",
-      "dbResetError": "데이터베이스 초기화에 실패했습니다",
-      "workspaceResetSuccess": "워크스페이스가 초기화되었습니다!",
-      "workspaceResetError": "워크스페이스 데이터 초기화에 실패했습니다"
+      "modelDeletedMsg": "로컬 모델 \"{name}\"을(를) 삭제했습니다."
     },
     "updates": {
       "autoUpdates": "자동 업데이트",
@@ -85,41 +81,51 @@
       "check": "확인"
     },
     "data": {
-      "title": "데이터 관리",
-      "workspaceReset": "워크스페이스 초기화",
-      "workspaceResetDesc": "워크스페이스 자체를 삭제하지 않고 모든 워크스페이스 데이터를 초기화합니다.",
-      "workspaceResetDetail": "데이터셋, 보드, 대화, 프로젝트 메타데이터가 삭제됩니다.",
-      "resetWorkspace": "워크스페이스 초기화",
-      "noWorkspace": "선택된 워크스페이스가 없습니다.",
-      "dangerZone": "위험 영역",
-      "dbResetDesc": "초기화 문제를 해결하기 위해 데이터베이스를 초기화합니다.",
-      "dbResetWarning": "모든 대화, 메시지, 프로젝트, 데이터 소스가 영구적으로 삭제됩니다."
+      "title": "프로젝트 데이터",
+      "projectDataReset": "프로젝트 데이터 초기화",
+      "projectDataResetDesc": "프로젝트 자체는 유지하고 현재 프로젝트의 모든 데이터를 초기화합니다.",
+      "projectDataResetDetail": "데이터셋, 보드, 대화, 프로젝트 범위 메타데이터가 삭제됩니다.",
+      "resetProjectData": "프로젝트 데이터 초기화",
+      "projectResetSuccess": "프로젝트 데이터가 초기화되었습니다.",
+      "projectDeleteSuccess": "프로젝트가 영구 삭제되었습니다.",
+      "deleteProjectPermanently": "프로젝트 영구 삭제",
+      "deleteProjectDesc": "현재 프로젝트와 연관된 모든 데이터를 영구 삭제합니다.",
+      "deleteProjectWarning": "이 작업은 되돌릴 수 없습니다.",
+      "deleteProjectButton": "프로젝트 영구 삭제",
+      "defaultDeleteDisabled": "기본 프로젝트는 삭제할 수 없습니다.",
+      "noProject": "선택된 프로젝트가 없습니다.",
+      "error": {
+        "confirmationMismatch": "확인 문구가 일치하지 않습니다.",
+        "defaultDeleteBlocked": "기본 프로젝트는 삭제할 수 없습니다.",
+        "projectNotFound": "프로젝트를 찾을 수 없습니다.",
+        "projectResetFailed": "프로젝트 데이터 초기화에 실패했습니다.",
+        "projectDeleteFailed": "프로젝트 영구 삭제에 실패했습니다."
+      }
     },
     "dialog": {
-      "resetDbTitle": "데이터베이스를 초기화할까요?",
-      "resetDbDesc": "이 작업은 취소할 수 없습니다. 다음 항목이 영구적으로 삭제됩니다:",
-      "resetDbItem1": "모든 대화 기록 및 메시지",
-      "resetDbItem2": "모든 프로젝트 및 워크스페이스",
-      "resetDbItem3": "모든 데이터 소스 및 가져온 데이터",
-      "resetDbItem4": "모든 사용자 설정 (별도 저장된 API 키 제외)",
-      "resetDbConfirm": "정말로 계속하시겠습니까?",
-      "resetting": "초기화 중...",
-      "yesResetDb": "예, 데이터베이스 초기화",
-      "resetWsTitle": "워크스페이스를 초기화할까요?",
-      "resetWsDesc": "현재 워크스페이스의 데이터가 영구적으로 삭제됩니다.",
-      "resetWsItem1": "데이터셋 (파일 가져오기 및 캐시된 테이블)",
-      "resetWsItem2": "보드 및 보드 항목",
-      "resetWsItem3": "대화 및 메시지",
-      "resetWsItem4": "데이터 소스 메타데이터 및 캐시된 진단",
-      "resetWsNote": "워크스페이스는 유지되지만 내용은 삭제됩니다.",
-      "yesResetWs": "예, 워크스페이스 초기화"
+      "resetProjectTitle": "프로젝트 데이터를 초기화할까요?",
+      "resetProjectDesc": "\"{projectName}\" 프로젝트의 데이터가 영구적으로 삭제됩니다.",
+      "resetProjectItem1": "데이터셋(가져온 파일 및 캐시 테이블)",
+      "resetProjectItem2": "보드 및 보드 항목",
+      "resetProjectItem3": "대화 및 메시지",
+      "resetProjectItem4": "프로젝트 범위 메타데이터 및 분석 캐시",
+      "deleteProjectTitle": "프로젝트를 영구 삭제할까요?",
+      "deleteProjectDesc": "\"{projectName}\" 프로젝트가 완전히 삭제됩니다.",
+      "deleteProjectItem1": "프로젝트 레코드 및 설정",
+      "deleteProjectItem2": "모든 프로젝트 데이터셋 및 메타데이터",
+      "deleteProjectItem3": "보드, 대화, 연관 아티팩트",
+      "deleteProjectItem4": "프로젝트 웨어하우스 파일 및 분석 정의",
+      "typePhrase": "계속하려면 다음 문구를 정확히 입력하세요: {phrase}",
+      "typePhrasePlaceholder": "확인 문구를 그대로 입력",
+      "processing": "처리 중...",
+      "confirmProjectReset": "예, 프로젝트 데이터 초기화",
+      "confirmProjectDelete": "예, 영구 삭제"
     },
     "button": {
       "cancel": "취소",
       "save": "저장",
       "saveChanges": "변경 사항 저장",
-      "saving": "저장 중...",
-      "resetDatabase": "데이터베이스 초기화"
+      "saving": "저장 중..."
     }
   },
   "nav": {

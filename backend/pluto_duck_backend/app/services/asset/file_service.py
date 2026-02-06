@@ -26,6 +26,7 @@ import duckdb
 from pluto_duck_backend.app.core.config import get_settings
 from pluto_duck_backend.app.services.duckdb_utils import connect_warehouse
 from .errors import AssetError, AssetNotFoundError, AssetValidationError
+from .path_validation import normalize_and_validate_user_file_path
 
 
 # =============================================================================
@@ -228,6 +229,43 @@ class FileAssetService:
         """Get a DuckDB connection (serialized for stability)."""
         with connect_warehouse(self.warehouse_path) as conn:
             yield conn
+
+    def _find_foreign_table_owner(
+        self,
+        conn: duckdb.DuckDBPyConnection,
+        table_name: str,
+    ) -> Optional[str]:
+        row = conn.execute(
+            f"""
+            SELECT project_id
+            FROM {self.METADATA_SCHEMA}.{self.METADATA_TABLE}
+            WHERE table_name = ?
+              AND project_id <> ?
+            LIMIT 1
+            """,
+            [table_name, self.project_id],
+        ).fetchone()
+        return str(row[0]) if row else None
+
+    def _ensure_table_not_owned_by_other_project(
+        self,
+        conn: duckdb.DuckDBPyConnection,
+        table_name: str,
+    ) -> None:
+        owner_project_id = self._find_foreign_table_owner(conn, table_name)
+        if owner_project_id is None:
+            return
+
+        logger.warning(
+            "[FileAssetService.import_file] Blocked cross-project table collision: table=%s owner=%s requester=%s",
+            table_name,
+            owner_project_id,
+            self.project_id,
+        )
+        raise AssetValidationError(
+            f"Table '{table_name}' is already used by another project. "
+            "Choose a different table name and retry."
+        )
 
     def _ensure_metadata_tables(self) -> None:
         """Ensure metadata tables exist."""
@@ -450,10 +488,17 @@ class FileAssetService:
             AssetError: If import fails
         """
         logger.info(f"[FileAssetService.import_file] Called with table_name={table_name}, diagnosis_id={diagnosis_id}")
+        try:
+            normalized_file_path = normalize_and_validate_user_file_path(file_path)
+        except ValueError as exc:
+            raise AssetValidationError(str(exc)) from exc
+
         # Validate file exists
-        path = Path(file_path)
+        path = Path(normalized_file_path)
         if not path.exists():
-            raise AssetValidationError(f"File not found: {file_path}")
+            raise AssetValidationError(f"File not found: {normalized_file_path}")
+        if not path.is_file():
+            raise AssetValidationError(f"Path is not a file: {normalized_file_path}")
 
         # Get file size
         file_size_bytes = path.stat().st_size
@@ -473,14 +518,16 @@ class FileAssetService:
 
         # Build read expression
         if file_type == "csv":
-            read_expr = f"read_csv('{file_path}', auto_detect=true)"
+            read_expr = f"read_csv('{normalized_file_path}', auto_detect=true)"
         elif file_type == "parquet":
-            read_expr = f"read_parquet('{file_path}')"
+            read_expr = f"read_parquet('{normalized_file_path}')"
         else:
             raise AssetValidationError(f"Unsupported file type: {file_type}")
 
         with self._get_connection() as conn:
             try:
+                self._ensure_table_not_owned_by_other_project(conn, safe_table)
+
                 if mode in ("append", "merge"):
                     # Check table exists early for append/merge
                     result = conn.execute(f"""
@@ -595,13 +642,13 @@ class FileAssetService:
                     self._insert_file_source(
                         conn,
                         file_asset_id=asset_id,
-                        file_path=file_path,
+                        file_path=normalized_file_path,
                         row_count=source_row_count,
                         file_size_bytes=file_size_bytes,
                         added_at=now,
                     )
 
-                    file_name = Path(file_path).name if file_path else None
+                    file_name = Path(normalized_file_path).name if normalized_file_path else None
                     message = f"Dataset appended from {file_name}" if file_name else "Dataset appended"
                     self._append_file_event(
                         file_asset_id=asset_id,
@@ -650,7 +697,7 @@ class FileAssetService:
                 asset_id,
                 self.project_id,
                 name or table_name,
-                file_path,
+                normalized_file_path,
                 file_type,
                 safe_table,
                 description,
@@ -666,13 +713,13 @@ class FileAssetService:
             self._insert_file_source(
                 conn,
                 file_asset_id=asset_id,
-                file_path=file_path,
+                file_path=normalized_file_path,
                 row_count=source_row_count,
                 file_size_bytes=file_size_bytes,
                 added_at=now,
             )
 
-            file_name = Path(file_path).name if file_path else None
+            file_name = Path(normalized_file_path).name if normalized_file_path else None
             message = f"Dataset created from {file_name}" if file_name else "Dataset created"
             self._append_file_event(
                 file_asset_id=asset_id,
@@ -683,7 +730,7 @@ class FileAssetService:
         return FileAsset(
             id=asset_id,
             name=name or table_name,
-            file_path=file_path,
+            file_path=normalized_file_path,
             file_type=file_type,
             table_name=safe_table,
             description=description,
@@ -697,8 +744,8 @@ class FileAssetService:
                 FileSource(
                     id=None,
                     file_asset_id=asset_id,
-                    file_path=file_path,
-                    original_name=Path(file_path).name if file_path else None,
+                    file_path=normalized_file_path,
+                    original_name=Path(normalized_file_path).name if normalized_file_path else None,
                     row_count=source_row_count,
                     file_size_bytes=file_size_bytes,
                     added_at=now,

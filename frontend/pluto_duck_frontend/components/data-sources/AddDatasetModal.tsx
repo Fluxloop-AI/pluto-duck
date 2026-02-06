@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Upload, Folder, FileSpreadsheet, Database, FileText, Trash2, X } from 'lucide-react';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import type { UnlistenFn } from '@tauri-apps/api/event';
 import { Dialog, DialogContent } from '../ui/dialog';
 import { Button } from '../ui/button';
+import { Input } from '../ui/input';
 import { isTauriRuntime } from '../../lib/tauriRuntime';
 import { importFile, diagnoseFiles, countDuplicateRows, type FileType, type FileDiagnosis, type DiagnoseFileRequest, type DuplicateCountResponse, type MergedAnalysis, type FileAsset } from '../../lib/fileAssetApi';
 import { DiagnosisResultView } from './DiagnosisResultView';
@@ -16,7 +17,6 @@ interface SelectedFile {
   id: string;
   name: string;
   path: string | null;
-  file?: File;
 }
 
 // Allowed file extensions
@@ -44,6 +44,14 @@ function getFileType(filename: string): FileType | null {
   if (ext === 'csv') return 'csv';
   if (ext === 'parquet') return 'parquet';
   return null;
+}
+
+function isAbsolutePath(path: string): boolean {
+  return path.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(path) || /^\\\\[^\\]/.test(path);
+}
+
+function hasParentTraversal(path: string): boolean {
+  return path.split(/[\\/]+/).some(segment => segment === '..');
 }
 
 // Helper to check if all file diagnoses have identical schemas
@@ -111,6 +119,10 @@ function generateTableName(filename: string): string {
     .substring(0, 63); // Max length for identifiers
 }
 
+function buildMissingPathError(fileName: string): string {
+  return `${fileName}: Missing file path in selected entry (unexpected state). Remove and add again from From device.`;
+}
+
 interface AddDatasetModalProps {
   projectId: string;
   open: boolean;
@@ -121,6 +133,49 @@ interface AddDatasetModalProps {
 }
 
 type Step = 'select' | 'preview' | 'analyzing' | 'diagnose';
+
+interface WebPathInputPanelProps {
+  pendingPath: string;
+  pathInputError: string | null;
+  onPathChange: (value: string) => void;
+  onPathSubmit: () => void;
+  onPathCancel: () => void;
+}
+
+function WebPathInputPanel({
+  pendingPath,
+  pathInputError,
+  onPathChange,
+  onPathSubmit,
+  onPathCancel,
+}: WebPathInputPanelProps) {
+  return (
+    <div className="rounded-xl border border-border bg-muted/30 p-4">
+      <p className="text-sm font-medium text-foreground mb-2">Absolute file path</p>
+      <div className="flex items-center gap-2">
+        <Input
+          value={pendingPath}
+          onChange={(e) => onPathChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              onPathSubmit();
+            }
+          }}
+          placeholder="/absolute/path/to/data.csv"
+          className="flex-1"
+        />
+        <Button type="button" onClick={onPathSubmit} className="px-4">
+          Add
+        </Button>
+        <Button type="button" variant="secondary" onClick={onPathCancel} className="px-4">
+          Cancel
+        </Button>
+      </div>
+      {pathInputError && <p className="text-sm text-destructive mt-2">{pathInputError}</p>}
+    </div>
+  );
+}
 
 // ============================================================================
 // SelectSourceView - Initial view with dropzone and options
@@ -135,6 +190,12 @@ interface SelectSourceViewProps {
   onDragOver: (e: React.DragEvent) => void;
   onDragLeave: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
+  showPathInput: boolean;
+  pendingPath: string;
+  pathInputError: string | null;
+  onPathChange: (value: string) => void;
+  onPathSubmit: () => void;
+  onPathCancel: () => void;
 }
 
 function SelectSourceView({
@@ -146,6 +207,12 @@ function SelectSourceView({
   onDragOver,
   onDragLeave,
   onDrop,
+  showPathInput,
+  pendingPath,
+  pathInputError,
+  onPathChange,
+  onPathSubmit,
+  onPathCancel,
 }: SelectSourceViewProps) {
   return (
     <div className="flex flex-col h-full p-8">
@@ -194,6 +261,18 @@ function SelectSourceView({
         </button>
       </div>
 
+      {showPathInput && (
+        <div className="mb-6">
+          <WebPathInputPanel
+            pendingPath={pendingPath}
+            pathInputError={pathInputError}
+            onPathChange={onPathChange}
+            onPathSubmit={onPathSubmit}
+            onPathCancel={onPathCancel}
+          />
+        </div>
+      )}
+
       {/* Cancel Button */}
       <Button
         variant="secondary"
@@ -219,6 +298,12 @@ interface FilePreviewViewProps {
   onClose: () => void;
   isDiagnosing: boolean;
   diagnosisError: string | null;
+  showPathInput: boolean;
+  pendingPath: string;
+  pathInputError: string | null;
+  onPathChange: (value: string) => void;
+  onPathSubmit: () => void;
+  onPathCancel: () => void;
 }
 
 function FilePreviewView({
@@ -230,6 +315,12 @@ function FilePreviewView({
   onClose,
   isDiagnosing,
   diagnosisError,
+  showPathInput,
+  pendingPath,
+  pathInputError,
+  onPathChange,
+  onPathSubmit,
+  onPathCancel,
 }: FilePreviewViewProps) {
   return (
     <div className="flex flex-col h-full">
@@ -274,6 +365,18 @@ function FilePreviewView({
           </div>
         ))}
       </div>
+
+      {showPathInput && (
+        <div className="px-8 pb-4">
+          <WebPathInputPanel
+            pendingPath={pendingPath}
+            pathInputError={pathInputError}
+            onPathChange={onPathChange}
+            onPathSubmit={onPathSubmit}
+            onPathCancel={onPathCancel}
+          />
+        </div>
+      )}
 
       {/* Error message */}
       {diagnosisError && (
@@ -340,9 +443,9 @@ export function AddDatasetModal({
   const [llmReady, setLlmReady] = useState(false);
   const [duplicateInfo, setDuplicateInfo] = useState<DuplicateCountResponse | null>(null);
   const [mergedAnalysis, setMergedAnalysis] = useState<MergedAnalysis | null>(null);
-
-  // Ref for hidden file input (web fallback)
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showPathInput, setShowPathInput] = useState(false);
+  const [pendingPath, setPendingPath] = useState('');
+  const [pathInputError, setPathInputError] = useState<string | null>(null);
 
   // Reset state when modal closes
   useEffect(() => {
@@ -360,6 +463,9 @@ export function AddDatasetModal({
       setLlmReady(false);
       setDuplicateInfo(null);
       setMergedAnalysis(null);
+      setShowPathInput(false);
+      setPendingPath('');
+      setPathInputError(null);
     }
   }, [open]);
 
@@ -394,8 +500,8 @@ export function AddDatasetModal({
             setIsDragOver(false);
           }
         });
-      } catch (error) {
-        console.error('Failed to setup drag drop listener:', error);
+      } catch {
+        setPathInputError('Failed to set up drag and drop listener.');
       }
     };
 
@@ -412,6 +518,9 @@ export function AddDatasetModal({
   const addFiles = useCallback((newFiles: SelectedFile[]) => {
     setSelectedFiles(prev => [...prev, ...newFiles]);
     if (newFiles.length > 0) {
+      setShowPathInput(false);
+      setPendingPath('');
+      setPathInputError(null);
       setStep('preview');
     }
   }, []);
@@ -428,6 +537,9 @@ export function AddDatasetModal({
 
   const clearFiles = useCallback(() => {
     setSelectedFiles([]);
+    setShowPathInput(false);
+    setPendingPath('');
+    setPathInputError(null);
     setStep('select');
   }, []);
 
@@ -457,21 +569,9 @@ export function AddDatasetModal({
 
     setIsDragOver(false);
 
-    // Web environment: handle File objects (no path available)
-    const files = Array.from(e.dataTransfer.files);
-    const newFiles: SelectedFile[] = files
-      .filter(f => isAllowedFile(f.name))
-      .map(f => ({
-        id: generateId(),
-        name: f.name,
-        path: null, // Web doesn't have access to file paths
-        file: f,
-      }));
-
-    if (newFiles.length > 0) {
-      addFiles(newFiles);
-    }
-  }, [addFiles]);
+    setShowPathInput(true);
+    setPathInputError('Drag and drop is not supported in web mode. Paste an absolute file path.');
+  }, []);
 
   // From device button handler
   const handleFromDeviceClick = useCallback(async () => {
@@ -500,36 +600,53 @@ export function AddDatasetModal({
         if (newFiles.length > 0) {
           addFiles(newFiles);
         }
-      } catch (error) {
-        console.error('Failed to open file dialog:', error);
+      } catch {
+        setPathInputError('Failed to open file picker.');
       }
     } else {
-      // Web environment: use hidden file input
-      fileInputRef.current?.click();
+      setShowPathInput(true);
+      setPathInputError(null);
     }
   }, [addFiles]);
 
-  // Handle file input change (web fallback)
-  const handleFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
+  const handleWebPathChange = useCallback((value: string) => {
+    setPendingPath(value);
+    setPathInputError(null);
+  }, []);
 
-    const newFiles: SelectedFile[] = Array.from(files)
-      .filter(f => isAllowedFile(f.name))
-      .map(f => ({
-        id: generateId(),
-        name: f.name,
-        path: null,
-        file: f,
-      }));
+  const handleWebPathCancel = useCallback(() => {
+    setShowPathInput(false);
+    setPendingPath('');
+    setPathInputError(null);
+  }, []);
 
-    if (newFiles.length > 0) {
-      addFiles(newFiles);
+  const handleWebPathSubmit = useCallback(() => {
+    const trimmedPath = pendingPath.trim();
+    if (!trimmedPath) {
+      setPathInputError('File path is required');
+      return;
+    }
+    if (!isAbsolutePath(trimmedPath)) {
+      setPathInputError('Absolute file path is required');
+      return;
+    }
+    if (hasParentTraversal(trimmedPath)) {
+      setPathInputError("Parent traversal ('..') is not allowed");
+      return;
     }
 
-    // Reset input so same file can be selected again
-    e.target.value = '';
-  }, [addFiles]);
+    const fileName = getFileName(trimmedPath);
+    if (!isAllowedFile(fileName)) {
+      setPathInputError('Only .csv and .parquet files are supported');
+      return;
+    }
+
+    addFiles([{
+      id: generateId(),
+      name: fileName,
+      path: trimmedPath,
+    }]);
+  }, [pendingPath, addFiles]);
 
   const handleGoogleSheetsClick = useCallback(() => {
     // Coming soon - no action
@@ -558,7 +675,7 @@ export function AddDatasetModal({
 
     for (const file of selectedFiles) {
       if (!file.path) {
-        errors.push(`${file.name}: No file path available (web upload not supported yet)`);
+        errors.push(buildMissingPathError(file.name));
         continue;
       }
 
@@ -601,9 +718,8 @@ export function AddDatasetModal({
         try {
           dupResponse = await countDuplicateRows(projectId, filesToDiagnose);
           setDuplicateInfo(dupResponse);
-        } catch (dupError) {
+        } catch {
           // Duplicate count failure is not critical
-          console.warn('Duplicate count failed:', dupError);
         }
       }
 
@@ -666,15 +782,13 @@ export function AddDatasetModal({
               if (!stillPending) {
                 break;
               }
-            } catch (pollError) {
-              console.warn('LLM analysis polling failed:', pollError);
+            } catch {
               break;
             }
           }
         }
-      } catch (llmError) {
+      } catch {
         // LLM failure is not critical - we already have the fast diagnosis
-        console.warn('LLM analysis failed, using basic diagnosis:', llmError);
       }
 
       setLlmReady(true);
@@ -683,7 +797,6 @@ export function AddDatasetModal({
       const message = error instanceof Error ? error.message : 'Failed to diagnose files';
       setDiagnosisError(message);
       setStep('preview');
-      console.error('Diagnosis failed:', error);
     } finally {
       setIsDiagnosing(false);
     }
@@ -703,9 +816,8 @@ export function AddDatasetModal({
       const firstFile = selectedFiles[0];
 
       if (!firstFile.path) {
-        errors.push(`${firstFile.name}: No file path available (web upload not supported yet)`);
+        errors.push(buildMissingPathError(firstFile.name));
         setIsImporting(false);
-        console.error('First file has no path:', errors);
         return;
       }
 
@@ -713,7 +825,6 @@ export function AddDatasetModal({
       if (!fileType) {
         errors.push(`${firstFile.name}: Unsupported file type`);
         setIsImporting(false);
-        console.error('First file has unsupported type:', errors);
         return;
       }
 
@@ -740,7 +851,6 @@ export function AddDatasetModal({
         const message = error instanceof Error ? error.message : 'Unknown error';
         errors.push(`${firstFile.name}: ${message}`);
         setIsImporting(false);
-        console.error('First file failed to import:', errors);
         return; // First file failure means entire merge fails
       }
 
@@ -749,15 +859,13 @@ export function AddDatasetModal({
         const file = selectedFiles[i];
 
         if (!file.path) {
-          errors.push(`${file.name}: No file path available`);
-          console.warn(`Skipping file without path: ${file.name}`);
+          errors.push(buildMissingPathError(file.name));
           continue;
         }
 
         const appendFileType = getFileType(file.name);
         if (!appendFileType) {
           errors.push(`${file.name}: Unsupported file type`);
-          console.warn(`Skipping file with unsupported type: ${file.name}`);
           continue;
         }
 
@@ -775,7 +883,6 @@ export function AddDatasetModal({
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Unknown error';
           errors.push(`${file.name}: ${message}`);
-          console.warn(`Append failed for ${file.name}:`, message);
           // Continue with remaining files (partial success allowed)
         }
       }
@@ -783,9 +890,6 @@ export function AddDatasetModal({
       setIsImporting(false);
       onImportSuccess?.(createdAsset);
 
-      if (errors.length > 0) {
-        console.warn('Some files failed during merge:', errors);
-      }
       onOpenChange(false);
       return;
     }
@@ -802,7 +906,7 @@ export function AddDatasetModal({
 
       // Only Tauri files with paths can be imported
       if (!file.path) {
-        errors.push(`${file.name}: No file path available (web upload not supported yet)`);
+        errors.push(buildMissingPathError(file.name));
         failCount++;
         continue;
       }
@@ -851,12 +955,11 @@ export function AddDatasetModal({
       // All files imported successfully
       onOpenChange(false);
     } else if (successCount > 0) {
-      // Partial success - log errors but close modal
-      console.warn('Some files failed to import:', errors);
+      // Partial success - close modal to keep current UX
       onOpenChange(false);
     } else {
-      // All files failed
-      console.error('All files failed to import:', errors);
+      // All files failed; keep modal open so user can retry
+      setDiagnosisError(errors.join('\n'));
       // Keep modal open so user can see the files and retry
     }
   }, [projectId, selectedFiles, mergeFiles, schemasMatch, removeDuplicates, diagnosisResults, mergedAnalysis, onImportSuccess, onOpenChange]);
@@ -876,16 +979,6 @@ export function AddDatasetModal({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="p-0 gap-0 sm:max-w-[600px] h-[580px] rounded-3xl overflow-hidden">
-        {/* Hidden file input for web fallback */}
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".csv,.parquet"
-          multiple
-          className="hidden"
-          onChange={handleFileInputChange}
-        />
-
         {step === 'select' && (
           <SelectSourceView
             onFromDeviceClick={handleFromDeviceClick}
@@ -896,6 +989,12 @@ export function AddDatasetModal({
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
+            showPathInput={showPathInput}
+            pendingPath={pendingPath}
+            pathInputError={pathInputError}
+            onPathChange={handleWebPathChange}
+            onPathSubmit={handleWebPathSubmit}
+            onPathCancel={handleWebPathCancel}
           />
         )}
         {step === 'preview' && (
@@ -908,6 +1007,12 @@ export function AddDatasetModal({
             onClose={handleCancel}
             isDiagnosing={isDiagnosing}
             diagnosisError={diagnosisError}
+            showPathInput={showPathInput}
+            pendingPath={pendingPath}
+            pathInputError={pathInputError}
+            onPathChange={handleWebPathChange}
+            onPathSubmit={handleWebPathSubmit}
+            onPathCancel={handleWebPathCancel}
           />
         )}
         {step === 'analyzing' && (

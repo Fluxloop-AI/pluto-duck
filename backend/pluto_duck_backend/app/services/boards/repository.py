@@ -94,8 +94,15 @@ class BoardsRepository:
         from uuid import uuid4
         return str(uuid4())
 
+    def _now_utc_iso(self) -> str:
+        """Return current UTC timestamp in ISO 8601 format."""
+        return datetime.now(UTC).isoformat()
+
     def _ensure_utc(self, value: datetime) -> datetime:
-        """Ensure datetime has UTC timezone."""
+        """Ensure datetime has UTC timezone.
+
+        Defensive path for legacy rows saved without timezone metadata.
+        """
         if value.tzinfo is None:
             return value.replace(tzinfo=UTC)
         return value.astimezone(UTC)
@@ -108,10 +115,10 @@ class BoardsRepository:
         name: str,
         description: Optional[str] = None,
         settings: Optional[Dict[str, Any]] = None,
-    ) -> str:
+        ) -> str:
         """Create a new board."""
         board_id = self._generate_uuid()
-        now = datetime.now(UTC).isoformat()
+        now = self._now_utc_iso()
         settings_json = json.dumps(settings or {})
 
         with self._connect() as con:
@@ -220,7 +227,9 @@ class BoardsRepository:
         if not updates:
             return False
 
-        updates.append("updated_at = CURRENT_TIMESTAMP")
+        now = self._now_utc_iso()
+        updates.append("updated_at = ?")
+        params.append(now)
         params.append(board_id)
 
         with self._connect() as con:
@@ -265,11 +274,12 @@ class BoardsRepository:
 
     def reorder_boards(self, project_id: str, board_positions: List[Tuple[str, int]]) -> bool:
         """Reorder boards by updating positions."""
+        now = self._now_utc_iso()
         with self._connect() as con:
             for board_id, position in board_positions:
                 con.execute(
-                    "UPDATE boards SET position = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND project_id = ?",
-                    [position, board_id, project_id],
+                    "UPDATE boards SET position = ?, updated_at = ? WHERE id = ? AND project_id = ?",
+                    [position, now, board_id, project_id],
                 )
 
         return True
@@ -290,7 +300,7 @@ class BoardsRepository:
     ) -> str:
         """Create a board item."""
         item_id = self._generate_uuid()
-        now = datetime.now(UTC).isoformat()
+        now = self._now_utc_iso()
         payload_json = json.dumps(payload)
         render_config_json = json.dumps(render_config) if render_config else None
 
@@ -408,7 +418,7 @@ class BoardsRepository:
         if not updates:
             return False
 
-        now = datetime.now(UTC).isoformat()
+        now = self._now_utc_iso()
         updates.append("updated_at = ?")
         params.append(now)
         params.append(item_id)
@@ -450,7 +460,7 @@ class BoardsRepository:
         height: int,
     ) -> bool:
         """Update item position and size."""
-        now = datetime.now(UTC).isoformat()
+        now = self._now_utc_iso()
         
         with self._connect() as con:
             con.execute(
@@ -476,7 +486,7 @@ class BoardsRepository:
     ) -> str:
         """Create a query for a board item."""
         query_id = self._generate_uuid()
-        now = datetime.now(UTC).isoformat()
+        now = self._now_utc_iso()
         tables_json = json.dumps(data_source_tables or [])
 
         with self._connect() as con:
@@ -583,7 +593,9 @@ class BoardsRepository:
         if not updates:
             return False
 
-        updates.append("updated_at = CURRENT_TIMESTAMP")
+        now = self._now_utc_iso()
+        updates.append("updated_at = ?")
+        params.append(now)
         params.append(query_id)
 
         with self._connect() as con:
@@ -603,7 +615,7 @@ class BoardsRepository:
         error_message: Optional[str] = None,
     ) -> bool:
         """Update query execution result and status."""
-        now = datetime.now(UTC).isoformat()
+        now = self._now_utc_iso()
         result_json = json.dumps(result) if result else None
 
         with self._connect() as con:
@@ -615,10 +627,10 @@ class BoardsRepository:
                     last_result_rows = ?,
                     execution_status = ?,
                     error_message = ?,
-                    updated_at = CURRENT_TIMESTAMP
+                    updated_at = ?
                 WHERE id = ?
                 """,
-                [now, result_json, rows, status, error_message, query_id],
+                [now, result_json, rows, status, error_message, now, query_id],
             )
 
         return True
@@ -637,7 +649,7 @@ class BoardsRepository:
     ) -> str:
         """Create an asset record."""
         asset_id = self._generate_uuid()
-        now = datetime.now(UTC).isoformat()
+        now = self._now_utc_iso()
 
         with self._connect() as con:
             con.execute(
@@ -731,4 +743,3 @@ def get_boards_repository() -> BoardsRepository:
     """Get boards repository singleton."""
     settings = get_settings()
     return BoardsRepository(settings.duckdb.path)
-

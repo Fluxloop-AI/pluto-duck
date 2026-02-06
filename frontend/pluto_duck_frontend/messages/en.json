@@ -67,11 +67,7 @@
       "modelReadyMsg": "\"{name}\" local model is ready.",
       "downloadInProgressMsg": "Model download is in progress in the background. It continues even if you close this window.",
       "confirmDelete": "Are you sure you want to delete local model \"{name}\"?",
-      "modelDeletedMsg": "Local model \"{name}\" has been deleted.",
-      "dbResetSuccess": "Database reset successfully! Please restart the application.",
-      "dbResetError": "Failed to reset database",
-      "workspaceResetSuccess": "Workspace reset successfully!",
-      "workspaceResetError": "Failed to reset workspace data"
+      "modelDeletedMsg": "Local model \"{name}\" has been deleted."
     },
     "updates": {
       "autoUpdates": "Auto Updates",
@@ -85,41 +81,51 @@
       "check": "Check"
     },
     "data": {
-      "title": "Data Management",
-      "workspaceReset": "Workspace Reset",
-      "workspaceResetDesc": "Reset all workspace data without deleting the workspace itself.",
-      "workspaceResetDetail": "This will delete datasets, boards, conversations, and project metadata.",
-      "resetWorkspace": "Reset Workspace",
-      "noWorkspace": "No active workspace selected.",
-      "dangerZone": "Danger Zone",
-      "dbResetDesc": "Reset the database to fix initialization issues.",
-      "dbResetWarning": "This will permanently delete all conversations, messages, projects, and data sources."
+      "title": "Project Data",
+      "projectDataReset": "Reset Project Data",
+      "projectDataResetDesc": "Reset all data in the current project without deleting the project itself.",
+      "projectDataResetDetail": "This deletes datasets, boards, conversations, and project-scoped metadata.",
+      "resetProjectData": "Reset Project Data",
+      "projectResetSuccess": "Project data reset successfully.",
+      "projectDeleteSuccess": "Project deleted permanently.",
+      "deleteProjectPermanently": "Delete Project Permanently",
+      "deleteProjectDesc": "Permanently delete this project and all related records.",
+      "deleteProjectWarning": "This action cannot be undone.",
+      "deleteProjectButton": "Delete Project Permanently",
+      "defaultDeleteDisabled": "Default project cannot be deleted.",
+      "noProject": "No active project selected.",
+      "error": {
+        "confirmationMismatch": "Confirmation phrase does not match.",
+        "defaultDeleteBlocked": "Default project cannot be deleted.",
+        "projectNotFound": "Project not found.",
+        "projectResetFailed": "Failed to reset project data.",
+        "projectDeleteFailed": "Failed to delete project permanently."
+      }
     },
     "dialog": {
-      "resetDbTitle": "Reset Database?",
-      "resetDbDesc": "This action cannot be undone. This will permanently delete:",
-      "resetDbItem1": "All conversation history and messages",
-      "resetDbItem2": "All projects and workspaces",
-      "resetDbItem3": "All data sources and imported data",
-      "resetDbItem4": "All user settings (except API keys which are stored separately)",
-      "resetDbConfirm": "Are you absolutely sure you want to continue?",
-      "resetting": "Resetting...",
-      "yesResetDb": "Yes, Reset Database",
-      "resetWsTitle": "Reset Workspace?",
-      "resetWsDesc": "This will permanently delete data in the current workspace.",
-      "resetWsItem1": "Datasets (file imports and cached tables)",
-      "resetWsItem2": "Boards and board items",
-      "resetWsItem3": "Conversations and messages",
-      "resetWsItem4": "Data source metadata and cached diagnoses",
-      "resetWsNote": "The workspace will remain, but its contents will be cleared.",
-      "yesResetWs": "Yes, Reset Workspace"
+      "resetProjectTitle": "Reset Project Data?",
+      "resetProjectDesc": "This will permanently delete project data for \"{projectName}\".",
+      "resetProjectItem1": "Datasets (imports and cached tables)",
+      "resetProjectItem2": "Boards and board items",
+      "resetProjectItem3": "Conversations and messages",
+      "resetProjectItem4": "Project-scoped metadata and cached analyses",
+      "deleteProjectTitle": "Delete Project Permanently?",
+      "deleteProjectDesc": "This will permanently delete project \"{projectName}\".",
+      "deleteProjectItem1": "Project row and settings",
+      "deleteProjectItem2": "All project datasets and metadata",
+      "deleteProjectItem3": "Boards, conversations, and related artifacts",
+      "deleteProjectItem4": "Project warehouse files and analysis definitions",
+      "typePhrase": "Type this phrase to continue: {phrase}",
+      "typePhrasePlaceholder": "Type confirmation phrase exactly",
+      "processing": "Processing...",
+      "confirmProjectReset": "Yes, Reset Project Data",
+      "confirmProjectDelete": "Yes, Delete Permanently"
     },
     "button": {
       "cancel": "Cancel",
       "save": "Save",
       "saveChanges": "Save Changes",
-      "saving": "Saving...",
-      "resetDatabase": "Reset Database"
+      "saving": "Saving..."
     }
   },
   "nav": {

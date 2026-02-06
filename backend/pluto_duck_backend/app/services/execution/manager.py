@@ -5,11 +5,10 @@ from __future__ import annotations
 import logging
 import time
 from functools import lru_cache
+from pathlib import Path
 from queue import Queue
 from threading import Thread
 from typing import Optional
-
-from pluto_duck_backend.app.core.config import get_settings
 
 from .service import QueryExecutionService
 
@@ -62,9 +61,7 @@ class QueryExecutionManager:
                 self._queue.task_done()
 
 
-@lru_cache(maxsize=1)
-def get_execution_manager() -> QueryExecutionManager:
-    settings = get_settings()
-    service = QueryExecutionService(settings.duckdb.path)
+@lru_cache(maxsize=32)
+def get_execution_manager(*, warehouse_path: Path) -> QueryExecutionManager:
+    service = QueryExecutionService(warehouse_path)
     return QueryExecutionManager(service)
-

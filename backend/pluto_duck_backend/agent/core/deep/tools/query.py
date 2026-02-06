@@ -19,7 +19,11 @@ def _jsonable(value: Any) -> Any:
     return str(value)
 
 
-def build_query_tools(*, warehouse_path: Path) -> List[StructuredTool]:
+def build_query_tools(
+    *,
+    warehouse_path: Path,
+    project_id: Optional[str] = None,
+) -> List[StructuredTool]:
     def run_sql(sql: str, timeout: float = 30.0, preview_limit: int = 20) -> Dict[str, Any]:
         manager = get_execution_manager()
         run_id = manager.submit_sql(sql)
@@ -40,7 +44,10 @@ def build_query_tools(*, warehouse_path: Path) -> List[StructuredTool]:
                 cur = con.execute(f"SELECT * FROM {job.result_table} LIMIT ?", [int(preview_limit)])
                 cols = [d[0] for d in cur.description] if cur.description else []
                 rows = cur.fetchall()
-            payload["preview"] = [{cols[i]: _jsonable(row[i]) for i in range(len(cols))} for row in rows]
+            payload["preview"] = [
+                {cols[i]: _jsonable(row[i]) for i in range(len(cols))}
+                for row in rows
+            ]
 
         return payload
 
@@ -56,5 +63,3 @@ def build_query_tools(*, warehouse_path: Path) -> List[StructuredTool]:
             ),
         )
     ]
-
-

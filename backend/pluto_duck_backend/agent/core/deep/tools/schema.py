@@ -112,7 +112,11 @@ def _jsonable(value: Any) -> Any:
     return str(value)
 
 
-def build_schema_tools(*, warehouse_path: Path) -> List[StructuredTool]:
+def build_schema_tools(
+    *,
+    warehouse_path: Path,
+    project_id: Optional[str] = None,
+) -> List[StructuredTool]:
     """Return schema tools bound to a specific DuckDB warehouse."""
 
     def resolve_table_identifier(
@@ -215,7 +219,11 @@ def build_schema_tools(*, warehouse_path: Path) -> List[StructuredTool]:
         }
 
     return [
-        StructuredTool.from_function(name="list_tables", func=list_tables, description="List tables in DuckDB warehouse."),
+        StructuredTool.from_function(
+            name="list_tables",
+            func=list_tables,
+            description="List tables in DuckDB warehouse.",
+        ),
         StructuredTool.from_function(
             name="describe_table",
             func=describe_table,

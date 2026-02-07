@@ -41,7 +41,7 @@ def build_session_context(
     *,
     conversation_id: str,
     project_id: str | None,
-    experiment_profile_id: str = "v2",
+    experiment_profile_id: str = "v3",
 ) -> SessionContext:
     workspace_root = get_workspace_root(conversation_id)
     workspace_root.mkdir(parents=True, exist_ok=True)

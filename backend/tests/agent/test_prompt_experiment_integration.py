@@ -236,17 +236,21 @@ async def test_env_profile_applies_when_metadata_missing(tmp_path: Path, monkeyp
 
 
 @pytest.mark.asyncio
-async def test_profile_switches_base_and_override_skills_guide_with_same_conversation(
+async def test_profile_switches_base_and_override_blocks_with_same_conversation(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     _set_data_root(tmp_path, monkeypatch, env_profile=None)
     fake_repo = _FakeChatRepo()
     captured_profiles: list[str] = []
-    captured_skills_guides: list[str] = []
+    captured_base_agent_prompts: list[str] = []
 
     monkeypatch.setattr(orchestrator, "get_chat_repository", lambda: fake_repo)
-    _patch_agent_builder(monkeypatch, captured_profiles, captured_skills_guides)
+    _patch_agent_builder(
+        monkeypatch,
+        captured_profiles,
+        captured_base_agent_prompts=captured_base_agent_prompts,
+    )
     _patch_cleanup_task(monkeypatch)
 
     manager = orchestrator.AgentRunManager()
@@ -262,15 +266,16 @@ async def test_profile_switches_base_and_override_skills_guide_with_same_convers
     run_2 = manager.start_run_for_conversation(
         conversation_id,
         "second question",
-        metadata={"_prompt_experiment": "v2-strong-skills-guide"},
+        metadata={"_prompt_experiment": "v3"},
         create_if_missing=False,
     )
     await manager.get_result(run_2)
 
-    assert captured_profiles == ["v2", "v2-strong-skills-guide"]
-    assert len(captured_skills_guides) == 2
-    assert captured_skills_guides[0] != captured_skills_guides[1]
-    assert "skill-guided execution is the default" in captured_skills_guides[1].lower()
+    assert captured_profiles == ["v2", "v3"]
+    assert len(captured_base_agent_prompts) == 2
+    # v2 has no base_agent_prompt block; v3 does
+    assert captured_base_agent_prompts[0] == ""
+    assert captured_base_agent_prompts[1] != ""
 
 
 @pytest.mark.asyncio

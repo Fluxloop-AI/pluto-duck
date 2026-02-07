@@ -108,7 +108,7 @@ def update_settings(request: UpdateSettingsRequest) -> UpdateSettingsResponse:
     
     if request.llm_model is not None:
         # Validate model (optional: add more validation)
-        valid_models = ["gpt-5", "gpt-5-mini", "gpt-4o", "gpt-4o-mini"]
+        valid_models = ["gpt-5", "gpt-5-mini"]
         if not request.llm_model.startswith("local:") and request.llm_model not in valid_models:
             raise HTTPException(
                 status_code=400,

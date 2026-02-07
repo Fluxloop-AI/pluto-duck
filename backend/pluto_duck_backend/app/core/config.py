@@ -60,7 +60,7 @@ class AgentSettings(BaseModel):
     """LLM provider and agent-specific configuration."""
 
     provider: str = Field(default="openai", description="LLM provider identifier")
-    model: str = Field(default="gpt-4.1-mini", description="Default model name")
+    model: str = Field(default="gpt-5-mini", description="Default model name")
     api_base: Optional[HttpUrl] = Field(default=None, description="Override base URL for provider")
     api_key: Optional[str] = Field(default=None, description="API key for the LLM provider")
     mock_mode: bool = Field(

@@ -1675,7 +1675,7 @@ requires-dist = [
     { name = "huggingface-hub", marker = "extra == 'packaging'", specifier = ">=0.24" },
     { name = "langchain", specifier = ">=1.2,<2.0" },
     { name = "langchain-core", specifier = ">=1.2,<2.0" },
-    { name = "langchain-openai", specifier = ">=0.3,<1.0" },
+    { name = "langchain-openai", specifier = ">=0.3.26,<2.0" },
     { name = "langgraph", specifier = ">=1.0,<2.0" },
     { name = "llama-cpp-python", marker = "extra == 'local-llm'", specifier = ">=0.3.2" },
     { name = "llama-cpp-python", marker = "extra == 'packaging'", specifier = ">=0.3.2" },

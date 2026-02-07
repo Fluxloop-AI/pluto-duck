@@ -39,6 +39,24 @@ def test_settings_language_validation(tmp_path, monkeypatch) -> None:
     assert response.status_code == 400
 
 
+def test_settings_llm_model_validation_and_defaults(tmp_path, monkeypatch) -> None:
+    client = create_client(tmp_path, monkeypatch)
+
+    default_settings = client.get("/api/v1/settings")
+    assert default_settings.status_code == 200
+    assert default_settings.json()["llm_model"] == "gpt-5-mini"
+
+    allow_gpt5mini = client.put("/api/v1/settings", json={"llm_model": "gpt-5-mini"})
+    assert allow_gpt5mini.status_code == 200
+
+    allow_local = client.put("/api/v1/settings", json={"llm_model": "local:llama3.1"})
+    assert allow_local.status_code == 200
+
+    reject_gpt4o = client.put("/api/v1/settings", json={"llm_model": "gpt-4o"})
+    assert reject_gpt4o.status_code == 400
+    assert "Invalid model" in reject_gpt4o.json()["detail"]
+
+
 def test_removed_deprecated_reset_endpoints_return_404(tmp_path, monkeypatch) -> None:
     client = create_client(tmp_path, monkeypatch)
     settings_response = client.get("/api/v1/settings")

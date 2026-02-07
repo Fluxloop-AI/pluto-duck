@@ -1,6 +1,6 @@
 id: v2-strong-skills-guide
 base: v2
-description: v2 child profile overriding only skills guide block
+description: v2 child profile overriding only skills guide block (inherits runtime + memory_guide)
 compose_order:
   - runtime
   - skills_guide

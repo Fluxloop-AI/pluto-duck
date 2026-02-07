@@ -10,3 +10,4 @@ compose_order:
 prompt_bundle:
   runtime: v1/runtime.md
   skills_guide: v1/skills_guide.md
+  memory_guide: v1/memory_guide.md

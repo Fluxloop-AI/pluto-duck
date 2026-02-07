@@ -44,6 +44,7 @@ DEFAULT_INDEPENDENT_BUNDLE_TEXT: dict[str, str] = {
         "{project_memory_info}\n"
     ),
 }
+PROTECTED_PROFILE_IDS = frozenset({"v1", "v2"})
 
 
 @dataclass
@@ -677,6 +678,80 @@ def _render_new_profile_section(profile_ids: list[str], profiles_root: Path) -> 
             st.rerun()
 
 
+def _profile_children_map(profile_ids: list[str], profiles_root: Path) -> dict[str, list[str]]:
+    children: dict[str, list[str]] = {profile_id: [] for profile_id in profile_ids}
+    for profile_id in profile_ids:
+        yaml_path = profiles_root / f"{profile_id}.yaml"
+        try:
+            raw = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(raw, dict):
+            continue
+        base_id = str(raw.get("base") or "").strip()
+        if base_id and base_id in children:
+            children[base_id].append(profile_id)
+    return children
+
+
+def _delete_profile_materials(profile_id: str, profiles_root: Path) -> None:
+    yaml_path = profiles_root / f"{profile_id}.yaml"
+    if yaml_path.exists():
+        yaml_path.unlink()
+
+    profile_dir = profiles_root / profile_id
+    if profile_dir.exists() and profile_dir.is_dir():
+        shutil.rmtree(profile_dir)
+
+
+def _render_delete_profile_section(profile_ids: list[str], profiles_root: Path) -> None:
+    children_map = _profile_children_map(profile_ids, profiles_root)
+    deletable = [
+        profile_id for profile_id in profile_ids if profile_id not in PROTECTED_PROFILE_IDS
+    ]
+
+    with st.sidebar.expander("Delete Profile", expanded=False):
+        if not deletable:
+            st.info("No deletable profiles")
+            return
+
+        target = st.selectbox(
+            "Delete target",
+            options=deletable,
+            key="delete_profile_target",
+        )
+        dependents = children_map.get(target, [])
+        if dependents:
+            st.error(
+                "Cannot delete: referenced as base by "
+                + ", ".join(f"`{child}`" for child in sorted(dependents))
+            )
+
+        st.caption("Type profile ID to confirm deletion")
+        confirmation = st.text_input(
+            "Confirm ID",
+            key="delete_profile_confirm",
+            placeholder=target,
+        ).strip()
+
+        disabled = confirmation != target or bool(dependents)
+        if st.button("Delete", key="delete_profile_button", type="secondary", disabled=disabled):
+            try:
+                _delete_profile_materials(target, profiles_root)
+                clear_experiment_profile_cache()
+            except Exception as exc:
+                st.error(f"Delete failed: {exc}")
+                return
+
+            remaining = [profile_id for profile_id in _list_profile_ids(profiles_root)]
+            if remaining:
+                st.session_state["selected_profile"] = (
+                    "v2" if "v2" in remaining else remaining[0]
+                )
+            st.success(f"Deleted profile '{target}'")
+            st.rerun()
+
+
 def _render_loaded_profile(profile_id: str, profiles_root: Path) -> None:
     """Render parsed profile details and resolved prompt blocks."""
 
@@ -820,6 +895,7 @@ def main() -> None:
         st.session_state["selected_profile"] = "v2" if "v2" in profile_ids else profile_ids[0]
 
     _render_new_profile_section(profile_ids, PROFILES_ROOT)
+    _render_delete_profile_section(profile_ids, PROFILES_ROOT)
 
     selected_profile = st.sidebar.selectbox(
         "Profile",

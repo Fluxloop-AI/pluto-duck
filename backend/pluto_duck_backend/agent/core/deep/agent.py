@@ -87,7 +87,9 @@ def build_deep_agent(
     settings = get_settings()
     profile = load_experiment_profile(session_ctx.experiment_profile_id)
     required_static_blocks = tuple(
-        block for block in profile.compose_order if block in {"runtime", "skills_guide"}
+        block
+        for block in profile.compose_order
+        if block in {"runtime", "skills_guide", "base_agent_prompt"}
     )
     prompt_bundle = load_prompt_bundle(profile, required_keys=required_static_blocks)
     for block in required_static_blocks:

@@ -40,6 +40,7 @@ class SystemPromptComposerMiddleware(AgentMiddleware):
     ALLOWED_BLOCKS = frozenset(
         {
             "runtime",
+            "base_agent_prompt",
             "user_profile",
             "memory_section",
             "memory_guide",
@@ -100,6 +101,8 @@ class SystemPromptComposerMiddleware(AgentMiddleware):
             )
         if block == "dataset":
             return str(state.get("dataset_readiness_summary") or "")
+        if block == "base_agent_prompt":
+            return self._required_static_block("base_agent_prompt")
         if block == "skills_guide":
             return self._required_static_block("skills_guide")
         if block == "skills_list":

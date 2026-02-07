@@ -17,7 +17,9 @@ from pluto_duck_backend.app.core.config import PlutoDuckSettings, get_settings
 _DEFAULT_PROFILE_ID = "v2"
 _METADATA_KEY = "_prompt_experiment"
 _LEGACY_PROFILE_IDS = {"v1", "v2"}
-_ALLOWED_PROMPT_BUNDLE_BLOCKS = frozenset({"runtime", "skills_guide", "memory_guide"})
+_ALLOWED_PROMPT_BUNDLE_BLOCKS = frozenset(
+    {"runtime", "skills_guide", "memory_guide", "base_agent_prompt"}
+)
 _RUNTIME_PROMPT_PATH = Path(__file__).parent / "prompts" / "runtime_system_prompt.md"
 _LEGACY_COMPOSE_ORDERS: Mapping[str, tuple[str, ...]] = {
     "v1": (

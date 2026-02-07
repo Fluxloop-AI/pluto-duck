@@ -100,6 +100,14 @@ def test_resolve_profile_id_falls_back_to_env_for_unknown_metadata_profile(monke
     assert resolved == "v2"
 
 
+def test_resolve_profile_id_rejects_metadata_path_traversal(monkeypatch) -> None:
+    settings = _settings_with_env(monkeypatch, profile="v2")
+
+    resolved = resolve_profile_id({"_prompt_experiment": "../v1"}, settings)
+
+    assert resolved == "v2"
+
+
 def test_load_experiment_profile_raises_when_definition_missing(tmp_path: Path) -> None:
     clear_experiment_profile_cache()
 
@@ -354,6 +362,37 @@ def test_load_experiment_profile_raises_for_invalid_memory_guide_placeholder(
     )
 
     with pytest.raises(ValueError, match="unsupported=unknown_placeholder"):
+        load_experiment_profile("exp-a", profiles_root=tmp_path)
+
+
+def test_load_experiment_profile_rejects_profile_id_path_traversal(tmp_path: Path) -> None:
+    clear_experiment_profile_cache()
+
+    with pytest.raises(ValueError, match="path traversal"):
+        load_experiment_profile("../outside", profiles_root=tmp_path)
+
+
+def test_load_experiment_profile_rejects_prompt_bundle_path_traversal(
+    tmp_path: Path,
+) -> None:
+    clear_experiment_profile_cache()
+    (tmp_path / "exp-a.yaml").write_text(
+        "\n".join(
+            [
+                "id: exp-a",
+                "description: desc",
+                "compose_order:",
+                "  - runtime",
+                "prompt_bundle:",
+                "  runtime: ../outside.md",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    outside = tmp_path.parent / "outside.md"
+    outside.write_text("runtime", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="must stay under profiles root"):
         load_experiment_profile("exp-a", profiles_root=tmp_path)
 
 

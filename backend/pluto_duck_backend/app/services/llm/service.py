@@ -98,6 +98,9 @@ class LLMService:
                     "effort": settings.reasoning_effort or "medium",
                     "summary": "auto",
                 }
+                chat_kwargs["text"] = {
+                    "verbosity": settings.text_verbosity or "medium",
+                }
                 chat_kwargs["output_version"] = "responses/v1"
                 if settings.max_output_tokens is not None:
                     chat_kwargs["max_output_tokens"] = settings.max_output_tokens

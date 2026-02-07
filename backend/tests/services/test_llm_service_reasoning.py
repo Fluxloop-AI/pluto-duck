@@ -37,6 +37,7 @@ def test_get_chat_model_includes_reasoning_kwargs_for_gpt5(monkeypatch) -> None:
     assert captured["model"] == "gpt-5-mini"
     assert captured["streaming"] is True
     assert captured["reasoning"] == {"effort": "high", "summary": "auto"}
+    assert captured["text"] == {"verbosity": "medium"}
     assert captured["output_version"] == "responses/v1"
     assert captured["max_output_tokens"] == 2222
 
@@ -72,5 +73,6 @@ def test_get_chat_model_excludes_reasoning_kwargs_for_non_gpt5(monkeypatch) -> N
     assert captured["model"] == "local:llama3.1"
     assert captured["streaming"] is False
     assert "reasoning" not in captured
+    assert "text" not in captured
     assert "output_version" not in captured
     assert "max_output_tokens" not in captured

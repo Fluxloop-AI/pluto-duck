@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, MutableMapping
@@ -17,6 +18,7 @@ from pluto_duck_backend.app.core.config import PlutoDuckSettings, get_settings
 _DEFAULT_PROFILE_ID = "v3"
 _METADATA_KEY = "_prompt_experiment"
 _LEGACY_PROFILE_IDS = {"v1", "v2"}
+_PROFILE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 _ALLOWED_PROMPT_BUNDLE_BLOCKS = frozenset(
     {"runtime", "skills_guide", "memory_guide", "base_agent_prompt"}
 )
@@ -59,6 +61,23 @@ _LOGGER = logging.getLogger(__name__)
 
 def _profiles_root() -> Path:
     return Path(__file__).parent / "prompts" / "profiles"
+
+
+def _is_within_root(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def _profile_definition_path(*, profile_id: str, profiles_root: Path) -> Path:
+    definition_path = (profiles_root / f"{profile_id}.yaml").resolve()
+    if not _is_within_root(definition_path, profiles_root):
+        raise ValueError(
+            f"Invalid prompt experiment profile id path traversal: '{profile_id}'"
+        )
+    return definition_path
 
 
 def clear_experiment_profile_cache() -> None:
@@ -124,7 +143,10 @@ def _load_experiment_profile(
         cycle = " -> ".join((*stack, profile_id))
         raise ValueError(f"Profile inheritance cycle detected: {cycle}")
 
-    definition_path = profiles_root / f"{profile_id}.yaml"
+    definition_path = _profile_definition_path(
+        profile_id=profile_id,
+        profiles_root=profiles_root,
+    )
     if not definition_path.exists():
         if (
             not stack
@@ -239,6 +261,11 @@ def _parse_prompt_bundle_entries(
                 f"Profile '{profile_id}' has empty {field_name} path for block '{block}'"
             )
         resolved = (profiles_root / rel_path).resolve()
+        if not _is_within_root(resolved, profiles_root):
+            raise ValueError(
+                f"Prompt bundle path must stay under profiles root for '{profile_id}' "
+                f"block '{block}': {resolved}"
+            )
         if not resolved.exists():
             raise FileNotFoundError(
                 f"Prompt bundle file not found for '{profile_id}' block '{block}': {resolved}"
@@ -287,9 +314,15 @@ def _extract_profile_id_from_metadata(metadata: Mapping[str, object] | None) -> 
 
 
 def _validate_profile_id(profile_id: str) -> str:
+    if not _PROFILE_ID_PATTERN.fullmatch(profile_id):
+        raise ValueError(f"Invalid prompt experiment profile id: {profile_id!r}")
     if profile_id in _LEGACY_PROFILE_IDS:
         return profile_id
-    if (_profiles_root() / f"{profile_id}.yaml").exists():
+    definition_path = _profile_definition_path(
+        profile_id=profile_id,
+        profiles_root=_profiles_root().resolve(),
+    )
+    if definition_path.exists():
         return profile_id
     raise ValueError(f"Unknown prompt experiment profile: {profile_id}")
 

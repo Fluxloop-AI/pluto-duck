@@ -13,6 +13,7 @@ from pluto_duck_backend.app.core.config import PlutoDuckSettings, get_settings
 _DEFAULT_PROFILE_ID = "v2"
 _METADATA_KEY = "_prompt_experiment"
 _LEGACY_PROFILE_IDS = {"v1", "v2"}
+_ALLOWED_PROMPT_BUNDLE_BLOCKS = frozenset({"runtime", "skills_guide"})
 _RUNTIME_PROMPT_PATH = Path(__file__).parent / "prompts" / "runtime_system_prompt.md"
 _LEGACY_COMPOSE_ORDERS: Mapping[str, tuple[str, ...]] = {
     "v1": (
@@ -85,17 +86,35 @@ def load_experiment_profile(
     """Load and validate an experiment profile from YAML + bundle files."""
 
     root = (profiles_root or _profiles_root()).resolve()
-    cache_key = (profile_id, root)
+    return _load_experiment_profile(profile_id, root, stack=())
+
+
+def _load_experiment_profile(
+    profile_id: str,
+    profiles_root: Path,
+    *,
+    stack: tuple[str, ...],
+) -> ExperimentProfile:
+    cache_key = (profile_id, profiles_root)
     cached = _PROFILE_CACHE.get(cache_key)
     if cached is not None:
         return cached
 
-    definition_path = root / f"{profile_id}.yaml"
-    if profiles_root is None and not definition_path.exists() and profile_id in _LEGACY_PROFILE_IDS:
-        legacy = _legacy_profile(profile_id)
-        _PROFILE_CACHE[cache_key] = legacy
-        return legacy
+    if profile_id in stack:
+        cycle = " -> ".join((*stack, profile_id))
+        raise ValueError(f"Profile inheritance cycle detected: {cycle}")
+
+    definition_path = profiles_root / f"{profile_id}.yaml"
     if not definition_path.exists():
+        if not stack and profile_id in _LEGACY_PROFILE_IDS and profiles_root == _profiles_root().resolve():
+            legacy = _legacy_profile(profile_id)
+            _PROFILE_CACHE[cache_key] = legacy
+            return legacy
+        if stack:
+            parent = stack[-1]
+            raise FileNotFoundError(
+                f"Base profile not found for '{parent}' base '{profile_id}': {definition_path}"
+            )
         raise FileNotFoundError(
             f"Profile definition not found for '{profile_id}': {definition_path}"
         )
@@ -117,31 +136,91 @@ def load_experiment_profile(
     if not parsed_order:
         raise ValueError(f"Profile '{profile_id}' has no valid compose_order items")
 
-    bundle = loaded.get("prompt_bundle")
-    if not isinstance(bundle, dict) or not bundle:
-        raise ValueError(f"Profile '{profile_id}' must define non-empty prompt_bundle")
+    base_id = str(loaded.get("base") or "").strip() or None
+    declared_bundle = _parse_prompt_bundle_entries(
+        profile_id,
+        "prompt_bundle",
+        loaded.get("prompt_bundle"),
+        profiles_root=profiles_root,
+        required=base_id is None,
+    )
+    override_bundle = _parse_prompt_bundle_entries(
+        profile_id,
+        "prompt_bundle_overrides",
+        loaded.get("prompt_bundle_overrides"),
+        profiles_root=profiles_root,
+        required=False,
+    )
 
-    prompt_bundle: dict[str, Path] = {}
-    for key, value in bundle.items():
-        block = str(key).strip()
-        rel_path = str(value).strip()
-        if not block or not rel_path:
-            raise ValueError(f"Profile '{profile_id}' has invalid prompt_bundle entry")
-        resolved = (root / rel_path).resolve()
-        if not resolved.exists():
-            raise FileNotFoundError(
-                f"Prompt bundle file not found for '{profile_id}' block '{block}': {resolved}"
-            )
-        prompt_bundle[block] = resolved
+    duplicate_blocks = sorted(set(declared_bundle) & set(override_bundle))
+    if duplicate_blocks:
+        blocks = ", ".join(duplicate_blocks)
+        raise ValueError(
+            f"Profile '{profile_id}' has duplicate prompt bundle blocks in "
+            f"'prompt_bundle' and 'prompt_bundle_overrides': {blocks}"
+        )
+
+    merged_bundle: dict[str, Path] = {}
+    if base_id:
+        base_profile = _load_experiment_profile(
+            base_id,
+            profiles_root,
+            stack=(*stack, profile_id),
+        )
+        merged_bundle.update(base_profile.prompt_bundle)
+    merged_bundle.update(declared_bundle)
+    merged_bundle.update(override_bundle)
 
     profile = ExperimentProfile(
         id=profile_id,
         description=str(loaded.get("description") or "").strip(),
         compose_order=parsed_order,
-        prompt_bundle=prompt_bundle,
+        prompt_bundle=merged_bundle,
     )
     _PROFILE_CACHE[cache_key] = profile
     return profile
+
+
+def _parse_prompt_bundle_entries(
+    profile_id: str,
+    field_name: str,
+    raw: object,
+    *,
+    profiles_root: Path,
+    required: bool,
+) -> dict[str, Path]:
+    if raw is None:
+        if required:
+            raise ValueError(f"Profile '{profile_id}' must define non-empty {field_name}")
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError(f"Profile '{profile_id}' has invalid {field_name}: expected mapping")
+    if required and not raw:
+        raise ValueError(f"Profile '{profile_id}' must define non-empty {field_name}")
+
+    parsed: dict[str, Path] = {}
+    for key, value in raw.items():
+        block = str(key).strip()
+        rel_path = str(value).strip()
+        if not block:
+            raise ValueError(f"Profile '{profile_id}' has invalid {field_name} block key")
+        if block not in _ALLOWED_PROMPT_BUNDLE_BLOCKS:
+            allowed = ", ".join(sorted(_ALLOWED_PROMPT_BUNDLE_BLOCKS))
+            raise ValueError(
+                f"Profile '{profile_id}' has unsupported {field_name} block '{block}'. "
+                f"Allowed blocks: {allowed}"
+            )
+        if not rel_path:
+            raise ValueError(
+                f"Profile '{profile_id}' has empty {field_name} path for block '{block}'"
+            )
+        resolved = (profiles_root / rel_path).resolve()
+        if not resolved.exists():
+            raise FileNotFoundError(
+                f"Prompt bundle file not found for '{profile_id}' block '{block}': {resolved}"
+            )
+        parsed[block] = resolved
+    return parsed
 
 
 def _extract_profile_id_from_metadata(metadata: Mapping[str, object] | None) -> str | None:

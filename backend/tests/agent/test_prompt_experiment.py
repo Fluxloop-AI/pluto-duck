@@ -26,25 +26,33 @@ def _write_profile(
     root: Path,
     *,
     profile_id: str,
-    bundle_path: str = "bundles/runtime.md",
+    bundle: dict[str, str] | None = None,
+    base: str | None = None,
+    overrides: dict[str, str] | None = None,
+    include_compose_order: bool = True,
     description: str = "desc",
 ) -> None:
-    bundle_file = root / bundle_path
-    bundle_file.parent.mkdir(parents=True, exist_ok=True)
-    bundle_file.write_text("runtime prompt", encoding="utf-8")
-    (root / f"{profile_id}.yaml").write_text(
-        "\n".join(
-            [
-                f"id: {profile_id}",
-                f"description: {description}",
-                "compose_order:",
-                "  - runtime",
-                "prompt_bundle:",
-                f"  runtime: {bundle_path}",
-            ]
-        ),
-        encoding="utf-8",
-    )
+    lines = [f"id: {profile_id}", f"description: {description}"]
+    if base:
+        lines.append(f"base: {base}")
+    if include_compose_order:
+        lines.extend(["compose_order:", "  - runtime"])
+    if bundle is not None:
+        lines.append("prompt_bundle:")
+        for block, path in bundle.items():
+            bundle_file = root / path
+            bundle_file.parent.mkdir(parents=True, exist_ok=True)
+            bundle_file.write_text(f"{profile_id}:{block}", encoding="utf-8")
+            lines.append(f"  {block}: {path}")
+    if overrides is not None:
+        lines.append("prompt_bundle_overrides:")
+        for block, path in overrides.items():
+            override_file = root / path
+            override_file.parent.mkdir(parents=True, exist_ok=True)
+            override_file.write_text(f"{profile_id}:override:{block}", encoding="utf-8")
+            lines.append(f"  {block}: {path}")
+
+    (root / f"{profile_id}.yaml").write_text("\n".join(lines), encoding="utf-8")
 
 
 def test_resolve_profile_id_prefers_metadata_over_env(monkeypatch) -> None:
@@ -107,10 +115,20 @@ def test_load_experiment_profile_raises_when_bundle_missing(tmp_path: Path) -> N
 
 def test_load_experiment_profile_cache_hit_and_clear(tmp_path: Path) -> None:
     clear_experiment_profile_cache()
-    _write_profile(tmp_path, profile_id="exp-a", description="first")
+    _write_profile(
+        tmp_path,
+        profile_id="exp-a",
+        description="first",
+        bundle={"runtime": "bundles/runtime.md"},
+    )
 
     first = load_experiment_profile("exp-a", profiles_root=tmp_path)
-    _write_profile(tmp_path, profile_id="exp-a", description="second")
+    _write_profile(
+        tmp_path,
+        profile_id="exp-a",
+        description="second",
+        bundle={"runtime": "bundles/runtime.md"},
+    )
     cached = load_experiment_profile("exp-a", profiles_root=tmp_path)
 
     assert cached is first
@@ -121,3 +139,155 @@ def test_load_experiment_profile_cache_hit_and_clear(tmp_path: Path) -> None:
 
     assert reloaded is not first
     assert reloaded.description == "second"
+
+
+def test_load_experiment_profile_supports_base_and_overrides(tmp_path: Path) -> None:
+    clear_experiment_profile_cache()
+    _write_profile(
+        tmp_path,
+        profile_id="base",
+        bundle={"runtime": "base/runtime.md", "skills_guide": "base/skills.md"},
+    )
+    _write_profile(
+        tmp_path,
+        profile_id="child",
+        base="base",
+        bundle={"runtime": "child/runtime.md"},
+        overrides={"skills_guide": "child/skills.md"},
+    )
+
+    loaded = load_experiment_profile("child", profiles_root=tmp_path)
+
+    assert loaded.prompt_bundle["runtime"] == (tmp_path / "child/runtime.md").resolve()
+    assert loaded.prompt_bundle["skills_guide"] == (tmp_path / "child/skills.md").resolve()
+
+
+def test_load_experiment_profile_supports_base_only_child_bundle(tmp_path: Path) -> None:
+    clear_experiment_profile_cache()
+    _write_profile(
+        tmp_path,
+        profile_id="base",
+        bundle={"runtime": "base/runtime.md"},
+    )
+    _write_profile(
+        tmp_path,
+        profile_id="child",
+        base="base",
+        bundle=None,
+    )
+
+    loaded = load_experiment_profile("child", profiles_root=tmp_path)
+
+    assert loaded.prompt_bundle["runtime"] == (tmp_path / "base/runtime.md").resolve()
+
+
+def test_load_experiment_profile_raises_when_base_missing(tmp_path: Path) -> None:
+    clear_experiment_profile_cache()
+    _write_profile(
+        tmp_path,
+        profile_id="child",
+        base="missing",
+        bundle={"runtime": "child/runtime.md"},
+    )
+
+    with pytest.raises(FileNotFoundError, match="Base profile not found"):
+        load_experiment_profile("child", profiles_root=tmp_path)
+
+
+def test_load_experiment_profile_raises_on_inheritance_cycle(tmp_path: Path) -> None:
+    clear_experiment_profile_cache()
+    _write_profile(
+        tmp_path,
+        profile_id="a",
+        base="b",
+        bundle={"runtime": "a/runtime.md"},
+    )
+    _write_profile(
+        tmp_path,
+        profile_id="b",
+        base="a",
+        bundle={"runtime": "b/runtime.md"},
+    )
+
+    with pytest.raises(ValueError, match="Profile inheritance cycle detected"):
+        load_experiment_profile("a", profiles_root=tmp_path)
+
+
+def test_load_experiment_profile_raises_when_compose_order_missing(tmp_path: Path) -> None:
+    clear_experiment_profile_cache()
+    _write_profile(
+        tmp_path,
+        profile_id="exp-a",
+        bundle={"runtime": "bundles/runtime.md"},
+        include_compose_order=False,
+    )
+
+    with pytest.raises(ValueError, match="must define non-empty compose_order"):
+        load_experiment_profile("exp-a", profiles_root=tmp_path)
+
+
+def test_load_experiment_profile_raises_when_block_key_not_allowed(tmp_path: Path) -> None:
+    clear_experiment_profile_cache()
+    _write_profile(
+        tmp_path,
+        profile_id="exp-a",
+        bundle={"memory_guide": "bundles/memory-guide.md"},
+    )
+
+    with pytest.raises(ValueError, match="unsupported prompt_bundle block 'memory_guide'"):
+        load_experiment_profile("exp-a", profiles_root=tmp_path)
+
+
+def test_load_experiment_profile_raises_when_bundle_and_override_overlap(
+    tmp_path: Path,
+) -> None:
+    clear_experiment_profile_cache()
+    _write_profile(
+        tmp_path,
+        profile_id="base",
+        bundle={"runtime": "base/runtime.md"},
+    )
+    _write_profile(
+        tmp_path,
+        profile_id="child",
+        base="base",
+        bundle={"runtime": "child/runtime.md"},
+        overrides={"runtime": "child/runtime-override.md"},
+    )
+
+    with pytest.raises(ValueError, match="duplicate prompt bundle blocks"):
+        load_experiment_profile("child", profiles_root=tmp_path)
+
+
+def test_load_experiment_profile_does_not_cache_failed_result(tmp_path: Path) -> None:
+    clear_experiment_profile_cache()
+    _write_profile(
+        tmp_path,
+        profile_id="base",
+        bundle={"runtime": "base/runtime.md"},
+    )
+    (tmp_path / "child.yaml").write_text(
+        "\n".join(
+            [
+                "id: child",
+                "description: desc",
+                "base: base",
+                "compose_order:",
+                "  - runtime",
+                "prompt_bundle_overrides:",
+                "  skills_guide: child/missing-skills.md",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(FileNotFoundError, match="Prompt bundle file not found"):
+        load_experiment_profile("child", profiles_root=tmp_path)
+
+    skills_file = tmp_path / "child/missing-skills.md"
+    skills_file.parent.mkdir(parents=True, exist_ok=True)
+    skills_file.write_text("skills", encoding="utf-8")
+
+    loaded = load_experiment_profile("child", profiles_root=tmp_path)
+
+    assert loaded.prompt_bundle["skills_guide"] == skills_file.resolve()

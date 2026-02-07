@@ -74,12 +74,12 @@ def test_resolve_profile_id_uses_env_when_metadata_missing(monkeypatch) -> None:
     assert resolved == "v1"
 
 
-def test_resolve_profile_id_defaults_to_v2(monkeypatch) -> None:
+def test_resolve_profile_id_defaults_to_v3(monkeypatch) -> None:
     settings = _settings_with_env(monkeypatch, profile=None)
 
     resolved = resolve_profile_id({}, settings)
 
-    assert resolved == "v2"
+    assert resolved == "v3"
 
 
 def test_resolve_profile_id_raises_for_unknown_profile(monkeypatch) -> None:

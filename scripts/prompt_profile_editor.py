@@ -766,7 +766,7 @@ def _render_delete_profile_section(profile_ids: list[str], profiles_root: Path) 
             remaining = [profile_id for profile_id in _list_profile_ids(profiles_root)]
             if remaining:
                 st.session_state["selected_profile"] = (
-                    "v2" if "v2" in remaining else remaining[0]
+                    remaining[-1]
                 )
             st.success(f"Deleted profile '{target}'")
             st.rerun()
@@ -961,9 +961,9 @@ def main() -> None:
         return
 
     if "selected_profile" not in st.session_state:
-        st.session_state["selected_profile"] = "v2" if "v2" in profile_ids else profile_ids[0]
+        st.session_state["selected_profile"] = profile_ids[-1]
     if st.session_state["selected_profile"] not in profile_ids:
-        st.session_state["selected_profile"] = "v2" if "v2" in profile_ids else profile_ids[0]
+        st.session_state["selected_profile"] = profile_ids[-1]
 
     _render_new_profile_section(profile_ids, PROFILES_ROOT)
     _render_delete_profile_section(profile_ids, PROFILES_ROOT)

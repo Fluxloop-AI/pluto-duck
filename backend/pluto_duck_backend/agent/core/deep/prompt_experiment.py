@@ -14,7 +14,7 @@ from pluto_duck_backend.agent.core.deep.prompts.memory_guide_template import (
 )
 from pluto_duck_backend.app.core.config import PlutoDuckSettings, get_settings
 
-_DEFAULT_PROFILE_ID = "v2"
+_DEFAULT_PROFILE_ID = "v3"
 _METADATA_KEY = "_prompt_experiment"
 _LEGACY_PROFILE_IDS = {"v1", "v2"}
 _ALLOWED_PROMPT_BUNDLE_BLOCKS = frozenset(

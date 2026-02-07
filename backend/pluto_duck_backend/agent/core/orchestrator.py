@@ -26,6 +26,8 @@ from pluto_duck_backend.agent.core.deep.agent import build_deep_agent
 from pluto_duck_backend.agent.core.deep.context import RunContext, build_session_context
 from pluto_duck_backend.agent.core.deep.event_mapper import EventSink, PlutoDuckEventCallbackHandler
 from pluto_duck_backend.agent.core.deep.hitl import ApprovalBroker, ApprovalDecision
+from pluto_duck_backend.agent.core.deep.prompt_experiment import resolve_profile_id
+from pluto_duck_backend.app.core.config import get_settings
 from pluto_duck_backend.app.services.chat import get_chat_repository
 
 logger = logging.getLogger("pluto_duck_backend.agent")
@@ -204,9 +206,11 @@ class AgentRunManager:
             if project_id is None:
                 _log("project_id_missing", run_id=run.run_id, conversation_id=run.conversation_id)
 
+            experiment_profile_id = resolve_profile_id(run.metadata, get_settings())
             session_ctx = build_session_context(
                 conversation_id=run.conversation_id,
                 project_id=project_id,
+                experiment_profile_id=experiment_profile_id,
             )
             run_ctx = RunContext(
                 run_id=run.run_id,
@@ -214,7 +218,13 @@ class AgentRunManager:
                 model=run.model,
             )
 
-            _log("run_build_agent", run_id=run.run_id, conversation_id=run.conversation_id, model=run.model)
+            _log(
+                "run_build_agent",
+                run_id=run.run_id,
+                conversation_id=run.conversation_id,
+                model=run.model,
+                experiment_profile=experiment_profile_id,
+            )
             agent = build_deep_agent(
                 session_ctx=session_ctx,
                 run_ctx=run_ctx,

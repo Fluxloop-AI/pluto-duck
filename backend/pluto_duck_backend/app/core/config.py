@@ -83,6 +83,10 @@ class AgentSettings(BaseModel):
         ge=512,
         description="Context window for local llama.cpp models",
     )
+    prompt_experiment: Optional[str] = Field(
+        default=None,
+        description="Prompt experiment profile id override",
+    )
     n_gpu_layers: int = Field(
         default=-1,
         description="Number of layers to offload to GPU for llama.cpp (-1 = auto/all)",

@@ -4,12 +4,12 @@ compose_order:
   - base_agent_prompt
   - runtime
   - skills_guide
-  - memory_guide
-  - user_profile
-  - memory_section
-  - memory_context
-  - dataset
   - skills_list
+  - user_profile
+  - memory_guide
+  - memory_context
+  - memory_section
+  - dataset
 prompt_bundle:
   runtime: v3/runtime.md
   base_agent_prompt: v3/base_agent_prompt.md

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 import tempfile
 from dataclasses import dataclass
@@ -31,6 +32,17 @@ SAMPLE_MEMORY_GUIDE_VARIABLES: dict[str, str] = {
     "project_id": "sample-project",
     "project_memory_info": "- sample memory item\n- sample insight",
     "project_dir": "/tmp/sample-project",
+}
+PROFILE_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+DEFAULT_INDEPENDENT_BUNDLE_TEXT: dict[str, str] = {
+    "runtime": "# Runtime\n\nDefine runtime/system guidance here.\n",
+    "skills_guide": "# Skills Guide\n\nList skills and tool usage guidance here.\n",
+    "memory_guide": (
+        "# Memory Guide\n\n"
+        "Project ID: {project_id}\n"
+        "Project dir: {project_dir}\n\n"
+        "{project_memory_info}\n"
+    ),
 }
 
 
@@ -463,6 +475,208 @@ def _preflight_validate_save(
         load_experiment_profile(profile_id, profiles_root=temp_profiles_root)
 
 
+def _validate_new_profile_id(profile_id: str, existing_ids: set[str]) -> str | None:
+    candidate = profile_id.strip()
+    if not candidate:
+        return "Profile ID is required"
+    if not PROFILE_ID_PATTERN.fullmatch(candidate):
+        return "Profile ID must match: lowercase letters/numbers/hyphen"
+    if candidate in existing_ids:
+        return f"Profile ID already exists: {candidate}"
+    if (PROFILES_ROOT / f"{candidate}.yaml").exists():
+        return f"Profile YAML already exists: {candidate}.yaml"
+    if (PROFILES_ROOT / candidate).exists():
+        return f"Profile directory already exists: {candidate}/"
+    return None
+
+
+def _compose_order_text(items: list[str]) -> str:
+    return "\n".join(items)
+
+
+def _parse_compose_order_text(raw: str) -> list[str]:
+    parsed: list[str] = []
+    for line in raw.replace(",", "\n").splitlines():
+        item = line.strip()
+        if item:
+            parsed.append(item)
+    return parsed
+
+
+def _build_new_profile_yaml_text(
+    *,
+    profile_id: str,
+    description: str,
+    compose_order: list[str],
+    base_id: str | None,
+    bundle_paths: dict[str, str],
+) -> str:
+    payload: dict[str, Any] = {
+        "id": profile_id,
+        "description": description,
+        "compose_order": compose_order,
+    }
+    if base_id:
+        payload["base"] = base_id
+        payload["prompt_bundle_overrides"] = bundle_paths
+    else:
+        payload["prompt_bundle"] = bundle_paths
+
+    return yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
+
+
+def _materialize_new_profile(
+    *,
+    profile_id: str,
+    yaml_text: str,
+    bundle_text_by_rel_path: dict[str, str],
+    profiles_root: Path,
+) -> None:
+    yaml_path = profiles_root / f"{profile_id}.yaml"
+    yaml_path.write_text(yaml_text, encoding="utf-8")
+
+    for rel_path, text in sorted(bundle_text_by_rel_path.items()):
+        target = _resolve_target_path(profiles_root, rel_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+
+
+def _preflight_validate_new_profile(
+    *,
+    profile_id: str,
+    yaml_text: str,
+    bundle_text_by_rel_path: dict[str, str],
+    profiles_root: Path,
+) -> None:
+    with tempfile.TemporaryDirectory(prefix="prompt-profile-create-") as temp_dir:
+        temp_profiles_root = Path(temp_dir) / "profiles"
+        shutil.copytree(profiles_root, temp_profiles_root)
+        _materialize_new_profile(
+            profile_id=profile_id,
+            yaml_text=yaml_text,
+            bundle_text_by_rel_path=bundle_text_by_rel_path,
+            profiles_root=temp_profiles_root,
+        )
+        clear_experiment_profile_cache()
+        load_experiment_profile(profile_id, profiles_root=temp_profiles_root)
+
+
+def _default_compose_order_for_new_profile(
+    profile_ids: list[str],
+    profiles_root: Path,
+) -> list[str]:
+    seed = "v2" if "v2" in profile_ids else profile_ids[0]
+    try:
+        seed_profile = load_experiment_profile(seed, profiles_root=profiles_root)
+    except Exception:
+        return ["runtime", "skills_guide", "memory_guide"]
+    return list(seed_profile.compose_order)
+
+
+def _render_new_profile_section(profile_ids: list[str], profiles_root: Path) -> None:
+    existing_ids = set(profile_ids)
+    with st.sidebar.expander("New Profile", expanded=False):
+        new_profile_id = st.text_input(
+            "Profile ID",
+            key="new_profile_id",
+            placeholder="example: v3-dev",
+        )
+        base_options = ["(none)", *profile_ids]
+        selected_base = st.selectbox(
+            "Base profile (optional)",
+            options=base_options,
+            key="new_profile_base",
+        )
+        base_id = None if selected_base == "(none)" else selected_base
+        description = st.text_input(
+            "Description",
+            key="new_profile_description",
+            placeholder="New prompt profile",
+        )
+
+        compose_input = ""
+        compose_order: list[str] = []
+        bundle_text_by_block: dict[str, str] = {}
+        if base_id:
+            try:
+                base_profile = load_experiment_profile(base_id, profiles_root=profiles_root)
+                compose_order = list(base_profile.compose_order)
+                bundle_text_by_block = load_prompt_bundle(base_profile)
+                st.caption("compose_order copied from base profile")
+                st.code(_compose_order_text(compose_order), language="text")
+                st.info(
+                    "Base selected: prompt_bundle remains empty and "
+                    "prompt_bundle_overrides will be generated."
+                )
+            except Exception as exc:
+                st.error(f"Failed to load base profile '{base_id}': {exc}")
+        else:
+            default_order = _default_compose_order_for_new_profile(profile_ids, profiles_root)
+            compose_input = st.text_area(
+                "Compose order (comma or newline separated)",
+                value=_compose_order_text(default_order),
+                height=140,
+                key="new_profile_compose_order",
+            )
+            compose_order = _parse_compose_order_text(compose_input)
+            bundle_text_by_block = dict(DEFAULT_INDEPENDENT_BUNDLE_TEXT)
+            st.info("No base selected: prompt_bundle entries will be created.")
+
+        if st.button("Create", key="create_profile_button", type="primary"):
+            profile_id = new_profile_id.strip()
+            description_text = description.strip() or f"{profile_id} profile"
+            validation_error = _validate_new_profile_id(profile_id, existing_ids)
+            if validation_error:
+                st.error(validation_error)
+                return
+            if not compose_order:
+                st.error("compose_order must contain at least one item")
+                return
+            if not bundle_text_by_block:
+                st.error("Failed to prepare prompt bundle block content")
+                return
+
+            bundle_paths = {
+                block: f"{profile_id}/{block}.md"
+                for block in sorted(bundle_text_by_block.keys())
+            }
+            yaml_text = _build_new_profile_yaml_text(
+                profile_id=profile_id,
+                description=description_text,
+                compose_order=compose_order,
+                base_id=base_id,
+                bundle_paths=bundle_paths,
+            )
+            bundle_text_by_rel_path = {
+                rel_path: bundle_text_by_block[block]
+                for block, rel_path in bundle_paths.items()
+            }
+
+            try:
+                _preflight_validate_new_profile(
+                    profile_id=profile_id,
+                    yaml_text=yaml_text,
+                    bundle_text_by_rel_path=bundle_text_by_rel_path,
+                    profiles_root=profiles_root,
+                )
+                _materialize_new_profile(
+                    profile_id=profile_id,
+                    yaml_text=yaml_text,
+                    bundle_text_by_rel_path=bundle_text_by_rel_path,
+                    profiles_root=profiles_root,
+                )
+                clear_experiment_profile_cache()
+                load_experiment_profile(profile_id, profiles_root=profiles_root)
+            except Exception as exc:
+                st.error(f"Create failed: {exc}")
+                return
+
+            st.session_state["selected_profile"] = profile_id
+            st.session_state["edit_mode"] = True
+            st.success(f"Created profile '{profile_id}'")
+            st.rerun()
+
+
 def _render_loaded_profile(profile_id: str, profiles_root: Path) -> None:
     """Render parsed profile details and resolved prompt blocks."""
 
@@ -600,15 +814,21 @@ def main() -> None:
         st.error(f"No profile YAML files found under: {PROFILES_ROOT}")
         return
 
-    default_index = profile_ids.index("v2") if "v2" in profile_ids else 0
+    if "selected_profile" not in st.session_state:
+        st.session_state["selected_profile"] = "v2" if "v2" in profile_ids else profile_ids[0]
+    if st.session_state["selected_profile"] not in profile_ids:
+        st.session_state["selected_profile"] = "v2" if "v2" in profile_ids else profile_ids[0]
+
+    _render_new_profile_section(profile_ids, PROFILES_ROOT)
+
     selected_profile = st.sidebar.selectbox(
         "Profile",
         options=profile_ids,
-        index=default_index,
+        key="selected_profile",
     )
     st.sidebar.caption(f"Detected profiles: {len(profile_ids)}")
 
-    edit_mode = st.sidebar.toggle("Edit mode", value=False)
+    edit_mode = st.sidebar.toggle("Edit mode", key="edit_mode", value=False)
 
     if edit_mode:
         _render_editor_mode(selected_profile=selected_profile, profiles_root=PROFILES_ROOT)

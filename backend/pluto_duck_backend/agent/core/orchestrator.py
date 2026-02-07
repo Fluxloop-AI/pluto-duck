@@ -233,7 +233,7 @@ class AgentRunManager:
                 sink=EventSink(emit=emit),
                 run_id=run.run_id,
                 conversation_id=run.conversation_id,
-                prompt_layout=session_ctx.prompt_layout,
+                experiment_profile=session_ctx.experiment_profile_id,
             )
 
             _log("run_invoke_start", run_id=run.run_id, conversation_id=run.conversation_id)

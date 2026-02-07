@@ -14,7 +14,7 @@ import json
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable
 
 from langchain_core.callbacks.base import AsyncCallbackHandler
 from langchain_core.messages import BaseMessage, ToolMessage
@@ -38,13 +38,15 @@ class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
         sink: EventSink,
         run_id: str,
         conversation_id: str | None = None,
+        experiment_profile: str | None = None,
         prompt_layout: str | None = None,
     ) -> None:
         super().__init__()
         self._sink = sink
         self._run_id = run_id
         self._conversation_id = conversation_id
-        self._prompt_layout = prompt_layout
+        # Keep `prompt_layout` as fallback input during migration.
+        self._experiment_profile = experiment_profile or prompt_layout
         self._tool_stack: list[str] = []  # Track active tool names for matching start/end
         self._chunk_buffer: list[str] = []
         self._chunk_tokens = 0
@@ -92,8 +94,8 @@ class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
         metadata: dict[str, Any] = {"run_id": self._run_id}
         if self._conversation_id:
             metadata["conversation_id"] = self._conversation_id
-        if self._prompt_layout:
-            metadata["prompt_layout"] = self._prompt_layout
+        if self._experiment_profile:
+            metadata["experiment_profile"] = self._experiment_profile
         return metadata
 
     def _should_flush_chunk(self, now: float) -> bool:
@@ -259,11 +261,7 @@ class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
                     "usage": usage_payload,
                     "model": self._extract_model(response),
                 },
-                metadata={
-                    "run_id": self._run_id,
-                    "conversation_id": self._conversation_id,
-                    "prompt_layout": self._prompt_layout,
-                },
+                metadata=self._chunk_metadata(),
                 timestamp=self._ts(),
             )
         )

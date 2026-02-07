@@ -5,7 +5,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-
 from pluto_duck_backend.agent.core.deep.event_mapper import EventSink, PlutoDuckEventCallbackHandler
 
 
@@ -20,7 +19,7 @@ async def test_llm_usage_emits_cached_tokens() -> None:
         sink=EventSink(emit=_emit),
         run_id="run-1",
         conversation_id="conv-1",
-        prompt_layout="v1",
+        experiment_profile="v1",
     )
 
     response = SimpleNamespace(
@@ -44,6 +43,7 @@ async def test_llm_usage_emits_cached_tokens() -> None:
     assert usage_event.content["usage"]["prompt_tokens"] == 10
     assert usage_event.content["model"] == "gpt-4o"
     assert usage_event.metadata["conversation_id"] == "conv-1"
+    assert usage_event.metadata["experiment_profile"] == "v1"
 
 
 @pytest.mark.asyncio
@@ -57,7 +57,7 @@ async def test_llm_usage_emits_nulls_when_missing() -> None:
         sink=EventSink(emit=_emit),
         run_id="run-2",
         conversation_id="conv-2",
-        prompt_layout="v2",
+        experiment_profile="v2",
     )
 
     response = SimpleNamespace(

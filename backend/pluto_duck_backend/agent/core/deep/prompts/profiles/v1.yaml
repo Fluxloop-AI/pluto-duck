@@ -1,0 +1,11 @@
+id: v1
+description: Legacy v1 compose order profile
+compose_order:
+  - user_profile
+  - memory_section
+  - runtime
+  - memory_guide
+  - dataset
+  - skills_full
+prompt_bundle:
+  runtime: v1/runtime.md

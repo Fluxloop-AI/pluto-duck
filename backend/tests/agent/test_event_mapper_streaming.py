@@ -5,7 +5,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-
 from pluto_duck_backend.agent.core.deep.event_mapper import EventSink, PlutoDuckEventCallbackHandler
 from pluto_duck_backend.agent.core.events import EventSubType, EventType
 
@@ -21,7 +20,7 @@ async def test_emits_chunk_on_token_threshold() -> None:
         sink=EventSink(emit=_emit),
         run_id="run-1",
         conversation_id="conv-1",
-        prompt_layout="v1",
+        experiment_profile="v1",
     )
     handler._max_chunk_tokens = 2
     handler._flush_interval_s = 999
@@ -37,7 +36,7 @@ async def test_emits_chunk_on_token_threshold() -> None:
     assert chunk_events[0].content["is_final"] is False
     assert chunk_events[0].metadata["run_id"] == "run-1"
     assert chunk_events[0].metadata["conversation_id"] == "conv-1"
-    assert chunk_events[0].metadata["prompt_layout"] == "v1"
+    assert chunk_events[0].metadata["experiment_profile"] == "v1"
 
 
 @pytest.mark.asyncio

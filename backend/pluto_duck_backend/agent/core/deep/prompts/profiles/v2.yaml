@@ -1,0 +1,13 @@
+id: v2
+description: Legacy v2 compose order profile
+compose_order:
+  - runtime
+  - skills_guide
+  - memory_guide
+  - user_profile
+  - memory_section
+  - memory_context
+  - dataset
+  - skills_list
+prompt_bundle:
+  runtime: v2/runtime.md

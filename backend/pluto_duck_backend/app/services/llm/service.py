@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from functools import lru_cache
-from typing import Optional, Type, TypeVar
+from typing import Any, Optional, Type, TypeVar
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
@@ -87,11 +87,23 @@ class LLMService:
                     "Set it in Settings (llm_api_key) or via OPENAI_API_KEY."
                 )
 
+            chat_kwargs: dict[str, Any] = {
+                "model": settings.model,
+                "api_key": settings.api_key,
+                "base_url": settings.api_base,
+                "streaming": streaming,
+            }
+            if settings.model.startswith("gpt-5"):
+                chat_kwargs["reasoning"] = {
+                    "effort": settings.reasoning_effort or "medium",
+                    "summary": "auto",
+                }
+                chat_kwargs["output_version"] = "responses/v1"
+                if settings.max_output_tokens is not None:
+                    chat_kwargs["max_output_tokens"] = settings.max_output_tokens
+
             return ChatOpenAI(
-                model=settings.model,
-                api_key=settings.api_key,
-                base_url=settings.api_base,
-                streaming=streaming,
+                **chat_kwargs,
             )
 
         raise RuntimeError(

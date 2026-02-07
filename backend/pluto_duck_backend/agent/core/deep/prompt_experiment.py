@@ -73,14 +73,27 @@ def resolve_profile_id(
 ) -> str:
     """Resolve prompt experiment profile id using metadata > env > default."""
 
+    app_settings = settings or get_settings()
     selected = _extract_profile_id_from_metadata(metadata)
     if selected:
-        return _validate_profile_id(selected)
+        try:
+            return _validate_profile_id(selected)
+        except ValueError:
+            _LOGGER.warning(
+                "Unknown prompt experiment profile in metadata: '%s'; fallback to env/default",
+                selected,
+            )
 
-    app_settings = settings or get_settings()
     env_profile = (app_settings.agent.prompt_experiment or "").strip()
     if env_profile:
-        return _validate_profile_id(env_profile)
+        try:
+            return _validate_profile_id(env_profile)
+        except ValueError:
+            _LOGGER.warning(
+                "Unknown prompt experiment profile in env: '%s'; fallback to '%s'",
+                env_profile,
+                _DEFAULT_PROFILE_ID,
+            )
 
     return _DEFAULT_PROFILE_ID
 

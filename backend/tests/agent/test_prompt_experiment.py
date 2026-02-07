@@ -82,11 +82,22 @@ def test_resolve_profile_id_defaults_to_v3(monkeypatch) -> None:
     assert resolved == "v3"
 
 
-def test_resolve_profile_id_raises_for_unknown_profile(monkeypatch) -> None:
+def test_resolve_profile_id_falls_back_to_default_for_unknown_metadata_profile(
+    monkeypatch,
+) -> None:
     settings = _settings_with_env(monkeypatch, profile=None)
 
-    with pytest.raises(ValueError, match="Unknown prompt experiment profile: does-not-exist"):
-        resolve_profile_id({"_prompt_experiment": "does-not-exist"}, settings)
+    resolved = resolve_profile_id({"_prompt_experiment": "does-not-exist"}, settings)
+
+    assert resolved == "v3"
+
+
+def test_resolve_profile_id_falls_back_to_env_for_unknown_metadata_profile(monkeypatch) -> None:
+    settings = _settings_with_env(monkeypatch, profile="v2")
+
+    resolved = resolve_profile_id({"_prompt_experiment": "does-not-exist"}, settings)
+
+    assert resolved == "v2"
 
 
 def test_load_experiment_profile_raises_when_definition_missing(tmp_path: Path) -> None:

@@ -236,6 +236,33 @@ async def test_env_profile_applies_when_metadata_missing(tmp_path: Path, monkeyp
 
 
 @pytest.mark.asyncio
+async def test_unknown_metadata_profile_falls_back_to_env_profile(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _set_data_root(tmp_path, monkeypatch, env_profile="v2")
+    fake_repo = _FakeChatRepo()
+    captured_profiles: list[str] = []
+
+    monkeypatch.setattr(orchestrator, "get_chat_repository", lambda: fake_repo)
+    _patch_agent_builder(monkeypatch, captured_profiles)
+    _patch_cleanup_task(monkeypatch)
+
+    manager = orchestrator.AgentRunManager()
+    conversation_id = "conv-unknown-profile-fallback"
+    run_id = manager.start_run_for_conversation(
+        conversation_id,
+        "question",
+        metadata={"_prompt_experiment": "v2-strong-skills-guide"},
+        create_if_missing=True,
+    )
+    result = await manager.get_result(run_id)
+
+    assert "error" not in result
+    assert captured_profiles == ["v2"]
+
+
+@pytest.mark.asyncio
 async def test_profile_switches_base_and_override_blocks_with_same_conversation(
     tmp_path: Path,
     monkeypatch,

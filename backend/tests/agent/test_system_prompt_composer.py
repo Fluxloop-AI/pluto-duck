@@ -176,3 +176,45 @@ def test_composer_raises_when_skills_guide_static_block_missing() -> None:
         match="missing non-empty static block 'skills_guide'",
     ):
         composer._compose(request)  # type: ignore[arg-type]
+
+
+def test_composer_renders_memory_guide_template_when_present() -> None:
+    composer = SystemPromptComposerMiddleware(
+        project_id="proj-1",
+        profile=_profile("v2", ("runtime", "memory_guide")),
+        memory_guide_template=(
+            "guide project={project_id} info={project_memory_info} dir={project_dir}"
+        ),
+        memory_guide_template_path=Path("/tmp/memory_guide.md"),
+    )
+    request = DummyRequest(
+        system_prompt="RUNTIME_PROMPT",
+        state={"project_memory": "PROJECT_MEM"},
+    )
+
+    output = composer._compose(request)  # type: ignore[arg-type]
+
+    _assert_in_order(
+        output,
+        [
+            "RUNTIME_PROMPT",
+            "guide project=proj-1",
+            "info=`/memories/projects/proj-1` (detected)",
+            "dir=/memories/projects/proj-1",
+        ],
+    )
+
+
+def test_composer_raises_when_memory_guide_template_missing_in_strict_mode() -> None:
+    composer = SystemPromptComposerMiddleware(
+        project_id="proj-1",
+        profile=_profile("v2", ("runtime", "memory_guide")),
+        memory_guide_template_strict=True,
+    )
+    request = DummyRequest(
+        system_prompt="RUNTIME_PROMPT",
+        state={"project_memory": "PROJECT_MEM"},
+    )
+
+    with pytest.raises(ValueError, match="requires block 'memory_guide' template in strict mode"):
+        composer._compose(request)  # type: ignore[arg-type]

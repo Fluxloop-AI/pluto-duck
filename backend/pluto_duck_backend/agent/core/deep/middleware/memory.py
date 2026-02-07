@@ -234,20 +234,28 @@ def build_memory_section(*, user_memory: str, project_memory: str) -> str:
         project_memory=project_memory.strip(),
     ).strip()
 
+
+def build_memory_guide_template_variables(
+    *,
+    project_id: str | None,
+    project_memory: str,
+) -> dict[str, str]:
+    project_dir, project_memory_info = _resolve_project_memory_display(
+        project_id=project_id,
+        project_memory=project_memory,
+    )
+    return {
+        "project_dir": project_dir,
+        "project_memory_info": project_memory_info,
+    }
+
 def build_longterm_memory_prompt(*, project_id: str | None, project_memory: str) -> str:
-    paths = resolve_memory_paths(project_id)
     agent_dir_display = "/memories/user"
     agent_dir_absolute = "/memories/user"
-    project_deepagents_dir = (
-        f"/memories/projects/{paths.project_id}" if paths.project_id else "/memories/projects/(none)"
+    project_deepagents_dir, project_memory_info = _resolve_project_memory_display(
+        project_id=project_id,
+        project_memory=project_memory,
     )
-
-    if paths.project_id and project_memory.strip():
-        project_memory_info = f"`{project_deepagents_dir}` (detected)"
-    elif paths.project_id:
-        project_memory_info = f"`{project_deepagents_dir}` (no agent.md found yet)"
-    else:
-        project_memory_info = "None (conversation not linked to a project)"
 
     return LONGTERM_MEMORY_SYSTEM_PROMPT.format(
         agent_dir_absolute=agent_dir_absolute,
@@ -276,6 +284,18 @@ def build_longterm_memory_context(*, project_id: str | None, project_memory: str
         f"- project_dir: `{project_deepagents_dir}`\n"
         f"- project_memory: {project_memory_info}"
     )
+
+
+def _resolve_project_memory_display(*, project_id: str | None, project_memory: str) -> tuple[str, str]:
+    paths = resolve_memory_paths(project_id)
+    project_deepagents_dir = (
+        f"/memories/projects/{paths.project_id}" if paths.project_id else "/memories/projects/(none)"
+    )
+    if paths.project_id and project_memory.strip():
+        return project_deepagents_dir, f"`{project_deepagents_dir}` (detected)"
+    if paths.project_id:
+        return project_deepagents_dir, f"`{project_deepagents_dir}` (no agent.md found yet)"
+    return project_deepagents_dir, "None (conversation not linked to a project)"
 
 
 def _memory_root() -> Path:

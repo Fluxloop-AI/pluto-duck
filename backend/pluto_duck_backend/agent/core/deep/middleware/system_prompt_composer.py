@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Mapping, NotRequired, cast
 
 from langchain.agents.middleware.types import (
@@ -13,13 +15,17 @@ from langchain.agents.middleware.types import (
 )
 
 from ..prompt_experiment import ExperimentProfile
+from ..prompts.memory_guide_template import render_memory_guide_template
 from ..skills.load import SkillMetadata
 from .memory import (
     build_longterm_memory_context,
     build_longterm_memory_prompt,
+    build_memory_guide_template_variables,
     build_memory_section,
 )
 from .skills import build_skills_list_block, build_skills_section
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class ComposerState(AgentState):
@@ -54,11 +60,17 @@ class SystemPromptComposerMiddleware(AgentMiddleware):
         project_id: str | None,
         profile: ExperimentProfile,
         static_blocks: Mapping[str, str] | None = None,
+        memory_guide_template: str | None = None,
+        memory_guide_template_path: Path | None = None,
+        memory_guide_template_strict: bool = False,
     ) -> None:
         self._project_id = project_id
         self._profile = profile
         self._compose_order = self._validate_compose_order(profile.compose_order)
         self._static_blocks = dict(static_blocks or {})
+        self._memory_guide_template = memory_guide_template
+        self._memory_guide_template_path = memory_guide_template_path
+        self._memory_guide_template_strict = memory_guide_template_strict
 
     def _compose(self, request: ModelRequest) -> str:
         state = cast("ComposerState", request.state)
@@ -80,10 +92,7 @@ class SystemPromptComposerMiddleware(AgentMiddleware):
                 project_memory=str(state.get("project_memory") or ""),
             )
         if block == "memory_guide":
-            return build_longterm_memory_prompt(
-                project_id=self._project_id,
-                project_memory=str(state.get("project_memory") or ""),
-            )
+            return self._render_memory_guide(state)
         if block == "memory_context":
             return build_longterm_memory_context(
                 project_id=self._project_id,
@@ -107,6 +116,43 @@ class SystemPromptComposerMiddleware(AgentMiddleware):
                 project_id=self._project_id,
             )
         raise ValueError(f"Unsupported compose block '{block}'")
+
+    def _render_memory_guide(self, state: ComposerState) -> str:
+        project_memory = str(state.get("project_memory") or "")
+        template = self._memory_guide_template
+        template_path = self._memory_guide_template_path
+
+        if template is None:
+            if self._memory_guide_template_strict:
+                raise ValueError(
+                    "Prompt profile "
+                    f"'{self._profile.id}' requires block 'memory_guide' template in strict mode: "
+                    f"{template_path or '<not configured>'}"
+                )
+            _LOGGER.info(
+                "Using memory_guide fallback for profile '%s' (template not configured)",
+                self._profile.id,
+            )
+            return build_longterm_memory_prompt(
+                project_id=self._project_id,
+                project_memory=project_memory,
+            )
+
+        variables = build_memory_guide_template_variables(
+            project_id=self._project_id,
+            project_memory=project_memory,
+        )
+        return render_memory_guide_template(
+            template=template,
+            profile_id=self._profile.id,
+            template_path=template_path or Path("<inline-memory-guide-template>"),
+            variables={
+                "project_id": self._project_id,
+                "project_memory_info": variables["project_memory_info"],
+                "project_dir": variables["project_dir"],
+            },
+            strict_required_variables=self._memory_guide_template_strict,
+        )
 
     def _required_static_block(self, block: str) -> str:
         text = (self._static_blocks.get(block) or "").strip()

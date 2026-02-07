@@ -84,6 +84,7 @@ def build_deep_agent(
         conversation_id=session_ctx.conversation_id,
         run_id=run_ctx.run_id,
     )
+    settings = get_settings()
     profile = load_experiment_profile(session_ctx.experiment_profile_id)
     required_static_blocks = tuple(
         block for block in profile.compose_order if block in {"runtime", "skills_guide"}
@@ -97,6 +98,9 @@ def build_deep_agent(
             f"Prompt profile '{profile.id}' does not provide a non-empty '{block}' bundle"
         )
     runtime_system_prompt = prompt_bundle["runtime"].strip()
+    memory_guide_template = prompt_bundle.get("memory_guide")
+    memory_guide_template_path = profile.prompt_bundle.get("memory_guide")
+    memory_guide_template_strict = settings.agent.memory_guide_template_strict
 
     default_agent_md = load_default_agent_prompt()
     middleware: list[AgentMiddleware] = [
@@ -113,6 +117,9 @@ def build_deep_agent(
             project_id=session_ctx.project_id,
             profile=profile,
             static_blocks=prompt_bundle,
+            memory_guide_template=memory_guide_template,
+            memory_guide_template_path=memory_guide_template_path,
+            memory_guide_template_strict=memory_guide_template_strict,
         ),
     ]
 

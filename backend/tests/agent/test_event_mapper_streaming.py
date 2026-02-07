@@ -68,3 +68,28 @@ async def test_emits_final_chunk_on_llm_end() -> None:
     assert chunk_events[0].content["is_final"] is False
     assert chunk_events[-1].content["text_delta"] == "e"
     assert chunk_events[-1].content["is_final"] is True
+
+
+@pytest.mark.asyncio
+async def test_handles_structured_token_chunks_without_type_error() -> None:
+    events = []
+
+    async def _emit(event) -> None:
+        events.append(event)
+
+    handler = PlutoDuckEventCallbackHandler(
+        sink=EventSink(emit=_emit),
+        run_id="run-3",
+    )
+    handler._max_chunk_tokens = 2
+    handler._flush_interval_s = 999
+
+    await handler.on_llm_new_token([{"type": "text", "text": "안녕"}])
+    await handler.on_llm_new_token(
+        [{"type": "reasoning", "summary": []}, {"type": "text", "text": "하세요"}]
+    )
+
+    chunk_events = [event for event in events if event.type == EventType.MESSAGE]
+
+    assert len(chunk_events) == 1
+    assert chunk_events[0].content["text_delta"] == "안녕하세요"

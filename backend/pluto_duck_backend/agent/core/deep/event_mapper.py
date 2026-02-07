@@ -133,6 +133,28 @@ class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
         except (TypeError, ValueError):
             return None
 
+    def _normalize_stream_token(self, token: Any) -> str:  # noqa: ANN401
+        if isinstance(token, str):
+            return token
+
+        if isinstance(token, dict):
+            token_type = str(token.get("type") or "").lower()
+            if token_type == "reasoning":
+                return ""
+
+            for key in ("text", "content", "delta"):
+                value = token.get(key)
+                normalized = self._normalize_stream_token(value)
+                if normalized:
+                    return normalized
+            return ""
+
+        if isinstance(token, list):
+            parts = [self._normalize_stream_token(item) for item in token]
+            return "".join(part for part in parts if part)
+
+        return ""
+
     def _coerce_text(self, value: Any) -> str | None:  # noqa: ANN401
         if not isinstance(value, str):
             return None
@@ -370,12 +392,13 @@ class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
             )
         )
 
-    async def on_llm_new_token(self, token: str, **kwargs: Any) -> None:  # noqa: ANN401
-        if not token:
+    async def on_llm_new_token(self, token: Any, **kwargs: Any) -> None:  # noqa: ANN401
+        text_token = self._normalize_stream_token(token)
+        if not text_token:
             return
-        self._chunk_buffer.append(token)
+        self._chunk_buffer.append(text_token)
         self._chunk_tokens += 1
-        self._chunk_chars += len(token)
+        self._chunk_chars += len(text_token)
         now = time.monotonic()
         if self._should_flush_chunk(now):
             await self._flush_chunk(now)

@@ -3,6 +3,7 @@
 Your long-term memory is stored in files on the filesystem and persists across sessions.
 
 - Current Project ID: `{project_id}`
+- Prompt Profile: v1
 - Project Memory Location: {project_memory_info}
 - Project Directory: `{project_dir}`
 

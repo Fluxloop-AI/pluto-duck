@@ -89,12 +89,25 @@ class _FakeChatRepo:
         return None
 
 
-def _set_data_root(tmp_path: Path, monkeypatch, *, env_profile: str | None) -> None:
+def _set_data_root(
+    tmp_path: Path,
+    monkeypatch,
+    *,
+    env_profile: str | None,
+    strict_memory_guide: bool | None = None,
+) -> None:
     monkeypatch.setenv("PLUTODUCK_DATA_DIR__ROOT", str(tmp_path / "data-root"))
     if env_profile is None:
         monkeypatch.delenv("PLUTODUCK_AGENT__PROMPT_EXPERIMENT", raising=False)
     else:
         monkeypatch.setenv("PLUTODUCK_AGENT__PROMPT_EXPERIMENT", env_profile)
+    if strict_memory_guide is None:
+        monkeypatch.delenv("PLUTODUCK_AGENT__MEMORY_GUIDE_TEMPLATE_STRICT", raising=False)
+    else:
+        monkeypatch.setenv(
+            "PLUTODUCK_AGENT__MEMORY_GUIDE_TEMPLATE_STRICT",
+            "true" if strict_memory_guide else "false",
+        )
     get_settings.cache_clear()
 
 
@@ -102,6 +115,8 @@ def _patch_agent_builder(
     monkeypatch,
     captured_profiles: list[str],
     captured_skills_guides: list[str] | None = None,
+    captured_memory_guides: list[str] | None = None,
+    captured_memory_guide_strict_flags: list[bool] | None = None,
 ) -> None:
     class _FakeLLMService:
         def __init__(self, model_override: str | None = None) -> None:
@@ -125,6 +140,10 @@ def _patch_agent_builder(
             captured_skills_guides.append(
                 str(composer._static_blocks.get("skills_guide") or "")
             )
+        if captured_memory_guides is not None:
+            captured_memory_guides.append(str(composer._memory_guide_template or ""))
+        if captured_memory_guide_strict_flags is not None:
+            captured_memory_guide_strict_flags.append(composer._memory_guide_template_strict)
         return _FakeAgent()
 
     monkeypatch.setattr(agent_module, "LLMService", _FakeLLMService)
@@ -247,3 +266,92 @@ async def test_profile_switches_base_and_override_skills_guide_with_same_convers
     assert len(captured_skills_guides) == 2
     assert captured_skills_guides[0] != captured_skills_guides[1]
     assert "skill-guided execution is the default" in captured_skills_guides[1].lower()
+
+
+@pytest.mark.asyncio
+async def test_profile_switches_memory_guide_template_between_v1_and_v2(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _set_data_root(tmp_path, monkeypatch, env_profile=None)
+    fake_repo = _FakeChatRepo()
+    captured_profiles: list[str] = []
+    captured_memory_guides: list[str] = []
+
+    monkeypatch.setattr(orchestrator, "get_chat_repository", lambda: fake_repo)
+    _patch_agent_builder(
+        monkeypatch,
+        captured_profiles,
+        captured_memory_guides=captured_memory_guides,
+    )
+    _patch_cleanup_task(monkeypatch)
+
+    manager = orchestrator.AgentRunManager()
+    conversation_id = "conv-memory-guide-template"
+    run_1 = manager.start_run_for_conversation(
+        conversation_id,
+        "first question",
+        metadata={"_prompt_experiment": "v1"},
+        create_if_missing=True,
+    )
+    await manager.get_result(run_1)
+
+    run_2 = manager.start_run_for_conversation(
+        conversation_id,
+        "second question",
+        metadata={"_prompt_experiment": "v2"},
+        create_if_missing=False,
+    )
+    await manager.get_result(run_2)
+
+    assert captured_profiles == ["v1", "v2"]
+    assert len(captured_memory_guides) == 2
+    assert captured_memory_guides[0] != captured_memory_guides[1]
+    assert "Prompt Profile: v1" in captured_memory_guides[0]
+    assert "Prompt Profile: v2" in captured_memory_guides[1]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("strict_memory_guide", "expected"),
+    [
+        (False, False),
+        (True, True),
+    ],
+)
+async def test_memory_guide_strict_env_flag_propagates_to_composer(
+    tmp_path: Path,
+    monkeypatch,
+    strict_memory_guide: bool,
+    expected: bool,
+) -> None:
+    _set_data_root(
+        tmp_path,
+        monkeypatch,
+        env_profile="v2",
+        strict_memory_guide=strict_memory_guide,
+    )
+    fake_repo = _FakeChatRepo()
+    captured_profiles: list[str] = []
+    captured_strict_flags: list[bool] = []
+
+    monkeypatch.setattr(orchestrator, "get_chat_repository", lambda: fake_repo)
+    _patch_agent_builder(
+        monkeypatch,
+        captured_profiles,
+        captured_memory_guide_strict_flags=captured_strict_flags,
+    )
+    _patch_cleanup_task(monkeypatch)
+
+    manager = orchestrator.AgentRunManager()
+    conversation_id = f"conv-memory-guide-strict-{expected}"
+    run_id = manager.start_run_for_conversation(
+        conversation_id,
+        "question",
+        metadata={},
+        create_if_missing=True,
+    )
+    await manager.get_result(run_id)
+
+    assert captured_profiles == ["v2"]
+    assert captured_strict_flags == [expected]

@@ -58,6 +58,9 @@ class LLMService:
                     model=self._model_override,
                     api_key=self._settings.api_key,
                     api_base=self._settings.api_base,
+                    reasoning_effort=self._settings.reasoning_effort,
+                    text_verbosity=self._settings.text_verbosity,
+                    max_output_tokens=self._settings.max_output_tokens,
                 )
         return self._settings
 

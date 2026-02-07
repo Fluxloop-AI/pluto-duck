@@ -7,8 +7,11 @@ from typing import Any
 
 from pluto_duck_backend.agent.core.deep import agent as agent_module
 from pluto_duck_backend.agent.core.deep.context import RunContext, SessionContext
-from pluto_duck_backend.agent.core.deep.middleware.system_prompt_composer import SystemPromptComposerMiddleware
 from pluto_duck_backend.agent.core.deep.hitl import ApprovalBroker
+from pluto_duck_backend.agent.core.deep.middleware.system_prompt_composer import (
+    SystemPromptComposerMiddleware,
+)
+from pluto_duck_backend.agent.core.deep.prompt_experiment import ExperimentProfile
 
 
 async def _emit(_event: Any) -> None:
@@ -32,13 +35,29 @@ def test_build_deep_agent_uses_context_values(tmp_path: Path, monkeypatch) -> No
         return []
 
     def fake_create_deep_agent(**kwargs):
+        captured["system_prompt"] = kwargs.get("system_prompt")
         captured["tools"] = kwargs.get("tools")
         captured["middleware"] = kwargs.get("middleware")
         return {"ok": True}
 
+    def fake_load_experiment_profile(profile_id: str) -> ExperimentProfile:
+        captured["profile_id"] = profile_id
+        return ExperimentProfile(
+            id=profile_id,
+            description="test-profile",
+            compose_order=("runtime", "memory_section"),
+            prompt_bundle={"runtime": Path("/tmp/runtime.md")},
+        )
+
+    def fake_load_prompt_bundle(profile: ExperimentProfile) -> dict[str, str]:
+        captured["bundle_profile_id"] = profile.id
+        return {"runtime": "RUNTIME_PROMPT"}
+
     monkeypatch.setattr(agent_module, "LLMService", FakeLLMService)
     monkeypatch.setattr(agent_module, "build_default_tools", fake_build_default_tools)
     monkeypatch.setattr(agent_module, "create_deep_agent", fake_create_deep_agent)
+    monkeypatch.setattr(agent_module, "load_experiment_profile", fake_load_experiment_profile)
+    monkeypatch.setattr(agent_module, "load_prompt_bundle", fake_load_prompt_bundle)
 
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir(parents=True, exist_ok=True)
@@ -62,6 +81,9 @@ def test_build_deep_agent_uses_context_values(tmp_path: Path, monkeypatch) -> No
     assert captured["model_override"] == "model-1"
     assert captured["tools"] == []
     assert captured["streaming"] is True
+    assert captured["profile_id"] == "v2"
+    assert captured["bundle_profile_id"] == "v2"
+    assert captured["system_prompt"] == "RUNTIME_PROMPT"
     middleware = captured["middleware"]
     assert isinstance(middleware[-1], SystemPromptComposerMiddleware)
-    assert middleware[-1]._layout == "v2"
+    assert middleware[-1]._profile.id == "v2"

@@ -11,16 +11,13 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-
-logger = logging.getLogger("pluto_duck_backend.agent.deep")
 from typing import Any, Callable, Optional, Sequence
-
-from langchain.agents.middleware.types import AgentMiddleware
-from langchain_core.tools import BaseTool
 
 from deepagents import create_deep_agent
 from deepagents.backends.composite import CompositeBackend
 from deepagents.backends.filesystem import FilesystemBackend
+from langchain.agents.middleware.types import AgentMiddleware
+from langchain_core.tools import BaseTool
 
 from pluto_duck_backend.app.core.config import get_settings
 from pluto_duck_backend.app.services.llm import LLMService
@@ -29,38 +26,14 @@ from .context import RunContext, SessionContext
 from .middleware.approvals import ApprovalPersistenceMiddleware, PlutoDuckHITLConfig
 from .middleware.dataset_context import DatasetContextMiddleware
 from .middleware.memory import AgentMemoryMiddleware
+from .middleware.skills import SkillsMiddleware
 from .middleware.system_prompt_composer import SystemPromptComposerMiddleware
 from .middleware.user_profile import UserProfileMiddleware
-from .middleware.skills import SkillsMiddleware
-from .prompts import load_default_agent_prompt
+from .prompt_experiment import load_experiment_profile
+from .prompts import load_default_agent_prompt, load_prompt_bundle
 from .tools import build_default_tools
 
-def get_runtime_system_prompt() -> str:
-    """Backend runtime system prompt (CLI-parity, adapted to virtual FS + no shell)."""
-    return """### Current Working Directory
-
-You are operating inside the **Pluto Duck backend** with a **virtual filesystem**.
-
-### File System and Paths
-
-**IMPORTANT - Path Handling:**
-- All file paths must be absolute **virtual** paths starting with `/`
-- Use these roots:
-  - `/workspace/` for working files and intermediate artifacts
-  - `/memories/` for long-term memory files
-  - `/skills/` for skill libraries (SKILL.md)
-- Never use relative paths
-
-### Human-in-the-Loop Tool Approval
-
-Some tool calls require user approval before execution. When a tool call is rejected by the user:
-1. Accept their decision immediately - do NOT retry the same action
-2. Explain that you understand they rejected the action
-3. Suggest an alternative approach or ask for clarification
-4. Never attempt the exact same rejected action again
-
-Respect the user's decisions and work with them collaboratively.
-""".strip()
+logger = logging.getLogger("pluto_duck_backend.agent.deep")
 
 
 def get_deepagents_root() -> Path:
@@ -81,7 +54,8 @@ def build_deep_agent(
     Notes:
     - We always pass an explicit model instance to avoid relying on vendored defaults.
     - Filesystem backend is workspace-scoped and does not support `execute` by design.
-    - `checkpointer` is accepted for Phase 1 plumbing; a DB-backed implementation is added separately.
+    - `checkpointer` is accepted for Phase 1 plumbing.
+      A DB-backed implementation is added separately.
     """
     workspace_root = session_ctx.workspace_root
 
@@ -110,21 +84,30 @@ def build_deep_agent(
         conversation_id=session_ctx.conversation_id,
         run_id=run_ctx.run_id,
     )
+    profile = load_experiment_profile(session_ctx.experiment_profile_id)
+    prompt_bundle = load_prompt_bundle(profile)
+    runtime_system_prompt = (prompt_bundle.get("runtime") or "").strip()
+    if not runtime_system_prompt:
+        raise ValueError(
+            f"Prompt profile '{profile.id}' does not provide a non-empty 'runtime' bundle"
+        )
+
     default_agent_md = load_default_agent_prompt()
     middleware: list[AgentMiddleware] = [
         ApprovalPersistenceMiddleware(config=hitl_config, broker=run_ctx.broker),
-        AgentMemoryMiddleware(project_id=session_ctx.project_id, default_user_agent_md=default_agent_md),
+        AgentMemoryMiddleware(
+            project_id=session_ctx.project_id,
+            default_user_agent_md=default_agent_md,
+        ),
         DatasetContextMiddleware(project_id=session_ctx.project_id),
         SkillsMiddleware(project_id=session_ctx.project_id),
         UserProfileMiddleware(),
         *list(extra_middleware),
         SystemPromptComposerMiddleware(
             project_id=session_ctx.project_id,
-            layout=session_ctx.prompt_layout,
+            profile=profile,
         ),
     ]
-
-    system_prompt = get_runtime_system_prompt()
 
     return create_deep_agent(
         model=chat_model,
@@ -132,7 +115,7 @@ def build_deep_agent(
             workspace_root=workspace_root,
             project_id=session_ctx.project_id,
         ),
-        system_prompt=system_prompt,
+        system_prompt=runtime_system_prompt,
         backend=backend,
         middleware=middleware,
         interrupt_on=None,

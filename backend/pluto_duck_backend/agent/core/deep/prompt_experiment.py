@@ -13,6 +13,27 @@ from pluto_duck_backend.app.core.config import PlutoDuckSettings, get_settings
 _DEFAULT_PROFILE_ID = "v2"
 _METADATA_KEY = "_prompt_experiment"
 _LEGACY_PROFILE_IDS = {"v1", "v2"}
+_RUNTIME_PROMPT_PATH = Path(__file__).parent / "prompts" / "runtime_system_prompt.md"
+_LEGACY_COMPOSE_ORDERS: Mapping[str, tuple[str, ...]] = {
+    "v1": (
+        "user_profile",
+        "memory_section",
+        "runtime",
+        "memory_guide",
+        "dataset",
+        "skills_full",
+    ),
+    "v2": (
+        "runtime",
+        "skills_guide",
+        "memory_guide",
+        "user_profile",
+        "memory_section",
+        "memory_context",
+        "dataset",
+        "skills_list",
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -70,6 +91,10 @@ def load_experiment_profile(
         return cached
 
     definition_path = root / f"{profile_id}.yaml"
+    if profiles_root is None and not definition_path.exists() and profile_id in _LEGACY_PROFILE_IDS:
+        legacy = _legacy_profile(profile_id)
+        _PROFILE_CACHE[cache_key] = legacy
+        return legacy
     if not definition_path.exists():
         raise FileNotFoundError(
             f"Profile definition not found for '{profile_id}': {definition_path}"
@@ -135,3 +160,19 @@ def _validate_profile_id(profile_id: str) -> str:
     if (_profiles_root() / f"{profile_id}.yaml").exists():
         return profile_id
     raise ValueError(f"Unknown prompt experiment profile: {profile_id}")
+
+
+def _legacy_profile(profile_id: str) -> ExperimentProfile:
+    if not _RUNTIME_PROMPT_PATH.exists():
+        raise FileNotFoundError(
+            f"Legacy runtime prompt file is missing for '{profile_id}': {_RUNTIME_PROMPT_PATH}"
+        )
+    compose_order = _LEGACY_COMPOSE_ORDERS.get(profile_id)
+    if compose_order is None:
+        raise ValueError(f"Unknown prompt experiment profile: {profile_id}")
+    return ExperimentProfile(
+        id=profile_id,
+        description=f"Legacy built-in profile '{profile_id}'",
+        compose_order=compose_order,
+        prompt_bundle={"runtime": _RUNTIME_PROMPT_PATH.resolve()},
+    )

@@ -3,18 +3,23 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from typing import NotRequired, TypedDict, cast
+from typing import NotRequired, cast
 
-from langchain.agents.middleware.types import AgentMiddleware, AgentState, ModelRequest, ModelResponse
+from langchain.agents.middleware.types import (
+    AgentMiddleware,
+    AgentState,
+    ModelRequest,
+    ModelResponse,
+)
 
+from ..prompt_experiment import ExperimentProfile
+from ..skills.load import SkillMetadata
 from .memory import (
-    LONGTERM_MEMORY_GUIDE_STATIC,
     build_longterm_memory_context,
     build_longterm_memory_prompt,
     build_memory_section,
 )
 from .skills import SKILLS_GUIDE_STATIC, build_skills_list_block, build_skills_section
-from ..skills.load import SkillMetadata
 
 
 class ComposerState(AgentState):
@@ -26,89 +31,103 @@ class ComposerState(AgentState):
 
 
 class SystemPromptComposerMiddleware(AgentMiddleware):
+    ALLOWED_BLOCKS = frozenset(
+        {
+            "runtime",
+            "user_profile",
+            "memory_section",
+            "memory_guide",
+            "memory_context",
+            "dataset",
+            "skills_guide",
+            "skills_list",
+            "skills_full",
+        }
+    )
+    REQUIRED_BLOCKS = frozenset({"runtime"})
+
     state_schema = ComposerState
 
-    def __init__(self, *, project_id: str | None, layout: str = "v1") -> None:
+    def __init__(self, *, project_id: str | None, profile: ExperimentProfile) -> None:
         self._project_id = project_id
-        self._layout = layout
-
-    def _compose_v1(self, request: ModelRequest) -> str:
-        state = cast("ComposerState", request.state)
-        user_profile_section = state.get("user_profile_section") or ""
-        user_memory = state.get("user_memory") or ""
-        project_memory = state.get("project_memory") or ""
-        dataset_readiness_summary = state.get("dataset_readiness_summary") or ""
-        skills_metadata = state.get("skills_metadata", [])
-
-        memory_section = build_memory_section(
-            user_memory=user_memory,
-            project_memory=project_memory,
-        )
-        longterm_prompt = build_longterm_memory_prompt(
-            project_id=self._project_id,
-            project_memory=project_memory,
-        )
-        skills_section = build_skills_section(
-            skills_metadata=skills_metadata,
-            project_id=self._project_id,
-        )
-
-        system_prompt = memory_section
-        if request.system_prompt:
-            system_prompt += "\n\n" + request.system_prompt
-        system_prompt += "\n\n" + longterm_prompt
-        if dataset_readiness_summary:
-            system_prompt += "\n\n" + dataset_readiness_summary
-        if skills_section:
-            system_prompt += "\n\n" + skills_section
-        if user_profile_section:
-            system_prompt = user_profile_section + "\n\n" + system_prompt
-        return system_prompt
+        self._profile = profile
+        self._compose_order = self._validate_compose_order(profile.compose_order)
 
     def _compose(self, request: ModelRequest) -> str:
-        if self._layout == "v1":
-            return self._compose_v1(request)
-        if self._layout == "v2":
-            return self._compose_v2(request)
-        return self._compose_v1(request)
-
-    def _compose_v2(self, request: ModelRequest) -> str:
         state = cast("ComposerState", request.state)
-        user_profile_section = state.get("user_profile_section") or ""
-        user_memory = state.get("user_memory") or ""
-        project_memory = state.get("project_memory") or ""
-        dataset_readiness_summary = state.get("dataset_readiness_summary") or ""
-        skills_metadata = state.get("skills_metadata", [])
+        rendered: list[str] = []
+        for block in self._compose_order:
+            block_text = self._render_block(block, request, state).strip()
+            if block_text:
+                rendered.append(block_text)
+        return "\n\n".join(rendered)
 
-        memory_section = build_memory_section(
-            user_memory=user_memory,
-            project_memory=project_memory,
-        )
-        memory_context = build_longterm_memory_context(
-            project_id=self._project_id,
-            project_memory=project_memory,
-        )
-        skills_list_block = build_skills_list_block(
-            skills_metadata=skills_metadata,
-            project_id=self._project_id,
-        )
+    def _render_block(self, block: str, request: ModelRequest, state: ComposerState) -> str:
+        if block == "runtime":
+            return request.system_prompt or ""
+        if block == "user_profile":
+            return str(state.get("user_profile_section") or "")
+        if block == "memory_section":
+            return build_memory_section(
+                user_memory=str(state.get("user_memory") or ""),
+                project_memory=str(state.get("project_memory") or ""),
+            )
+        if block == "memory_guide":
+            return build_longterm_memory_prompt(
+                project_id=self._project_id,
+                project_memory=str(state.get("project_memory") or ""),
+            )
+        if block == "memory_context":
+            return build_longterm_memory_context(
+                project_id=self._project_id,
+                project_memory=str(state.get("project_memory") or ""),
+            )
+        if block == "dataset":
+            return str(state.get("dataset_readiness_summary") or "")
+        if block == "skills_guide":
+            return SKILLS_GUIDE_STATIC
+        if block == "skills_list":
+            skills_metadata = state.get("skills_metadata", [])
+            if not skills_metadata:
+                return ""
+            return build_skills_list_block(
+                skills_metadata=skills_metadata,
+                project_id=self._project_id,
+            )
+        if block == "skills_full":
+            return build_skills_section(
+                skills_metadata=state.get("skills_metadata", []),
+                project_id=self._project_id,
+            )
+        raise ValueError(f"Unsupported compose block '{block}'")
 
-        system_prompt = request.system_prompt or ""
-        if SKILLS_GUIDE_STATIC:
-            system_prompt += "\n\n" + SKILLS_GUIDE_STATIC
-        if LONGTERM_MEMORY_GUIDE_STATIC:
-            system_prompt += "\n\n" + LONGTERM_MEMORY_GUIDE_STATIC
-        if user_profile_section:
-            system_prompt += "\n\n" + user_profile_section
-        system_prompt += "\n\n" + memory_section
-        system_prompt += "\n\n" + memory_context
-        if dataset_readiness_summary:
-            system_prompt += "\n\n" + dataset_readiness_summary
-        if skills_list_block:
-            system_prompt += "\n\n" + skills_list_block
-        return system_prompt
+    @classmethod
+    def _validate_compose_order(cls, compose_order: tuple[str, ...]) -> tuple[str, ...]:
+        if not compose_order:
+            raise ValueError("compose_order must not be empty")
+        unknown_blocks = [block for block in compose_order if block not in cls.ALLOWED_BLOCKS]
+        if unknown_blocks:
+            raise ValueError(f"Unsupported compose blocks: {', '.join(unknown_blocks)}")
+        seen: set[str] = set()
+        duplicates: list[str] = []
+        for block in compose_order:
+            if block in seen and block not in duplicates:
+                duplicates.append(block)
+            seen.add(block)
+        if duplicates:
+            raise ValueError(f"Duplicate compose blocks are not allowed: {', '.join(duplicates)}")
+        missing_required = sorted(cls.REQUIRED_BLOCKS.difference(compose_order))
+        if missing_required:
+            raise ValueError(
+                f"Missing required compose blocks: {', '.join(missing_required)}"
+            )
+        return compose_order
 
-    def wrap_model_call(self, request: ModelRequest, handler: Callable[[ModelRequest], ModelResponse]) -> ModelResponse:
+    def wrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], ModelResponse],
+    ) -> ModelResponse:
         system_prompt = self._compose(request)
         return handler(request.override(system_prompt=system_prompt))
 

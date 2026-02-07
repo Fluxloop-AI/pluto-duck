@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from pluto_duck_backend.agent.core.deep.middleware.system_prompt_composer import (
@@ -42,3 +43,17 @@ def test_rejects_missing_required_compose_block() -> None:
             project_id="proj-1",
             profile=_profile("missing-required", ("memory_section", "dataset")),
         )
+
+
+def test_allows_base_agent_prompt_compose_block() -> None:
+    composer = SystemPromptComposerMiddleware(
+        project_id="proj-1",
+        profile=_profile("v3", ("runtime", "base_agent_prompt")),
+        static_blocks={"base_agent_prompt": "BASE_AGENT_PROMPT"},
+    )
+    request = SimpleNamespace(system_prompt="RUNTIME_PROMPT", state={})
+
+    output = composer._compose(request)  # type: ignore[arg-type]
+
+    assert "RUNTIME_PROMPT" in output
+    assert "BASE_AGENT_PROMPT" in output

@@ -129,6 +129,49 @@ def test_composer_v2_order() -> None:
     )
 
 
+def test_composer_v3_order_with_base_agent_prompt() -> None:
+    composer = SystemPromptComposerMiddleware(
+        project_id="proj-1",
+        profile=_profile(
+            "v3",
+            (
+                "runtime",
+                "base_agent_prompt",
+                "skills_guide",
+                "memory_guide",
+                "user_profile",
+                "memory_section",
+            ),
+        ),
+        static_blocks={
+            "base_agent_prompt": "## Base Agent Prompt\n\nBase rules",
+            "skills_guide": "## Skills System\n\nGuide text",
+        },
+    )
+    request = DummyRequest(
+        system_prompt="RUNTIME_PROMPT",
+        state={
+            "user_profile_section": "USER_PROFILE",
+            "user_memory": "USER_MEM",
+            "project_memory": "PROJECT_MEM",
+        },
+    )
+
+    output = composer._compose(request)  # type: ignore[arg-type]
+
+    _assert_in_order(
+        output,
+        [
+            "RUNTIME_PROMPT",
+            "## Base Agent Prompt",
+            "## Skills System",
+            "## Long-term Memory",
+            "USER_PROFILE",
+            "<user_memory>",
+        ],
+    )
+
+
 def test_composer_skips_empty_optional_blocks() -> None:
     composer = SystemPromptComposerMiddleware(
         project_id="proj-1",
@@ -174,6 +217,24 @@ def test_composer_raises_when_skills_guide_static_block_missing() -> None:
     with pytest.raises(
         ValueError,
         match="missing non-empty static block 'skills_guide'",
+    ):
+        composer._compose(request)  # type: ignore[arg-type]
+
+
+def test_composer_raises_when_base_agent_prompt_static_block_missing() -> None:
+    composer = SystemPromptComposerMiddleware(
+        project_id="proj-1",
+        profile=_profile("v3", ("runtime", "base_agent_prompt")),
+        static_blocks={},
+    )
+    request = DummyRequest(
+        system_prompt="RUNTIME_PROMPT",
+        state={},
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="missing non-empty static block 'base_agent_prompt'",
     ):
         composer._compose(request)  # type: ignore[arg-type]
 

@@ -115,6 +115,7 @@ def _patch_agent_builder(
     monkeypatch,
     captured_profiles: list[str],
     captured_skills_guides: list[str] | None = None,
+    captured_base_agent_prompts: list[str] | None = None,
     captured_memory_guides: list[str] | None = None,
     captured_memory_guide_strict_flags: list[bool] | None = None,
 ) -> None:
@@ -139,6 +140,10 @@ def _patch_agent_builder(
         if captured_skills_guides is not None:
             captured_skills_guides.append(
                 str(composer._static_blocks.get("skills_guide") or "")
+            )
+        if captured_base_agent_prompts is not None:
+            captured_base_agent_prompts.append(
+                str(composer._static_blocks.get("base_agent_prompt") or "")
             )
         if captured_memory_guides is not None:
             captured_memory_guides.append(str(composer._memory_guide_template or ""))
@@ -309,6 +314,39 @@ async def test_profile_switches_memory_guide_template_between_v1_and_v2(
     assert captured_memory_guides[0] != captured_memory_guides[1]
     assert "Prompt Profile: v1" in captured_memory_guides[0]
     assert "Prompt Profile: v2" in captured_memory_guides[1]
+
+
+@pytest.mark.asyncio
+async def test_v3_profile_passes_base_agent_prompt_to_composer(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _set_data_root(tmp_path, monkeypatch, env_profile=None)
+    fake_repo = _FakeChatRepo()
+    captured_profiles: list[str] = []
+    captured_base_agent_prompts: list[str] = []
+
+    monkeypatch.setattr(orchestrator, "get_chat_repository", lambda: fake_repo)
+    _patch_agent_builder(
+        monkeypatch,
+        captured_profiles,
+        captured_base_agent_prompts=captured_base_agent_prompts,
+    )
+    _patch_cleanup_task(monkeypatch)
+
+    manager = orchestrator.AgentRunManager()
+    conversation_id = "conv-v3-base-agent-prompt"
+    run_id = manager.start_run_for_conversation(
+        conversation_id,
+        "question",
+        metadata={"_prompt_experiment": "v3"},
+        create_if_missing=True,
+    )
+    await manager.get_result(run_id)
+
+    assert captured_profiles == ["v3"]
+    assert len(captured_base_agent_prompts) == 1
+    assert "core role" in captured_base_agent_prompts[0].lower()
 
 
 @pytest.mark.asyncio

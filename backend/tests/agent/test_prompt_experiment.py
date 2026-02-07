@@ -30,13 +30,16 @@ def _write_profile(
     base: str | None = None,
     overrides: dict[str, str] | None = None,
     include_compose_order: bool = True,
+    compose_order: list[str] | None = None,
     description: str = "desc",
 ) -> None:
     lines = [f"id: {profile_id}", f"description: {description}"]
     if base:
         lines.append(f"base: {base}")
     if include_compose_order:
-        lines.extend(["compose_order:", "  - runtime"])
+        lines.append("compose_order:")
+        for block in compose_order or ["runtime"]:
+            lines.append(f"  - {block}")
     if bundle is not None:
         lines.append("prompt_bundle:")
         for block, path in bundle.items():
@@ -341,3 +344,42 @@ def test_load_experiment_profile_raises_for_invalid_memory_guide_placeholder(
 
     with pytest.raises(ValueError, match="unsupported=unknown_placeholder"):
         load_experiment_profile("exp-a", profiles_root=tmp_path)
+
+
+def test_load_builtin_v3_profile_includes_base_agent_prompt() -> None:
+    clear_experiment_profile_cache()
+
+    profile = load_experiment_profile("v3")
+
+    assert "base_agent_prompt" in profile.compose_order
+    assert profile.prompt_bundle["base_agent_prompt"].name == "base_agent_prompt.md"
+
+
+def test_load_experiment_profile_supports_base_agent_prompt_override(
+    tmp_path: Path,
+) -> None:
+    clear_experiment_profile_cache()
+    _write_profile(
+        tmp_path,
+        profile_id="base",
+        compose_order=["runtime", "base_agent_prompt"],
+        bundle={
+            "runtime": "base/runtime.md",
+            "base_agent_prompt": "base/base-agent.md",
+        },
+    )
+    _write_profile(
+        tmp_path,
+        profile_id="child",
+        base="base",
+        compose_order=["runtime", "base_agent_prompt"],
+        bundle=None,
+        overrides={"base_agent_prompt": "child/base-agent.md"},
+    )
+
+    loaded = load_experiment_profile("child", profiles_root=tmp_path)
+
+    assert loaded.prompt_bundle["runtime"] == (tmp_path / "base/runtime.md").resolve()
+    assert loaded.prompt_bundle["base_agent_prompt"] == (
+        tmp_path / "child/base-agent.md"
+    ).resolve()

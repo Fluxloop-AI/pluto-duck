@@ -33,6 +33,17 @@ SAMPLE_MEMORY_GUIDE_VARIABLES: dict[str, str] = {
     "project_memory_info": "- sample memory item\n- sample insight",
     "project_dir": "/tmp/sample-project",
 }
+_DYNAMIC_BLOCK_PLACEHOLDERS: dict[str, str] = {
+    "user_profile": "<!-- [user_profile] rendered at runtime -->",
+    "memory_section": (
+        "<user_memory>\n(learned facts from user interactions)\n</user_memory>\n\n"
+        "<project_memory>\n(project-specific memory)\n</project_memory>"
+    ),
+    "memory_context": "<!-- [memory_context] rendered at runtime -->",
+    "dataset": "<!-- [dataset] rendered at runtime -->",
+    "skills_list": "<!-- [skills_list] rendered at runtime -->",
+    "skills_full": "<!-- [skills_full] rendered at runtime -->",
+}
 PROFILE_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 DEFAULT_INDEPENDENT_BUNDLE_TEXT: dict[str, str] = {
     "runtime": "# Runtime\n\nDefine runtime/system guidance here.\n",
@@ -761,6 +772,37 @@ def _render_delete_profile_section(profile_ids: list[str], profiles_root: Path) 
             st.rerun()
 
 
+def _build_composed_preview(
+    profile_id: str,
+    compose_order: tuple[str, ...],
+    resolved_bundle: dict[str, str],
+    profiles_root: Path,
+) -> str:
+    """Build a composed system prompt preview following compose_order."""
+
+    rendered: list[str] = []
+    for block in compose_order:
+        if block in resolved_bundle:
+            text = resolved_bundle[block].strip()
+            if block == "memory_guide":
+                try:
+                    template_path = Path("preview")
+                    text = render_memory_guide_template(
+                        template=resolved_bundle[block],
+                        profile_id=profile_id,
+                        template_path=template_path,
+                        variables=SAMPLE_MEMORY_GUIDE_VARIABLES,
+                        strict_required_variables=False,
+                    ).strip()
+                except Exception:
+                    pass
+        else:
+            text = _DYNAMIC_BLOCK_PLACEHOLDERS.get(block, f"<!-- [{block}] -->").strip()
+        if text:
+            rendered.append(f"# ---- [{block}] ----\n{text}")
+    return "\n\n".join(rendered)
+
+
 def _render_loaded_profile(profile_id: str, profiles_root: Path) -> None:
     """Render parsed profile details and resolved prompt blocks."""
 
@@ -813,6 +855,26 @@ def _render_loaded_profile(profile_id: str, profiles_root: Path) -> None:
             disabled=True,
             key=f"view_text_{profile_id}_{block_name}",
         )
+
+    st.subheader("Build Preview")
+    st.caption(
+        "compose_order 순서로 조합된 최종 시스템 프롬프트 미리보기. "
+        "동적 블록은 샘플 플레이스홀더로 표시됩니다."
+    )
+    if st.button("Build Preview", key=f"build_preview_{profile_id}"):
+        composed = _build_composed_preview(
+            profile_id=profile_id,
+            compose_order=profile.compose_order,
+            resolved_bundle=resolved_bundle,
+            profiles_root=profiles_root,
+        )
+        static_chars = sum(
+            len(resolved_bundle.get(b, ""))
+            for b in profile.compose_order
+            if b in resolved_bundle
+        )
+        st.metric("Static blocks approx.", f"~{static_chars:,} chars")
+        st.code(composed, language="markdown")
 
 
 def _render_editor_mode(*, selected_profile: str, profiles_root: Path) -> None:

@@ -77,3 +77,40 @@ async def test_llm_end_keeps_string_fallback_without_reasoning_event() -> None:
 
     assert llm_end_event.content["text"] == "Plain response"
     assert reasoning_events == []
+
+
+@pytest.mark.asyncio
+async def test_llm_end_extracts_text_block_when_reasoning_summary_is_empty() -> None:
+    events = []
+
+    async def _emit(event) -> None:
+        events.append(event)
+
+    handler = PlutoDuckEventCallbackHandler(
+        sink=EventSink(emit=_emit),
+        run_id="run-empty-reason",
+    )
+
+    response = SimpleNamespace(
+        llm_output={},
+        generations=[
+            [
+                SimpleNamespace(
+                    message=SimpleNamespace(
+                        content=[
+                            {"type": "reasoning", "summary": []},
+                            {"type": "text", "text": "안녕하세요! 무엇을 도와드릴까요?"},
+                        ]
+                    )
+                )
+            ]
+        ],
+    )
+
+    await handler.on_llm_end(response)
+
+    llm_end_event = next(event for event in events if event.content.get("phase") == "llm_end")
+    reasoning_events = [event for event in events if event.content.get("phase") == "llm_reasoning"]
+
+    assert llm_end_event.content["text"] == "안녕하세요! 무엇을 도와드릴까요?"
+    assert reasoning_events == []

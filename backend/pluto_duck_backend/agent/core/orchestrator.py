@@ -456,14 +456,73 @@ async def run_agent_once(question: str, model: Optional[str] = None) -> Dict[str
 
 
 def _extract_final_answer(result: Any) -> str:
+    def _extract_text_from_content(content: Any) -> Optional[str]:
+        if isinstance(content, str):
+            text = content.strip()
+            return text or None
+
+        if isinstance(content, list):
+            text_fragments: List[str] = []
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                if str(block.get("type") or "").lower() == "reasoning":
+                    continue
+                text = block.get("text")
+                if isinstance(text, str) and text.strip():
+                    text_fragments.append(text.strip())
+            if text_fragments:
+                return "\n\n".join(text_fragments)
+
+            for block in content:
+                nested = _extract_text_from_content(block)
+                if nested:
+                    return nested
+            return None
+
+        if isinstance(content, dict):
+            if str(content.get("type") or "").lower() == "reasoning":
+                return None
+
+            for key in (
+                "final_answer",
+                "answer",
+                "output_text",
+                "text",
+                "content",
+                "summary",
+                "message",
+            ):
+                nested = _extract_text_from_content(content.get(key))
+                if nested:
+                    return nested
+            return None
+
+        return None
+
     if isinstance(result, dict):
         msgs = result.get("messages")
         if isinstance(msgs, list) and msgs:
-            last = msgs[-1]
-            content = getattr(last, "content", None)
-            if isinstance(content, str):
-                return content
-        text = result.get("output") or result.get("answer")
-        if isinstance(text, str):
-            return text
+            for message in reversed(msgs):
+                if isinstance(message, dict):
+                    role = str(message.get("role") or "").lower()
+                    if role and role != "assistant":
+                        continue
+                    extracted = _extract_text_from_content(message.get("content"))
+                elif isinstance(message, AIMessage):
+                    extracted = _extract_text_from_content(getattr(message, "content", None))
+                else:
+                    continue
+
+                if extracted:
+                    return extracted
+
+        extracted = _extract_text_from_content(result.get("output"))
+        if extracted:
+            return extracted
+
+        extracted = _extract_text_from_content(result.get("answer"))
+        if extracted:
+            return extracted
+
     return str(result)

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -17,7 +16,13 @@ class SessionContext:
     conversation_id: str
     project_id: str | None
     workspace_root: Path
-    prompt_layout: str
+    experiment_profile_id: str
+
+    @property
+    def prompt_layout(self) -> str:
+        """Legacy alias kept for compatibility until Phase 2 migration."""
+
+        return self.experiment_profile_id
 
 
 @dataclass(frozen=True)
@@ -32,15 +37,17 @@ def get_workspace_root(conversation_id: str) -> Path:
     return settings.data_dir.root / "agent_workspaces" / str(conversation_id)
 
 
-def build_session_context(*, conversation_id: str, project_id: str | None) -> SessionContext:
+def build_session_context(
+    *,
+    conversation_id: str,
+    project_id: str | None,
+    experiment_profile_id: str = "v3",
+) -> SessionContext:
     workspace_root = get_workspace_root(conversation_id)
     workspace_root.mkdir(parents=True, exist_ok=True)
-    digest = hashlib.sha256(f"prompt-layout-v1:{conversation_id}".encode("utf-8")).hexdigest()
-    bucket = int(digest[:8], 16) % 100
-    prompt_layout = "v1" if bucket < 50 else "v2"
     return SessionContext(
         conversation_id=conversation_id,
         project_id=project_id,
         workspace_root=workspace_root,
-        prompt_layout=prompt_layout,
+        experiment_profile_id=experiment_profile_id,
     )

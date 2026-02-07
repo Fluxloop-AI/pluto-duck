@@ -246,6 +246,7 @@ export function DatasetAnalyzingView({
     llmWaitingStartedRef.current = true;
     let isActive = true;
     let currentIndex = 0;
+    const lastMessageIndex = LLM_WAITING_MESSAGES.length - 1;
 
     // 첫 번째 메시지 즉시 표시 (processing 상태)
     setCurrentLlmMessageIndex(0);
@@ -253,12 +254,9 @@ export function DatasetAnalyzingView({
     const addNextMessage = () => {
       if (!isActive) return;
 
-      if (currentIndex >= LLM_WAITING_MESSAGES.length) {
-        console.warn('[LLM WAIT] index out of range', {
-          currentIndex,
-          length: LLM_WAITING_MESSAGES.length,
-        });
-        setCurrentLlmMessageIndex(-1);
+      // Keep the final waiting message in processing state until llmReady flips.
+      if (currentIndex >= lastMessageIndex) {
+        setCurrentLlmMessageIndex(lastMessageIndex);
         return;
       }
 
@@ -267,16 +265,10 @@ export function DatasetAnalyzingView({
       setLlmWaitingMessages((prev) => [...prev, message]);
       currentIndex++;
 
-      // 다음 메시지가 있으면 진행
-      if (currentIndex < LLM_WAITING_MESSAGES.length) {
-        setCurrentLlmMessageIndex(currentIndex);
-        // 1500-2500ms 간격으로 다음 메시지
-        const interval = 1500 + Math.random() * 1000;
-        setTimeout(addNextMessage, interval);
-      } else {
-        // 모든 메시지 완료, 마지막에서 대기 (인덱스를 -1로 설정하여 processing 표시 없앰)
-        setCurrentLlmMessageIndex(-1);
-      }
+      setCurrentLlmMessageIndex(currentIndex);
+      // 1500-2500ms 간격으로 다음 메시지
+      const interval = 1500 + Math.random() * 1000;
+      setTimeout(addNextMessage, interval);
     };
 
     // 첫 번째 메시지 완료 후 다음으로 진행 (1.5-2.5초 후)
@@ -295,6 +287,7 @@ export function DatasetAnalyzingView({
 
     // 짧은 딜레이 후 완료 처리
     const timer = setTimeout(() => {
+      console.info('[LLM DIAG UI] llmReady=true -> onComplete()');
       onComplete();
     }, 300);
 

@@ -1,0 +1,17 @@
+id: v3
+description: v3 profile with base_agent_prompt block for procedural memory separation
+compose_order:
+  - runtime
+  - base_agent_prompt
+  - skills_guide
+  - skills_list
+  - memory_guide
+  - user_profile
+  - memory_context
+  - memory_section
+  - dataset
+prompt_bundle:
+  runtime: v3/runtime.md
+  base_agent_prompt: v3/base_agent_prompt.md
+  skills_guide: v3/skills_guide.md
+  memory_guide: v3/memory_guide.md

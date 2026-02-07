@@ -24,10 +24,16 @@ def _set_data_root(tmp_path: Path, monkeypatch) -> Path:
 def test_build_session_context_computes_workspace_root(tmp_path: Path, monkeypatch) -> None:
     data_root = _set_data_root(tmp_path, monkeypatch)
 
-    ctx = build_session_context(conversation_id="conv-1", project_id="proj-1")
+    ctx = build_session_context(
+        conversation_id="conv-1",
+        project_id="proj-1",
+        experiment_profile_id="v1",
+    )
 
     assert ctx.conversation_id == "conv-1"
     assert ctx.project_id == "proj-1"
+    assert ctx.experiment_profile_id == "v1"
+    assert ctx.prompt_layout == "v1"
     assert ctx.workspace_root == data_root / "agent_workspaces" / "conv-1"
     assert ctx.workspace_root.exists()
 

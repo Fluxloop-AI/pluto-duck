@@ -26,6 +26,8 @@ from pluto_duck_backend.agent.core.deep.agent import build_deep_agent
 from pluto_duck_backend.agent.core.deep.context import RunContext, build_session_context
 from pluto_duck_backend.agent.core.deep.event_mapper import EventSink, PlutoDuckEventCallbackHandler
 from pluto_duck_backend.agent.core.deep.hitl import ApprovalBroker, ApprovalDecision
+from pluto_duck_backend.agent.core.deep.prompt_experiment import resolve_profile_id
+from pluto_duck_backend.app.core.config import get_settings
 from pluto_duck_backend.app.services.chat import get_chat_repository
 
 logger = logging.getLogger("pluto_duck_backend.agent")
@@ -204,9 +206,11 @@ class AgentRunManager:
             if project_id is None:
                 _log("project_id_missing", run_id=run.run_id, conversation_id=run.conversation_id)
 
+            experiment_profile_id = resolve_profile_id(run.metadata, get_settings())
             session_ctx = build_session_context(
                 conversation_id=run.conversation_id,
                 project_id=project_id,
+                experiment_profile_id=experiment_profile_id,
             )
             run_ctx = RunContext(
                 run_id=run.run_id,
@@ -214,7 +218,13 @@ class AgentRunManager:
                 model=run.model,
             )
 
-            _log("run_build_agent", run_id=run.run_id, conversation_id=run.conversation_id, model=run.model)
+            _log(
+                "run_build_agent",
+                run_id=run.run_id,
+                conversation_id=run.conversation_id,
+                model=run.model,
+                experiment_profile=experiment_profile_id,
+            )
             agent = build_deep_agent(
                 session_ctx=session_ctx,
                 run_ctx=run_ctx,
@@ -223,7 +233,7 @@ class AgentRunManager:
                 sink=EventSink(emit=emit),
                 run_id=run.run_id,
                 conversation_id=run.conversation_id,
-                prompt_layout=session_ctx.prompt_layout,
+                experiment_profile=session_ctx.experiment_profile_id,
             )
 
             _log("run_invoke_start", run_id=run.run_id, conversation_id=run.conversation_id)
@@ -446,14 +456,73 @@ async def run_agent_once(question: str, model: Optional[str] = None) -> Dict[str
 
 
 def _extract_final_answer(result: Any) -> str:
+    def _extract_text_from_content(content: Any) -> Optional[str]:
+        if isinstance(content, str):
+            text = content.strip()
+            return text or None
+
+        if isinstance(content, list):
+            text_fragments: List[str] = []
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                if str(block.get("type") or "").lower() == "reasoning":
+                    continue
+                text = block.get("text")
+                if isinstance(text, str) and text.strip():
+                    text_fragments.append(text.strip())
+            if text_fragments:
+                return "\n\n".join(text_fragments)
+
+            for block in content:
+                nested = _extract_text_from_content(block)
+                if nested:
+                    return nested
+            return None
+
+        if isinstance(content, dict):
+            if str(content.get("type") or "").lower() == "reasoning":
+                return None
+
+            for key in (
+                "final_answer",
+                "answer",
+                "output_text",
+                "text",
+                "content",
+                "summary",
+                "message",
+            ):
+                nested = _extract_text_from_content(content.get(key))
+                if nested:
+                    return nested
+            return None
+
+        return None
+
     if isinstance(result, dict):
         msgs = result.get("messages")
         if isinstance(msgs, list) and msgs:
-            last = msgs[-1]
-            content = getattr(last, "content", None)
-            if isinstance(content, str):
-                return content
-        text = result.get("output") or result.get("answer")
-        if isinstance(text, str):
-            return text
+            for message in reversed(msgs):
+                if isinstance(message, dict):
+                    role = str(message.get("role") or "").lower()
+                    if role and role != "assistant":
+                        continue
+                    extracted = _extract_text_from_content(message.get("content"))
+                elif isinstance(message, AIMessage):
+                    extracted = _extract_text_from_content(getattr(message, "content", None))
+                else:
+                    continue
+
+                if extracted:
+                    return extracted
+
+        extracted = _extract_text_from_content(result.get("output"))
+        if extracted:
+            return extracted
+
+        extracted = _extract_text_from_content(result.get("answer"))
+        if extracted:
+            return extracted
+
     return str(result)

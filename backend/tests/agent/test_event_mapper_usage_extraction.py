@@ -5,7 +5,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-
 from pluto_duck_backend.agent.core.deep.event_mapper import EventSink, PlutoDuckEventCallbackHandler
 
 
@@ -20,7 +19,7 @@ async def test_llm_usage_emits_cached_tokens() -> None:
         sink=EventSink(emit=_emit),
         run_id="run-1",
         conversation_id="conv-1",
-        prompt_layout="v1",
+        experiment_profile="v1",
     )
 
     response = SimpleNamespace(
@@ -31,6 +30,7 @@ async def test_llm_usage_emits_cached_tokens() -> None:
                 "completion_tokens": 5,
                 "total_tokens": 15,
                 "prompt_tokens_details": {"cached_tokens": 4},
+                "output_tokens_details": {"reasoning_tokens": 3},
             },
         },
         generations=[],
@@ -41,9 +41,11 @@ async def test_llm_usage_emits_cached_tokens() -> None:
     usage_event = next(event for event in events if event.content.get("phase") == "llm_usage")
 
     assert usage_event.content["usage"]["cached_prompt_tokens"] == 4
+    assert usage_event.content["usage"]["reasoning_tokens"] == 3
     assert usage_event.content["usage"]["prompt_tokens"] == 10
     assert usage_event.content["model"] == "gpt-4o"
     assert usage_event.metadata["conversation_id"] == "conv-1"
+    assert usage_event.metadata["experiment_profile"] == "v1"
 
 
 @pytest.mark.asyncio
@@ -57,7 +59,7 @@ async def test_llm_usage_emits_nulls_when_missing() -> None:
         sink=EventSink(emit=_emit),
         run_id="run-2",
         conversation_id="conv-2",
-        prompt_layout="v2",
+        experiment_profile="v2",
     )
 
     response = SimpleNamespace(
@@ -72,3 +74,4 @@ async def test_llm_usage_emits_nulls_when_missing() -> None:
     assert usage_event.content["usage"]["prompt_tokens"] is None
     assert usage_event.content["usage"]["completion_tokens"] is None
     assert usage_event.content["usage"]["total_tokens"] is None
+    assert usage_event.content["usage"]["reasoning_tokens"] is None

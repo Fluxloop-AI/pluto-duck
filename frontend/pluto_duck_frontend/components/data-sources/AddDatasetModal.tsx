@@ -702,6 +702,9 @@ export function AddDatasetModal({
     setDiagnosisResults(null);
 
     try {
+      const traceId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+      const logPrefix = `[LLM DIAG][${traceId}]`;
+
       // First API call: fast diagnosis without LLM
       const fastResponse = await diagnoseFiles(projectId, filesToDiagnose, true, false, false, undefined, 'sync', language);
       setDiagnosisResults(fastResponse.diagnoses);
@@ -734,7 +737,7 @@ export function AddDatasetModal({
           skipped: dupResponse.skipped,
         } : undefined;
 
-        const llmMode = isTauriRuntime() ? 'defer' : 'sync';
+        const llmMode = 'defer';
         const llmResponse = await diagnoseFiles(
           projectId,
           filesToDiagnose,
@@ -753,14 +756,24 @@ export function AddDatasetModal({
         }
 
         const llmPending = llmResponse.llm_pending ?? llmResponse.diagnoses.some(d => !d.llm_analysis);
+        console.info(`${logPrefix} defer response`, {
+          llmPending,
+          diagnosisCount: llmResponse.diagnoses.length,
+          missingLlmCount: llmResponse.diagnoses.filter(d => !d.llm_analysis).length,
+          hasMergedAnalysis: Boolean(llmResponse.merged_analysis),
+        });
 
-        if (llmMode === 'defer' && llmPending) {
+        if (llmPending) {
           const pollIntervalMs = 3000;
           const pollTimeoutMs = 180000;
           const pollStartedAt = Date.now();
+          let pollAttempt = 0;
+          let resolvedInPoll = false;
+          console.info(`${logPrefix} poll start`, { pollIntervalMs, pollTimeoutMs });
 
           while (Date.now() - pollStartedAt < pollTimeoutMs) {
             await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+            pollAttempt += 1;
             try {
               const pollResponse = await diagnoseFiles(
                 projectId,
@@ -779,18 +792,41 @@ export function AddDatasetModal({
               }
 
               const stillPending = pollResponse.llm_pending ?? pollResponse.diagnoses.some(d => !d.llm_analysis);
+              console.info(`${logPrefix} poll tick`, {
+                pollAttempt,
+                elapsedMs: Date.now() - pollStartedAt,
+                stillPending,
+                missingLlmCount: pollResponse.diagnoses.filter(d => !d.llm_analysis).length,
+                hasMergedAnalysis: Boolean(pollResponse.merged_analysis),
+              });
               if (!stillPending) {
+                resolvedInPoll = true;
+                console.info(`${logPrefix} llm ready from poll`, {
+                  pollAttempt,
+                  elapsedMs: Date.now() - pollStartedAt,
+                });
                 break;
               }
-            } catch {
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              console.warn(`${logPrefix} poll failed`, { pollAttempt, message });
               break;
             }
           }
+
+          if (!resolvedInPoll) {
+            console.warn(`${logPrefix} poll ended without ready`, {
+              elapsedMs: Date.now() - pollStartedAt,
+            });
+          }
         }
-      } catch {
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(`${logPrefix} llm stage failed`, { message });
         // LLM failure is not critical - we already have the fast diagnosis
       }
 
+      console.info(`${logPrefix} setLlmReady(true)`);
       setLlmReady(true);
     } catch (error) {
       // First API call failed - go back to preview

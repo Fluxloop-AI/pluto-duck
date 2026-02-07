@@ -2,18 +2,22 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, MutableMapping
 
 import yaml  # type: ignore[import-untyped]
 
+from pluto_duck_backend.agent.core.deep.prompts.memory_guide_template import (
+    validate_memory_guide_template_contract,
+)
 from pluto_duck_backend.app.core.config import PlutoDuckSettings, get_settings
 
 _DEFAULT_PROFILE_ID = "v2"
 _METADATA_KEY = "_prompt_experiment"
 _LEGACY_PROFILE_IDS = {"v1", "v2"}
-_ALLOWED_PROMPT_BUNDLE_BLOCKS = frozenset({"runtime", "skills_guide"})
+_ALLOWED_PROMPT_BUNDLE_BLOCKS = frozenset({"runtime", "skills_guide", "memory_guide"})
 _RUNTIME_PROMPT_PATH = Path(__file__).parent / "prompts" / "runtime_system_prompt.md"
 _LEGACY_COMPOSE_ORDERS: Mapping[str, tuple[str, ...]] = {
     "v1": (
@@ -48,6 +52,7 @@ class ExperimentProfile:
 
 
 _PROFILE_CACHE: MutableMapping[tuple[str, Path], ExperimentProfile] = {}
+_LOGGER = logging.getLogger(__name__)
 
 
 def _profiles_root() -> Path:
@@ -106,7 +111,11 @@ def _load_experiment_profile(
 
     definition_path = profiles_root / f"{profile_id}.yaml"
     if not definition_path.exists():
-        if not stack and profile_id in _LEGACY_PROFILE_IDS and profiles_root == _profiles_root().resolve():
+        if (
+            not stack
+            and profile_id in _LEGACY_PROFILE_IDS
+            and profiles_root == _profiles_root().resolve()
+        ):
             legacy = _legacy_profile(profile_id)
             _PROFILE_CACHE[cache_key] = legacy
             return legacy
@@ -219,8 +228,37 @@ def _parse_prompt_bundle_entries(
             raise FileNotFoundError(
                 f"Prompt bundle file not found for '{profile_id}' block '{block}': {resolved}"
             )
+        if block == "memory_guide":
+            _validate_memory_guide_template(profile_id=profile_id, template_path=resolved)
         parsed[block] = resolved
     return parsed
+
+
+def _validate_memory_guide_template(*, profile_id: str, template_path: Path) -> None:
+    try:
+        template = template_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(
+            "Prompt bundle file decode failed for "
+            f"'{profile_id}' block 'memory_guide': {template_path}"
+        ) from exc
+
+    missing_required = validate_memory_guide_template_contract(
+        template=template,
+        profile_id=profile_id,
+        template_path=template_path,
+        strict_required_variables=False,
+    )
+    if missing_required:
+        _LOGGER.warning(
+            (
+                "Memory guide template for profile '%s' is missing placeholders "
+                "in compat mode: %s (%s)"
+            ),
+            profile_id,
+            ", ".join(missing_required),
+            template_path,
+        )
 
 
 def _extract_profile_id_from_metadata(metadata: Mapping[str, object] | None) -> str | None:

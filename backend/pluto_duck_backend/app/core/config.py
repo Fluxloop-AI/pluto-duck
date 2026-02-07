@@ -5,8 +5,7 @@ import shutil
 import sys
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, HttpUrl
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -64,7 +63,10 @@ class AgentSettings(BaseModel):
     model: str = Field(default="gpt-4.1-mini", description="Default model name")
     api_base: Optional[HttpUrl] = Field(default=None, description="Override base URL for provider")
     api_key: Optional[str] = Field(default=None, description="API key for the LLM provider")
-    mock_mode: bool = Field(default=False, description="Use local mock responses instead of live LLM")
+    mock_mode: bool = Field(
+        default=False,
+        description="Use local mock responses instead of live LLM",
+    )
     reasoning_effort: Literal["minimal", "low", "medium", "high"] = Field(
         default="medium",
         description="Reasoning depth for GPT-5 family models",
@@ -86,6 +88,10 @@ class AgentSettings(BaseModel):
     prompt_experiment: Optional[str] = Field(
         default=None,
         description="Prompt experiment profile id override",
+    )
+    memory_guide_template_strict: bool = Field(
+        default=False,
+        description="Enforce strict memory_guide template placeholders and disable fallback paths",
     )
     n_gpu_layers: int = Field(
         default=-1,

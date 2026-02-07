@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from importlib import resources
 from pathlib import Path
-from typing import Collection
+from typing import TYPE_CHECKING, Collection
 
-from ..prompt_experiment import ExperimentProfile
+if TYPE_CHECKING:
+    from ..prompt_experiment import ExperimentProfile
 
 
 def load_prompt(filename: str, *, encoding: str = "utf-8") -> str:
@@ -21,7 +22,7 @@ def load_default_agent_prompt() -> str:
 
 
 def load_prompt_bundle(
-    profile: ExperimentProfile,
+    profile: "ExperimentProfile",
     *,
     encoding: str = "utf-8",
     required_keys: Collection[str] | None = None,

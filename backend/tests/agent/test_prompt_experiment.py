@@ -231,10 +231,10 @@ def test_load_experiment_profile_raises_when_block_key_not_allowed(tmp_path: Pat
     _write_profile(
         tmp_path,
         profile_id="exp-a",
-        bundle={"memory_guide": "bundles/memory-guide.md"},
+        bundle={"dataset": "bundles/dataset.md"},
     )
 
-    with pytest.raises(ValueError, match="unsupported prompt_bundle block 'memory_guide'"):
+    with pytest.raises(ValueError, match="unsupported prompt_bundle block 'dataset'"):
         load_experiment_profile("exp-a", profiles_root=tmp_path)
 
 
@@ -291,3 +291,53 @@ def test_load_experiment_profile_does_not_cache_failed_result(tmp_path: Path) ->
     loaded = load_experiment_profile("child", profiles_root=tmp_path)
 
     assert loaded.prompt_bundle["skills_guide"] == skills_file.resolve()
+
+
+def test_load_experiment_profile_supports_memory_guide_bundle(tmp_path: Path) -> None:
+    clear_experiment_profile_cache()
+    _write_profile(
+        tmp_path,
+        profile_id="exp-a",
+        bundle={
+            "runtime": "bundles/runtime.md",
+            "memory_guide": "bundles/memory-guide.md",
+        },
+    )
+    (tmp_path / "bundles/memory-guide.md").write_text(
+        "{project_id}\n{project_memory_info}\n{project_dir}",
+        encoding="utf-8",
+    )
+
+    loaded = load_experiment_profile("exp-a", profiles_root=tmp_path)
+
+    assert loaded.prompt_bundle["memory_guide"] == (tmp_path / "bundles/memory-guide.md").resolve()
+
+
+def test_load_experiment_profile_raises_for_invalid_memory_guide_placeholder(
+    tmp_path: Path,
+) -> None:
+    clear_experiment_profile_cache()
+    runtime_path = tmp_path / "bundles/runtime.md"
+    runtime_path.parent.mkdir(parents=True, exist_ok=True)
+    runtime_path.write_text("runtime", encoding="utf-8")
+
+    template_path = tmp_path / "bundles/memory-guide.md"
+    template_path.write_text("memory {unknown_placeholder}", encoding="utf-8")
+
+    (tmp_path / "exp-a.yaml").write_text(
+        "\n".join(
+            [
+                "id: exp-a",
+                "description: desc",
+                "compose_order:",
+                "  - runtime",
+                "prompt_bundle:",
+                "  runtime: bundles/runtime.md",
+                "  memory_guide: bundles/memory-guide.md",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="unsupported=unknown_placeholder"):
+        load_experiment_profile("exp-a", profiles_root=tmp_path)

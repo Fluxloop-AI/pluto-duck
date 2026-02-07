@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from importlib import resources
 from pathlib import Path
+from typing import Collection
 
 from ..prompt_experiment import ExperimentProfile
 
@@ -19,7 +20,20 @@ def load_default_agent_prompt() -> str:
     return load_prompt("default_agent_prompt.md")
 
 
-def load_prompt_bundle(profile: ExperimentProfile, *, encoding: str = "utf-8") -> dict[str, str]:
+def load_prompt_bundle(
+    profile: ExperimentProfile,
+    *,
+    encoding: str = "utf-8",
+    required_keys: Collection[str] | None = None,
+) -> dict[str, str]:
+    required = set(required_keys or ())
+    missing = sorted(key for key in required if key not in profile.prompt_bundle)
+    if missing:
+        missing_keys = ", ".join(missing)
+        raise ValueError(
+            f"Prompt bundle key not configured for profile '{profile.id}': {missing_keys}"
+        )
+
     bundle: dict[str, str] = {}
     for key, path in profile.prompt_bundle.items():
         file_path = Path(path)
@@ -34,4 +48,13 @@ def load_prompt_bundle(profile: ExperimentProfile, *, encoding: str = "utf-8") -
                 "Prompt bundle file decode failed for profile "
                 f"'{profile.id}' key '{key}': {file_path}"
             ) from exc
+
+    for key in required:
+        text = (bundle.get(key) or "").strip()
+        if text:
+            continue
+        file_path = Path(profile.prompt_bundle[key])
+        raise ValueError(
+            f"Prompt bundle text is empty for profile '{profile.id}' key '{key}': {file_path}"
+        )
     return bundle

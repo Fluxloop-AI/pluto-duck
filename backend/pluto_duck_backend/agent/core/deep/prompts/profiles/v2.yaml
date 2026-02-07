@@ -11,3 +11,4 @@ compose_order:
   - skills_list
 prompt_bundle:
   runtime: v2/runtime.md
+  skills_guide: v2/skills_guide.md

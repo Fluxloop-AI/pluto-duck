@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import pytest
 from pluto_duck_backend.agent.core.deep.middleware.system_prompt_composer import (
     SystemPromptComposerMiddleware,
 )
@@ -98,6 +99,7 @@ def test_composer_v2_order() -> None:
                 "skills_list",
             ),
         ),
+        static_blocks={"skills_guide": "## Skills System\n\nGuide text"},
     )
     request = DummyRequest(
         system_prompt="RUNTIME_PROMPT",
@@ -156,3 +158,21 @@ def test_composer_skips_empty_optional_blocks() -> None:
     assert "RUNTIME_PROMPT" in output
     assert "## Dataset Readiness Context" not in output
     assert "**Available Skills:**" not in output
+
+
+def test_composer_raises_when_skills_guide_static_block_missing() -> None:
+    composer = SystemPromptComposerMiddleware(
+        project_id="proj-1",
+        profile=_profile("v2", ("runtime", "skills_guide")),
+        static_blocks={},
+    )
+    request = DummyRequest(
+        system_prompt="RUNTIME_PROMPT",
+        state={},
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="missing non-empty static block 'skills_guide'",
+    ):
+        composer._compose(request)  # type: ignore[arg-type]

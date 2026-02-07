@@ -85,12 +85,18 @@ def build_deep_agent(
         run_id=run_ctx.run_id,
     )
     profile = load_experiment_profile(session_ctx.experiment_profile_id)
-    prompt_bundle = load_prompt_bundle(profile)
-    runtime_system_prompt = (prompt_bundle.get("runtime") or "").strip()
-    if not runtime_system_prompt:
+    required_static_blocks = tuple(
+        block for block in profile.compose_order if block in {"runtime", "skills_guide"}
+    )
+    prompt_bundle = load_prompt_bundle(profile, required_keys=required_static_blocks)
+    for block in required_static_blocks:
+        block_text = (prompt_bundle.get(block) or "").strip()
+        if block_text:
+            continue
         raise ValueError(
-            f"Prompt profile '{profile.id}' does not provide a non-empty 'runtime' bundle"
+            f"Prompt profile '{profile.id}' does not provide a non-empty '{block}' bundle"
         )
+    runtime_system_prompt = prompt_bundle["runtime"].strip()
 
     default_agent_md = load_default_agent_prompt()
     middleware: list[AgentMiddleware] = [
@@ -106,6 +112,7 @@ def build_deep_agent(
         SystemPromptComposerMiddleware(
             project_id=session_ctx.project_id,
             profile=profile,
+            static_blocks=prompt_bundle,
         ),
     ]
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from typing import NotRequired, cast
+from typing import Mapping, NotRequired, cast
 
 from langchain.agents.middleware.types import (
     AgentMiddleware,
@@ -19,7 +19,7 @@ from .memory import (
     build_longterm_memory_prompt,
     build_memory_section,
 )
-from .skills import SKILLS_GUIDE_STATIC, build_skills_list_block, build_skills_section
+from .skills import build_skills_list_block, build_skills_section
 
 
 class ComposerState(AgentState):
@@ -48,10 +48,17 @@ class SystemPromptComposerMiddleware(AgentMiddleware):
 
     state_schema = ComposerState
 
-    def __init__(self, *, project_id: str | None, profile: ExperimentProfile) -> None:
+    def __init__(
+        self,
+        *,
+        project_id: str | None,
+        profile: ExperimentProfile,
+        static_blocks: Mapping[str, str] | None = None,
+    ) -> None:
         self._project_id = project_id
         self._profile = profile
         self._compose_order = self._validate_compose_order(profile.compose_order)
+        self._static_blocks = dict(static_blocks or {})
 
     def _compose(self, request: ModelRequest) -> str:
         state = cast("ComposerState", request.state)
@@ -85,7 +92,7 @@ class SystemPromptComposerMiddleware(AgentMiddleware):
         if block == "dataset":
             return str(state.get("dataset_readiness_summary") or "")
         if block == "skills_guide":
-            return SKILLS_GUIDE_STATIC
+            return self._required_static_block("skills_guide")
         if block == "skills_list":
             skills_metadata = state.get("skills_metadata", [])
             if not skills_metadata:
@@ -100,6 +107,14 @@ class SystemPromptComposerMiddleware(AgentMiddleware):
                 project_id=self._project_id,
             )
         raise ValueError(f"Unsupported compose block '{block}'")
+
+    def _required_static_block(self, block: str) -> str:
+        text = (self._static_blocks.get(block) or "").strip()
+        if not text:
+            raise ValueError(
+                f"Prompt profile '{self._profile.id}' is missing non-empty static block '{block}'"
+            )
+        return text
 
     @classmethod
     def _validate_compose_order(cls, compose_order: tuple[str, ...]) -> tuple[str, ...]:

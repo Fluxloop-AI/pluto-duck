@@ -30,6 +30,7 @@ async def test_llm_usage_emits_cached_tokens() -> None:
                 "completion_tokens": 5,
                 "total_tokens": 15,
                 "prompt_tokens_details": {"cached_tokens": 4},
+                "output_tokens_details": {"reasoning_tokens": 3},
             },
         },
         generations=[],
@@ -40,6 +41,7 @@ async def test_llm_usage_emits_cached_tokens() -> None:
     usage_event = next(event for event in events if event.content.get("phase") == "llm_usage")
 
     assert usage_event.content["usage"]["cached_prompt_tokens"] == 4
+    assert usage_event.content["usage"]["reasoning_tokens"] == 3
     assert usage_event.content["usage"]["prompt_tokens"] == 10
     assert usage_event.content["model"] == "gpt-4o"
     assert usage_event.metadata["conversation_id"] == "conv-1"
@@ -72,3 +74,4 @@ async def test_llm_usage_emits_nulls_when_missing() -> None:
     assert usage_event.content["usage"]["prompt_tokens"] is None
     assert usage_event.content["usage"]["completion_tokens"] is None
     assert usage_event.content["usage"]["total_tokens"] is None
+    assert usage_event.content["usage"]["reasoning_tokens"] is None

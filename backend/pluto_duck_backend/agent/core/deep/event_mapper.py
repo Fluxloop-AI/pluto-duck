@@ -133,6 +133,116 @@ class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
         except (TypeError, ValueError):
             return None
 
+    def _coerce_text(self, value: Any) -> str | None:  # noqa: ANN401
+        if not isinstance(value, str):
+            return None
+        text = value.strip()
+        if not text:
+            return None
+        return text
+
+    def _join_text_fragments(self, fragments: list[str]) -> str | None:
+        normalized = [
+            text
+            for text in (self._coerce_text(fragment) for fragment in fragments)
+            if text
+        ]
+        if not normalized:
+            return None
+        return "\n\n".join(normalized)
+
+    def _extract_output_text_fragments(self, block: Any) -> list[str]:  # noqa: ANN401
+        if isinstance(block, str):
+            return [block]
+        if not isinstance(block, dict):
+            return []
+
+        block_type = str(block.get("type") or "").lower()
+        if block_type == "reasoning":
+            return []
+
+        if block_type in {"message", "output_message"}:
+            nested = block.get("content")
+            if isinstance(nested, list):
+                fragments: list[str] = []
+                for item in nested:
+                    fragments.extend(self._extract_output_text_fragments(item))
+                return fragments
+            nested_text = self._coerce_text(nested)
+            return [nested_text] if nested_text else []
+
+        text_value = self._coerce_text(block.get("text"))
+        if text_value:
+            return [text_value]
+
+        nested = block.get("content")
+        if isinstance(nested, list):
+            nested_fragments: list[str] = []
+            for item in nested:
+                nested_fragments.extend(self._extract_output_text_fragments(item))
+            return nested_fragments
+
+        nested_text = self._coerce_text(nested)
+        return [nested_text] if nested_text else []
+
+    def _extract_reasoning_summary_fragments(self, value: Any) -> list[str]:  # noqa: ANN401
+        if isinstance(value, str):
+            return [value]
+        if isinstance(value, dict):
+            fragments: list[str] = []
+            text_value = self._coerce_text(value.get("text"))
+            if text_value:
+                fragments.append(text_value)
+            summary_text = self._coerce_text(value.get("summary_text"))
+            if summary_text:
+                fragments.append(summary_text)
+            nested = value.get("summary")
+            if nested is not None:
+                fragments.extend(self._extract_reasoning_summary_fragments(nested))
+            return fragments
+        if isinstance(value, list):
+            summary_fragments: list[str] = []
+            for item in value:
+                summary_fragments.extend(self._extract_reasoning_summary_fragments(item))
+            return summary_fragments
+        return []
+
+    def _extract_reasoning_fragments(self, content: Any) -> list[str]:  # noqa: ANN401
+        if not isinstance(content, list):
+            return []
+
+        fragments: list[str] = []
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if str(block.get("type") or "").lower() != "reasoning":
+                continue
+            summary = block.get("summary")
+            if summary is not None:
+                fragments.extend(self._extract_reasoning_summary_fragments(summary))
+            summary_text = self._coerce_text(block.get("summary_text"))
+            if summary_text:
+                fragments.append(summary_text)
+            text = self._coerce_text(block.get("text"))
+            if text:
+                fragments.append(text)
+        return fragments
+
+    def _extract_llm_text_and_reason(self, message_content: Any) -> tuple[str | None, str | None]:  # noqa: ANN401
+        if isinstance(message_content, str):
+            return message_content, None
+        if not isinstance(message_content, list):
+            return None, None
+
+        text_fragments: list[str] = []
+        for block in message_content:
+            text_fragments.extend(self._extract_output_text_fragments(block))
+        reason_fragments = self._extract_reasoning_fragments(message_content)
+        return (
+            self._join_text_fragments(text_fragments),
+            self._join_text_fragments(reason_fragments),
+        )
+
     def _extract_usage_from_mapping(self, mapping: Any) -> dict[str, Any] | None:  # noqa: ANN401
         if not isinstance(mapping, dict):
             return None
@@ -140,7 +250,14 @@ class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
             candidate = mapping.get(key)
             if isinstance(candidate, dict):
                 return candidate
-        if any(k in mapping for k in ("prompt_tokens", "completion_tokens", "total_tokens", "input_tokens", "output_tokens")):
+        direct_keys = (
+            "prompt_tokens",
+            "completion_tokens",
+            "total_tokens",
+            "input_tokens",
+            "output_tokens",
+        )
+        if any(k in mapping for k in direct_keys):
             return mapping
         return None
 
@@ -152,12 +269,36 @@ class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
                 details = value
                 break
         if details:
-            for key in ("cached_tokens", "cache_read", "cache_read_input_tokens", "cache_read_tokens"):
+            for key in (
+                "cached_tokens",
+                "cache_read",
+                "cache_read_input_tokens",
+                "cache_read_tokens",
+            ):
                 value = details.get(key)
                 if value is not None:
                     return self._coerce_int(value)
         for key in ("cached_tokens", "cache_read_input_tokens", "cache_read_tokens"):
             value = usage.get(key)
+            if value is not None:
+                return self._coerce_int(value)
+        return None
+
+    def _extract_reasoning_tokens(self, usage: dict[str, Any]) -> int | None:
+        for key in ("reasoning_tokens",):
+            value = usage.get(key)
+            if value is not None:
+                return self._coerce_int(value)
+
+        for details_key in (
+            "output_tokens_details",
+            "completion_tokens_details",
+            "output_token_details",
+        ):
+            details = usage.get(details_key)
+            if not isinstance(details, dict):
+                continue
+            value = details.get("reasoning_tokens")
             if value is not None:
                 return self._coerce_int(value)
         return None
@@ -197,17 +338,25 @@ class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
                     if usage is not None:
                         break
         usage = usage or {}
-        prompt_tokens = self._coerce_int(usage.get("prompt_tokens") or usage.get("input_tokens"))
-        completion_tokens = self._coerce_int(usage.get("completion_tokens") or usage.get("output_tokens"))
+        prompt_tokens = self._coerce_int(
+            usage.get("prompt_tokens") or usage.get("input_tokens")
+        )
+        completion_tokens = self._coerce_int(
+            usage.get("completion_tokens") or usage.get("output_tokens")
+        )
         total_tokens = self._coerce_int(usage.get("total_tokens"))
         if total_tokens is None and prompt_tokens is not None and completion_tokens is not None:
             total_tokens = prompt_tokens + completion_tokens
         cached_tokens = self._extract_cached_tokens(usage) if isinstance(usage, dict) else None
+        reasoning_tokens = (
+            self._extract_reasoning_tokens(usage) if isinstance(usage, dict) else None
+        )
         return {
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
             "total_tokens": total_tokens,
             "cached_prompt_tokens": cached_tokens,
+            "reasoning_tokens": reasoning_tokens,
         }
 
     async def on_llm_start(self, *args: Any, **kwargs: Any) -> None:  # noqa: ANN401
@@ -234,14 +383,26 @@ class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
     async def on_llm_end(self, response: Any, **kwargs: Any) -> None:  # noqa: ANN401
         await self._flush_chunk(is_final=True)
         text = None
+        reason = None
         try:
             # Try to extract first generation text
             gens = getattr(response, "generations", None) or []
             if gens and gens[0]:
                 msg = getattr(gens[0][0], "message", None)
-                text = getattr(msg, "content", None)
+                text, reason = self._extract_llm_text_and_reason(getattr(msg, "content", None))
         except Exception:
             text = None
+            reason = None
+        if reason:
+            await self._emit(
+                AgentEvent(
+                    type=EventType.REASONING,
+                    subtype=EventSubType.CHUNK,
+                    content={"phase": "llm_reasoning", "reason": reason},
+                    metadata={"run_id": self._run_id},
+                    timestamp=self._ts(),
+                )
+            )
         await self._emit(
             AgentEvent(
                 type=EventType.REASONING,
@@ -266,7 +427,12 @@ class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
             )
         )
 
-    async def on_tool_start(self, serialized: dict[str, Any], input_str: str, **kwargs: Any) -> None:  # noqa: ANN401
+    async def on_tool_start(
+        self,
+        serialized: dict[str, Any],
+        input_str: str,
+        **kwargs: Any,
+    ) -> None:  # noqa: ANN401
         tool_name = serialized.get("name") or serialized.get("id") or "tool"
         self._tool_stack.append(tool_name)
         await self._emit(

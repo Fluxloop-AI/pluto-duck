@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import json
 from typing import AsyncIterator
 from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-
 from pluto_duck_backend.app.api.router import api_router
 
 
@@ -33,7 +33,13 @@ class DummyManager:
         }
         return conversation_id, run_id
 
-    def start_run_for_conversation(self, conversation_id: str, question: str, *, create_if_missing: bool = False) -> str:
+    def start_run_for_conversation(
+        self,
+        conversation_id: str,
+        question: str,
+        *,
+        create_if_missing: bool = False,
+    ) -> str:
         _, run_id = self.start_run(question)
         self._runs[run_id]["conversation_id"] = conversation_id
         return run_id
@@ -46,7 +52,11 @@ class DummyManager:
     async def stream_events(self, run_id: str) -> AsyncIterator[dict]:
         if run_id != self.latest_run:
             raise KeyError(run_id)
-        yield {"type": "reasoning", "subtype": "chunk", "content": {"reason": "mock"}}
+        yield {
+            "type": "reasoning",
+            "subtype": "chunk",
+            "content": {"phase": "llm_reasoning", "reason": "mock"},
+        }
         yield {"type": "run", "subtype": "end", "content": {"finished": True}}
 
 
@@ -85,5 +95,9 @@ def test_stream_events(client: TestClient) -> None:
         lines = [line for line in response.iter_lines() if line]
     assert lines
     assert lines[0].startswith("data: ")
-
-
+    payloads = [json.loads(line[6:]) for line in lines if line.startswith("data: ")]
+    assert any(
+        payload.get("content", {}).get("phase") == "llm_reasoning"
+        and payload.get("content", {}).get("reason") == "mock"
+        for payload in payloads
+    )

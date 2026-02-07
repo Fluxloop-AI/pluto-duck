@@ -444,7 +444,11 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
         
         // Extract reasoning text
         turn.reasoningText = turn.events
-          .filter(event => event.type === 'reasoning')
+          .filter(event => {
+            if (event.type !== 'reasoning') return false;
+            const content = event.content as any;
+            return content && typeof content === 'object' && content.phase === 'llm_reasoning';
+          })
           .map(event => {
             const content = event.content as any;
             return content && typeof content === 'object' && content.reason ? String(content.reason) : '';

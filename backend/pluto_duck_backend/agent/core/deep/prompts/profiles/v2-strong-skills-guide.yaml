@@ -1,0 +1,14 @@
+id: v2-strong-skills-guide
+base: v2
+description: v2 child profile overriding only skills guide block
+compose_order:
+  - runtime
+  - skills_guide
+  - memory_guide
+  - user_profile
+  - memory_section
+  - memory_context
+  - dataset
+  - skills_list
+prompt_bundle_overrides:
+  skills_guide: v2-strong-skills-guide/skills_guide.md

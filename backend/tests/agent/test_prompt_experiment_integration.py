@@ -98,7 +98,11 @@ def _set_data_root(tmp_path: Path, monkeypatch, *, env_profile: str | None) -> N
     get_settings.cache_clear()
 
 
-def _patch_agent_builder(monkeypatch, captured_profiles: list[str]) -> None:
+def _patch_agent_builder(
+    monkeypatch,
+    captured_profiles: list[str],
+    captured_skills_guides: list[str] | None = None,
+) -> None:
     class _FakeLLMService:
         def __init__(self, model_override: str | None = None) -> None:
             _ = model_override
@@ -117,6 +121,10 @@ def _patch_agent_builder(monkeypatch, captured_profiles: list[str]) -> None:
         composer = middleware[-1]
         assert isinstance(composer, SystemPromptComposerMiddleware)
         captured_profiles.append(composer._profile.id)
+        if captured_skills_guides is not None:
+            captured_skills_guides.append(
+                str(composer._static_blocks.get("skills_guide") or "")
+            )
         return _FakeAgent()
 
     monkeypatch.setattr(agent_module, "LLMService", _FakeLLMService)
@@ -201,3 +209,41 @@ async def test_env_profile_applies_when_metadata_missing(tmp_path: Path, monkeyp
     await manager.get_result(run_2)
 
     assert captured_profiles == ["v1", "v1"]
+
+
+@pytest.mark.asyncio
+async def test_profile_switches_base_and_override_skills_guide_with_same_conversation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _set_data_root(tmp_path, monkeypatch, env_profile=None)
+    fake_repo = _FakeChatRepo()
+    captured_profiles: list[str] = []
+    captured_skills_guides: list[str] = []
+
+    monkeypatch.setattr(orchestrator, "get_chat_repository", lambda: fake_repo)
+    _patch_agent_builder(monkeypatch, captured_profiles, captured_skills_guides)
+    _patch_cleanup_task(monkeypatch)
+
+    manager = orchestrator.AgentRunManager()
+    conversation_id = "conv-integration-override"
+    run_1 = manager.start_run_for_conversation(
+        conversation_id,
+        "first question",
+        metadata={"_prompt_experiment": "v2"},
+        create_if_missing=True,
+    )
+    await manager.get_result(run_1)
+
+    run_2 = manager.start_run_for_conversation(
+        conversation_id,
+        "second question",
+        metadata={"_prompt_experiment": "v2-strong-skills-guide"},
+        create_if_missing=False,
+    )
+    await manager.get_result(run_2)
+
+    assert captured_profiles == ["v2", "v2-strong-skills-guide"]
+    assert len(captured_skills_guides) == 2
+    assert captured_skills_guides[0] != captured_skills_guides[1]
+    assert "skill-guided execution is the default" in captured_skills_guides[1].lower()

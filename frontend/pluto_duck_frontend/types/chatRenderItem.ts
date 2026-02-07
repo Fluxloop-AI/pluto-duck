@@ -53,9 +53,9 @@ export interface ToolItem extends BaseRenderItem {
   /** 툴 실행 상태 */
   state: 'pending' | 'completed' | 'error';
   /** 툴 입력값 */
-  input?: string;
+  input?: unknown;
   /** 툴 출력값 */
-  output?: any;
+  output?: unknown;
   /** 에러 메시지 */
   error?: string;
 }

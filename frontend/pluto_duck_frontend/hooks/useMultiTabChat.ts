@@ -36,16 +36,16 @@ export interface DetailMessage {
 export interface ChatEvent {
   type: string;
   subtype?: string;
-  content: any;
-  metadata?: Record<string, any> | null;
+  content: unknown;
+  metadata?: Record<string, unknown> | null;
   timestamp?: string;
 }
 
 export interface GroupedToolEvent {
   toolName: string;
   state: 'pending' | 'completed' | 'error';
-  input?: string;
-  output?: any;
+  input?: unknown;
+  output?: unknown;
   error?: string;
   startEvent?: ChatEvent;
   endEvent?: ChatEvent;
@@ -71,6 +71,66 @@ interface TabChatState {
   detail: ChatSessionDetail | null;
   loading: boolean;
   activeRunId: string | null;
+}
+
+interface ReasoningEventContent {
+  phase?: string;
+  reason?: unknown;
+}
+
+interface ToolEventContent {
+  tool?: string;
+  input?: unknown;
+  output?: unknown;
+  error?: unknown;
+  message?: unknown;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object';
+}
+
+function getMetadataRunId(metadata: ChatEvent['metadata']): string | null {
+  if (!metadata) return null;
+  const runId = metadata.run_id;
+  return typeof runId === 'string' && runId.trim() ? runId : null;
+}
+
+function toReasoningEventContent(content: unknown): ReasoningEventContent | null {
+  if (!isRecord(content)) return null;
+  return {
+    phase: typeof content.phase === 'string' ? content.phase : undefined,
+    reason: content.reason,
+  };
+}
+
+function toToolEventContent(content: unknown): ToolEventContent | null {
+  if (!isRecord(content)) return null;
+  return {
+    tool: typeof content.tool === 'string' && content.tool.trim() ? content.tool : undefined,
+    input: content.input,
+    output: content.output,
+    error: content.error,
+    message: content.message,
+  };
+}
+
+function toOptionalText(value: unknown): string | undefined {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed ? trimmed : undefined;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value);
+  }
+  if (isRecord(value) || Array.isArray(value)) {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
 }
 
 function extractTextFromUnknown(value: unknown): string | null {
@@ -333,7 +393,7 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
     const eventsByRunId = new Map<string, ChatEvent[]>();
 
     const addEvent = (event: ChatEvent) => {
-      const runId = event.metadata?.run_id;
+      const runId = getMetadataRunId(event.metadata);
       if (!runId) return;
       if (!eventsByRunId.has(runId)) {
         eventsByRunId.set(runId, []);
@@ -347,10 +407,10 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
     if (isStreaming) {
       streamEvents.forEach(event => {
         const normalized: ChatEvent = {
-          type: event.type as string,
+          type: event.type,
           subtype: event.subtype,
           content: event.content,
-          metadata: event.metadata as Record<string, any> | null,
+          metadata: event.metadata ?? null,
           timestamp: event.timestamp,
         };
         addEvent(normalized);
@@ -446,12 +506,12 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
         turn.reasoningText = turn.events
           .filter(event => {
             if (event.type !== 'reasoning') return false;
-            const content = event.content as any;
-            return content && typeof content === 'object' && content.phase === 'llm_reasoning';
+            const content = toReasoningEventContent(event.content);
+            return content?.phase === 'llm_reasoning';
           })
           .map(event => {
-            const content = event.content as any;
-            return content && typeof content === 'object' && content.reason ? String(content.reason) : '';
+            const content = toReasoningEventContent(event.content);
+            return content?.reason ? String(content.reason) : '';
           })
           .filter(Boolean)
           .join('\n\n');
@@ -464,8 +524,8 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
         const toolOrder: string[] = [];
         
         turn.toolEvents.forEach(event => {
-          const content = event.content as any;
-          const toolName = content?.tool || 'tool';
+          const content = toToolEventContent(event.content);
+          const toolName = content?.tool ?? 'tool';
           const subtype = event.subtype;
           
           if (subtype === 'start') {
@@ -488,7 +548,10 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
               const tool = toolMap.get(pendingKey)!;
               tool.state = subtype === 'error' ? 'error' : 'completed';
               tool.output = content?.output;
-              tool.error = subtype === 'error' ? (content?.error || content?.message) : undefined;
+              tool.error =
+                subtype === 'error'
+                  ? toOptionalText(content?.error) ?? toOptionalText(content?.message)
+                  : undefined;
               tool.endEvent = event;
             } else {
               // No matching start, create standalone entry
@@ -498,7 +561,10 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
                 toolName,
                 state: subtype === 'error' ? 'error' : 'completed',
                 output: content?.output,
-                error: subtype === 'error' ? (content?.error || content?.message) : undefined,
+                error:
+                  subtype === 'error'
+                    ? toOptionalText(content?.error) ?? toOptionalText(content?.message)
+                    : undefined,
                 endEvent: event,
               });
             }

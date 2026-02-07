@@ -60,7 +60,8 @@ dev = [
     "pytest-asyncio>=0.23,<0.24",
     "ruff>=0.6,<0.7",
     "mypy>=1.11,<2.0",
-    "types-requests>=2.32,<3.0"
+    "types-requests>=2.32,<3.0",
+    "streamlit>=1.38,<2.0",
 ]
 
 [tool.pdm.scripts]

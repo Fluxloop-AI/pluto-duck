@@ -34,15 +34,53 @@ SAMPLE_MEMORY_GUIDE_VARIABLES: dict[str, str] = {
     "project_dir": "/tmp/sample-project",
 }
 _DYNAMIC_BLOCK_PLACEHOLDERS: dict[str, str] = {
-    "user_profile": "<!-- [user_profile] rendered at runtime -->",
-    "memory_section": (
-        "<user_memory>\n(learned facts from user interactions)\n</user_memory>\n\n"
-        "<project_memory>\n(project-specific memory)\n</project_memory>"
+    "user_profile": (
+        "<!-- rendered at runtime -->\n"
+        "<user_profile>\n"
+        "name: YooJung\n"
+        "language: Korean\n"
+        "</user_profile>\n\n"
+        "<assistant_style>\n"
+        "Respond in Korean.\n"
+        "</assistant_style>"
     ),
-    "memory_context": "<!-- [memory_context] rendered at runtime -->",
-    "dataset": "<!-- [dataset] rendered at runtime -->",
-    "skills_list": "<!-- [skills_list] rendered at runtime -->",
-    "skills_full": "<!-- [skills_full] rendered at runtime -->",
+    "memory_section": (
+        "<!-- rendered at runtime -->\n"
+        "<user_memory>\n"
+        "(learned facts, preferences, and feedback from user interactions)\n"
+        "</user_memory>\n\n"
+        "<project_memory>\n"
+        "(project-specific instructions and conventions)\n"
+        "</project_memory>"
+    ),
+    "memory_context": (
+        "<!-- rendered at runtime -->\n"
+        "## Memory Context\n\n"
+        "- user_dir: `/memories/user`\n"
+        "- project_dir: `/memories/projects/sample-project`\n"
+        "- project_memory: no agent.md found yet"
+    ),
+    "dataset": (
+        "<!-- rendered at runtime -->\n"
+        "## Dataset Readiness Context\n\n"
+        "<dataset_readiness>\n"
+        "datasets: 3\n"
+        "ready: 2\n"
+        "not_ready: 1\n"
+        "</dataset_readiness>"
+    ),
+    "skills_list": (
+        "<!-- rendered at runtime -->\n"
+        '**User Skills**: `/skills/user/skills/`\n'
+        '**Project Skills**: `/skills/projects/sample-project/skills/` (overrides user)\n\n'
+        "**Available Skills:**\n\n"
+        "**User Skills:**\n"
+        "- **sql-analysis**: Workflow for answering analytical questions with DuckDB.\n"
+        "  \u2192 Read `/skills/user/skills/sql-analysis/SKILL.md` for full instructions\n"
+        "- **source-explorer**: Explore connected data sources and their tables.\n"
+        "  \u2192 Read `/skills/user/skills/source-explorer/SKILL.md` for full instructions"
+    ),
+    "skills_full": "<!-- [skills_full] rendered at runtime (skills_guide + skills_list combined) -->",
 }
 PROFILE_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 DEFAULT_INDEPENDENT_BUNDLE_TEXT: dict[str, str] = {

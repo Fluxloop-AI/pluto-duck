@@ -36,6 +36,10 @@ SAMPLE_MEMORY_GUIDE_VARIABLES: dict[str, str] = {
 PROFILE_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 DEFAULT_INDEPENDENT_BUNDLE_TEXT: dict[str, str] = {
     "runtime": "# Runtime\n\nDefine runtime/system guidance here.\n",
+    "base_agent_prompt": (
+        "# Base Agent Prompt\n\n"
+        "Define core agent behavior rules here.\n"
+    ),
     "skills_guide": "# Skills Guide\n\nList skills and tool usage guidance here.\n",
     "memory_guide": (
         "# Memory Guide\n\n"
@@ -566,11 +570,16 @@ def _default_compose_order_for_new_profile(
     profile_ids: list[str],
     profiles_root: Path,
 ) -> list[str]:
-    seed = "v2" if "v2" in profile_ids else profile_ids[0]
+    if "v3" in profile_ids:
+        seed = "v3"
+    elif "v2" in profile_ids:
+        seed = "v2"
+    else:
+        seed = profile_ids[0]
     try:
         seed_profile = load_experiment_profile(seed, profiles_root=profiles_root)
     except Exception:
-        return ["runtime", "skills_guide", "memory_guide"]
+        return ["runtime", "base_agent_prompt", "skills_guide", "memory_guide"]
     return list(seed_profile.compose_order)
 
 

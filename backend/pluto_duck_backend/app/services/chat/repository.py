@@ -1157,7 +1157,9 @@ class ChatRepository:
 
     def _ensure_utc(self, value: datetime) -> datetime:
         if value.tzinfo is None:
-            return value.replace(tzinfo=UTC)
+            # DuckDB TIMESTAMP values are timezone-naive and represent local wall time.
+            local_tz = datetime.now().astimezone().tzinfo or UTC
+            return value.replace(tzinfo=local_tz).astimezone(UTC)
         return value.astimezone(UTC)
 
 

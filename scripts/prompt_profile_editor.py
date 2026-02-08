@@ -356,6 +356,7 @@ def _build_block_specs(
     *,
     declared_paths: dict[str, str],
     resolved_paths: dict[str, str],
+    compose_order: list[str] | None = None,
 ) -> list[BlockEditorSpec]:
     """Merge declared + resolved blocks into editor specs."""
 
@@ -378,6 +379,11 @@ def _build_block_specs(
             editable=False,
             source="inherited",
         )
+
+    if compose_order:
+        ordered_keys = [key for key in compose_order if key in specs]
+        ordered_keys.extend(key for key in sorted(specs) if key not in ordered_keys)
+        return [specs[key] for key in ordered_keys]
 
     return [specs[key] for key in sorted(specs)]
 
@@ -429,7 +435,7 @@ def _render_memory_guide_feedback(*, profile_id: str, rel_path: str, template: s
     st.text_area(
         "memory_guide rendered preview",
         value=preview,
-        height=220,
+        height=420,
         disabled=True,
         key=f"preview_{profile_id}_{rel_path}",
     )
@@ -459,29 +465,53 @@ def _render_block_editors(
             except Exception:
                 pass
 
-        block_text = st.text_area(
-            label=f"{spec.block} text",
-            value=default_text,
-            height=260,
-            disabled=not spec.editable,
-            key=_editor_state_key(
-                profile_id=profile_id,
-                block=spec.block,
-                rel_path=spec.rel_path,
-            ),
-        )
-
-        if spec.editable:
-            edited_by_rel_path[spec.rel_path] = block_text
+        if spec.block == "memory_guide" and spec.editable:
+            col_edit, col_preview = st.columns([1, 1])
+            with col_edit:
+                st.markdown("**Edit**")
+                block_text = st.text_area(
+                    label=f"{spec.block} text",
+                    value=default_text,
+                    height=520,
+                    disabled=False,
+                    key=_editor_state_key(
+                        profile_id=profile_id,
+                        block=spec.block,
+                        rel_path=spec.rel_path,
+                    ),
+                )
+                edited_by_rel_path[spec.rel_path] = block_text
+            with col_preview:
+                st.markdown("**Preview**")
+                _render_memory_guide_feedback(
+                    profile_id=profile_id,
+                    rel_path=spec.rel_path,
+                    template=block_text,
+                )
         else:
-            st.info("Inherited block (read-only). Add override in YAML to edit here.")
-
-        if spec.block == "memory_guide":
-            _render_memory_guide_feedback(
-                profile_id=profile_id,
-                rel_path=spec.rel_path,
-                template=block_text,
+            block_text = st.text_area(
+                label=f"{spec.block} text",
+                value=default_text,
+                height=420,
+                disabled=not spec.editable,
+                key=_editor_state_key(
+                    profile_id=profile_id,
+                    block=spec.block,
+                    rel_path=spec.rel_path,
+                ),
             )
+
+            if spec.editable:
+                edited_by_rel_path[spec.rel_path] = block_text
+            else:
+                st.info("Inherited block (read-only). Add override in YAML to edit here.")
+
+            if spec.block == "memory_guide":
+                _render_memory_guide_feedback(
+                    profile_id=profile_id,
+                    rel_path=spec.rel_path,
+                    template=block_text,
+                )
 
         if spec.block in {"runtime", "skills_guide"} and spec.editable and not block_text.strip():
             st.warning(f"{spec.block} is empty")
@@ -889,7 +919,7 @@ def _render_loaded_profile(profile_id: str, profiles_root: Path) -> None:
         st.text_area(
             label=f"{block_name} text",
             value=block_text,
-            height=260,
+            height=420,
             disabled=True,
             key=f"view_text_{profile_id}_{block_name}",
         )
@@ -928,7 +958,7 @@ def _render_editor_mode(*, selected_profile: str, profiles_root: Path) -> None:
     edited_yaml = st.text_area(
         "Profile YAML",
         value=initial_yaml,
-        height=320,
+        height=480,
         key=f"edit_yaml_{selected_profile}",
     )
 
@@ -946,9 +976,16 @@ def _render_editor_mode(*, selected_profile: str, profiles_root: Path) -> None:
     if resolved_error:
         st.warning(f"Current resolved profile load failed: {resolved_error}")
 
+    edited_compose_order: list[str] | None = None
+    if validation.parsed:
+        raw_order = validation.parsed.get("compose_order")
+        if isinstance(raw_order, list):
+            edited_compose_order = [str(item).strip() for item in raw_order if str(item).strip()]
+
     block_specs = _build_block_specs(
         declared_paths=validation.declared_paths,
         resolved_paths=resolved_paths,
+        compose_order=edited_compose_order,
     )
 
     st.subheader("Prompt Blocks (edit)")

@@ -1,0 +1,58 @@
+export type TimelineItemType = 'reasoning' | 'tool' | 'assistant-message' | 'user-message' | 'approval';
+
+export type TimelineItemStatus = 'pending' | 'streaming' | 'complete' | 'error';
+
+export interface TimelineItemBase {
+  id: string;
+  type: TimelineItemType;
+  runId: string | null;
+  sequence: number | null;
+  timestamp: string;
+  status: TimelineItemStatus;
+  isStreaming: boolean;
+  isPartial: boolean;
+  eventId?: string;
+  parentEventId?: string | null;
+}
+
+export interface ReasoningTimelineItem extends TimelineItemBase {
+  type: 'reasoning';
+  content: string;
+  phase?: string;
+}
+
+export interface ToolTimelineItem extends TimelineItemBase {
+  type: 'tool';
+  toolName: string;
+  toolCallId?: string | null;
+  state: 'pending' | 'completed' | 'error';
+  input?: unknown;
+  output?: unknown;
+  error?: string;
+}
+
+export interface AssistantMessageTimelineItem extends TimelineItemBase {
+  type: 'assistant-message';
+  content: string;
+  messageId?: string;
+}
+
+export interface UserMessageTimelineItem extends TimelineItemBase {
+  type: 'user-message';
+  content: string;
+  messageId: string;
+  mentions?: string[];
+}
+
+export interface ApprovalTimelineItem extends TimelineItemBase {
+  type: 'approval';
+  content: string;
+  decision?: 'pending' | 'approved' | 'rejected';
+}
+
+export type TimelineItem =
+  | ReasoningTimelineItem
+  | ToolTimelineItem
+  | AssistantMessageTimelineItem
+  | UserMessageTimelineItem
+  | ApprovalTimelineItem;

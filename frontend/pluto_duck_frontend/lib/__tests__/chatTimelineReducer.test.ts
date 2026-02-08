@@ -239,6 +239,160 @@ test('same run creates segmented reasoning rows across llm_start/llm_end boundar
   );
 });
 
+test('segmented reasoning with same sequence keeps segmentOrder before id/timestamp tie-break', async () => {
+  const { buildTimelineItemsFromEvents } = await import(reducerModuleUrl.href);
+
+  const runId = 'run-segment-order-tiebreak';
+  const items = buildTimelineItemsFromEvents({
+    events: [
+      {
+        type: 'reasoning',
+        subtype: 'start',
+        content: { phase: 'llm_start' },
+        metadata: { run_id: runId, sequence: 1, event_id: 'evt-start-z', phase: 'llm_start' },
+        timestamp: '2026-02-09T00:30:00.000Z',
+      },
+      {
+        type: 'reasoning',
+        subtype: 'chunk',
+        content: { phase: 'llm_reasoning', reason: 'first-segment' },
+        metadata: { run_id: runId, sequence: 5, event_id: 'evt-r2', phase: 'llm_reasoning' },
+        timestamp: '2026-02-09T00:30:05.000Z',
+      },
+      {
+        type: 'reasoning',
+        subtype: 'end',
+        content: { phase: 'llm_end' },
+        metadata: { run_id: runId, sequence: 5, event_id: 'evt-end-1', phase: 'llm_end' },
+        timestamp: '2026-02-09T00:30:05.000Z',
+      },
+      {
+        type: 'reasoning',
+        subtype: 'start',
+        content: { phase: 'llm_start' },
+        metadata: { run_id: runId, sequence: 5, event_id: 'evt-start-a', phase: 'llm_start' },
+        timestamp: '2026-02-09T00:30:05.000Z',
+      },
+      {
+        type: 'reasoning',
+        subtype: 'chunk',
+        content: { phase: 'llm_reasoning', reason: 'second-segment' },
+        metadata: { run_id: runId, sequence: 5, event_id: 'evt-r1', phase: 'llm_reasoning' },
+        timestamp: '2026-02-09T00:30:05.000Z',
+      },
+      {
+        type: 'reasoning',
+        subtype: 'end',
+        content: { phase: 'llm_end' },
+        metadata: { run_id: runId, sequence: 5, event_id: 'evt-end-2', phase: 'llm_end' },
+        timestamp: '2026-02-09T00:30:05.000Z',
+      },
+      {
+        type: 'message',
+        subtype: 'final',
+        content: { text: 'done' },
+        metadata: { run_id: runId, sequence: 6, event_id: 'evt-final' },
+        timestamp: '2026-02-09T00:30:06.000Z',
+      },
+    ],
+    messages: [
+      {
+        id: 'u-segment-order',
+        role: 'user',
+        content: { text: 'q' },
+        created_at: '2026-02-09T00:30:00.000Z',
+        seq: 1,
+        run_id: runId,
+      },
+    ],
+  });
+
+  const reasoningItems = items.filter((item: { type: string }) => item.type === 'reasoning') as Array<{
+    content: string;
+    segmentOrder: number;
+    id: string;
+  }>;
+  assert.equal(reasoningItems.length, 2);
+  assert.deepEqual(
+    reasoningItems.map(item => [item.content, item.segmentOrder, item.id]),
+    [
+      ['first-segment', 0, 'evt-start-z'],
+      ['second-segment', 1, 'evt-start-a'],
+    ],
+  );
+});
+
+test('sequence collision with clock skew stays deterministic regardless input order', async () => {
+  const { buildTimelineItemsFromEvents } = await import(reducerModuleUrl.href);
+
+  const runId = 'run-clock-skew-deterministic';
+  const baseEvents = [
+    {
+      type: 'reasoning',
+      subtype: 'start',
+      content: { phase: 'llm_start' },
+      metadata: { run_id: runId, sequence: 1, event_id: 'evt-start', phase: 'llm_start' },
+      timestamp: '2026-02-09T00:40:01.000Z',
+    },
+    {
+      type: 'tool',
+      subtype: 'start',
+      content: { tool: 'search', input: { q: 'alpha' } },
+      metadata: { run_id: runId, sequence: 5, event_id: 'evt-tool-start', tool_call_id: 'tc-1' },
+      timestamp: '2026-02-09T00:39:59.000Z',
+    },
+    {
+      type: 'reasoning',
+      subtype: 'chunk',
+      content: { phase: 'llm_reasoning', reason: 'clock-skew-thought' },
+      metadata: { run_id: runId, sequence: 5, event_id: 'evt-reason', phase: 'llm_reasoning' },
+      timestamp: '2026-02-09T00:40:05.000Z',
+    },
+    {
+      type: 'tool',
+      subtype: 'end',
+      content: { tool: 'search', output: { rows: 1 } },
+      metadata: { run_id: runId, sequence: 6, event_id: 'evt-tool-end', tool_call_id: 'tc-1' },
+      timestamp: '2026-02-09T00:40:06.000Z',
+    },
+    {
+      type: 'message',
+      subtype: 'final',
+      content: { text: 'done' },
+      metadata: { run_id: runId, sequence: 7, event_id: 'evt-final' },
+      timestamp: '2026-02-09T00:40:07.000Z',
+    },
+  ];
+
+  const messages = [
+    {
+      id: 'u-clock-skew',
+      role: 'user',
+      content: { text: 'q' },
+      created_at: '2026-02-09T00:40:00.000Z',
+      seq: 1,
+      run_id: runId,
+    },
+  ];
+
+  const forward = buildTimelineItemsFromEvents({
+    events: baseEvents,
+    messages,
+  });
+  const reversed = buildTimelineItemsFromEvents({
+    events: [...baseEvents].reverse(),
+    messages,
+  });
+
+  const compact = (items: Array<{ type: string; runId: string | null; content?: string }>) =>
+    items.map(item => {
+      if (item.type === 'reasoning') return `${item.type}:${item.runId}:${item.content}`;
+      return `${item.type}:${item.runId}`;
+    });
+
+  assert.deepEqual(compact(forward), compact(reversed));
+});
+
 test('dedupes final message event when persisted assistant message has null run_id', async () => {
   const { buildTimelineItemsFromEvents } = await import(reducerModuleUrl.href);
 

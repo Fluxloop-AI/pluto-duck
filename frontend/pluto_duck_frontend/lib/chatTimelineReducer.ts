@@ -336,6 +336,11 @@ function compareTimelineItems(a: TimelineItem, b: TimelineItem, runOrderByRun: M
       const sequenceA = a.sequence ?? Number.MAX_SAFE_INTEGER;
       const sequenceB = b.sequence ?? Number.MAX_SAFE_INTEGER;
       if (sequenceA !== sequenceB) return sequenceA - sequenceB;
+      if (a.type === 'reasoning' && b.type === 'reasoning') {
+        const segmentOrderA = a.segmentOrder ?? 0;
+        const segmentOrderB = b.segmentOrder ?? 0;
+        if (segmentOrderA !== segmentOrderB) return segmentOrderA - segmentOrderB;
+      }
     } else {
       const rankA = getInRunTypeRank(a);
       const rankB = getInRunTypeRank(b);

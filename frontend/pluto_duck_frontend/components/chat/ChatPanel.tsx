@@ -241,6 +241,7 @@ export function ChatPanel({
   }, [onSubmit]);
 
   const showOnboarding = renderItems.length === 0 && chatLoadingMode === 'idle' && !isOnboardingExiting;
+  const isSubmitDisabled = !input.trim() || isStreaming;
 
   return (
     <div className="flex h-full w-full flex-col bg-background">
@@ -326,7 +327,7 @@ export function ChatPanel({
 
               {/* Submit button - 원 안에 화살표 */}
               <PromptInputSubmit
-                disabled={!input.trim() || isStreaming}
+                disabled={isSubmitDisabled}
                 status={status}
                 variant="default"
                 className="h-6 w-6 rounded-full bg-foreground text-background hover:bg-foreground/90 disabled:bg-muted-foreground/40 disabled:text-background/70 [&>svg]:size-3"

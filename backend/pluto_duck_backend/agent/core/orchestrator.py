@@ -160,7 +160,18 @@ class AgentRunManager:
         repo = get_chat_repository()
         _log("run_execute_start", run_id=run.run_id, conversation_id=run.conversation_id)
 
+        callback_ref: list[PlutoDuckEventCallbackHandler | None] = [None]
+
         async def emit(event: AgentEvent) -> None:
+            # Central gate: assign display_order if missing
+            metadata = event.metadata if event.metadata is not None else {}
+            existing_order = metadata.get("display_order")
+            if existing_order is None or (isinstance(existing_order, int) and existing_order <= 0):
+                cb = callback_ref[0]
+                if cb is not None:
+                    metadata["display_order"] = cb.consume_next_display_order()
+                # else: skip — DB fallback will assign via get_next_display_order()
+            event.metadata = metadata
             payload = event.to_dict()
             await run.queue.put(payload)
             if _should_persist_event(event):
@@ -235,6 +246,7 @@ class AgentRunManager:
                 conversation_id=run.conversation_id,
                 experiment_profile=session_ctx.experiment_profile_id,
             )
+            callback_ref[0] = callback
 
             _log("run_invoke_start", run_id=run.run_id, conversation_id=run.conversation_id)
             result = await agent.ainvoke({"messages": messages}, config={"callbacks": [callback]})
@@ -258,15 +270,14 @@ class AgentRunManager:
                 run.conversation_id,
                 "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
             )
-            event = AgentEvent(
+            error_event = AgentEvent(
                 type=EventType.RUN,
                 subtype=EventSubType.ERROR,
                 content={"error": err_text or err_repr, "error_type": err_type},
                 metadata={"run_id": run.run_id},
             )
-            await run.queue.put(event.to_dict())
+            await emit(error_event)
             final_state = {"error": err_text or err_repr, "error_type": err_type}
-            repo.log_event(run.conversation_id, event.to_dict())
             _log("run_failed", run_id=run.run_id, conversation_id=run.conversation_id, error=err_text or err_repr)
         finally:
             run.result = final_state
@@ -282,8 +293,7 @@ class AgentRunManager:
                     content={"text": final_answer},
                     metadata={"run_id": run.run_id},
                 )
-                await run.queue.put(msg_event.to_dict())
-                repo.log_event(run.conversation_id, msg_event.to_dict())
+                await emit(msg_event)
 
             end_event = AgentEvent(
                 type=EventType.RUN,
@@ -291,8 +301,7 @@ class AgentRunManager:
                 content=_serialize(final_state),
                 metadata={"run_id": run.run_id},
             )
-            await run.queue.put(end_event.to_dict())
-            repo.log_event(run.conversation_id, end_event.to_dict())
+            await emit(end_event)
             repo.mark_run_completed(
                 run.conversation_id,
                 status="failed" if "error" in final_state else "completed",

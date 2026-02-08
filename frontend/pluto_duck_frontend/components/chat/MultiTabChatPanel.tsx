@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { PlusIcon } from 'lucide-react';
 import { TabBar } from './TabBar';
 import { ChatPanel } from './ChatPanel';
 import { useMultiTabChat, type ChatTab } from '../../hooks/useMultiTabChat';
@@ -60,6 +59,16 @@ export function MultiTabChatPanel({
   });
 
   const lastRestoreKeyRef = useRef<string | null>(null);
+  const activeSessionSummary = activeTab?.sessionId
+    ? {
+        id: activeTab.sessionId,
+        title: activeTab.title,
+        status: 'active',
+        created_at: new Date(activeTab.createdAt).toISOString(),
+        updated_at: new Date(activeTab.createdAt).toISOString(),
+        last_message_preview: null,
+      }
+    : null;
 
   // Notify parent when tabs change
   useEffect(() => {
@@ -134,40 +143,26 @@ export function MultiTabChatPanel({
             />
           </div>
         ) : (
-          tabs.map(tab => (
-            <div
-              key={tab.id}
-              style={{ 
-                display: tab.id === activeTabId ? 'flex' : 'none',
-                flexDirection: 'column',
-                height: '100%',
-              }}
-              className="absolute inset-0"
-            >
-              <ChatPanel
-                activeSession={tab.sessionId ? {
-                  id: tab.sessionId,
-                  title: tab.title,
-                  status: 'active',
-                  created_at: new Date(tab.createdAt).toISOString(),
-                  updated_at: new Date(tab.createdAt).toISOString(),
-                  last_message_preview: null,
-                } : null}
-                renderItems={renderItems}
-                loading={loading}
-                isStreaming={isStreaming}
-                status={status}
-                selectedModel={selectedModel}
-                onModelChange={onModelChange}
-                onSubmit={handleSubmit}
-                onFeedback={handleFeedback}
-                feedbackMap={feedbackMap}
-                projectId={projectId || undefined}
-                onSendToBoard={onSendToBoard}
-                onEmbedAssetToBoard={onEmbedAssetToBoard}
-              />
-            </div>
-          ))
+          <div
+            key={activeTabId ?? 'active-tab'}
+            className="absolute inset-0 flex flex-col"
+          >
+            <ChatPanel
+              activeSession={activeSessionSummary}
+              renderItems={renderItems}
+              loading={loading}
+              isStreaming={isStreaming}
+              status={status}
+              selectedModel={selectedModel}
+              onModelChange={onModelChange}
+              onSubmit={handleSubmit}
+              onFeedback={handleFeedback}
+              feedbackMap={feedbackMap}
+              projectId={projectId || undefined}
+              onSendToBoard={onSendToBoard}
+              onEmbedAssetToBoard={onEmbedAssetToBoard}
+            />
+          </div>
         )}
       </div>
     </div>

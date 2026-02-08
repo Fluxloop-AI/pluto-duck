@@ -10,6 +10,7 @@ import type {
   ReasoningItem,
   ToolItem,
   AssistantMessageItem,
+  ApprovalItem,
 } from '../types/chatRenderItem';
 import type { TimelineItem } from '../types/chatTimelineItem';
 import {
@@ -50,6 +51,12 @@ function toTimelineTurns(turns: ChatTurn[]): TimelineTurnEnvelope[] {
     streamingAssistantText: turn.streamingAssistantText,
     streamingAssistantFinal: turn.streamingAssistantFinal,
   }));
+}
+
+function toApprovalDecision(value: unknown): ApprovalItem['decision'] {
+  if (value === 'approved' || value === 'approve') return 'approved';
+  if (value === 'rejected' || value === 'reject') return 'rejected';
+  return 'pending';
 }
 
 function toRenderItemsFromTimeline(timelineItems: TimelineItem[]): ChatRenderItem[] {
@@ -114,6 +121,19 @@ function toRenderItemsFromTimeline(timelineItems: TimelineItem[]): ChatRenderIte
       };
       renderItems.push(assistantItem);
       return;
+    }
+    if (item.type === 'approval') {
+      const approvalItem: ApprovalItem = {
+        id: item.id,
+        type: 'approval',
+        runId: item.runId,
+        seq: index,
+        timestamp: item.timestamp,
+        content: item.content,
+        decision: toApprovalDecision(item.decision),
+        isStreaming: item.isStreaming,
+      };
+      renderItems.push(approvalItem);
     }
   });
   return renderItems;

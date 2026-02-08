@@ -57,6 +57,9 @@ export const RenderItem = memo(function RenderItem({
         />
       );
 
+    case 'approval':
+      return null;
+
     default:
       // TypeScript exhaustiveness check
       const _exhaustive: never = item;

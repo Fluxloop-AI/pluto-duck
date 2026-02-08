@@ -72,13 +72,25 @@ export interface AssistantMessageItem extends BaseRenderItem {
 }
 
 /**
+ * Approval 아이템
+ */
+export interface ApprovalItem extends BaseRenderItem {
+  type: 'approval';
+  /** Approval 상태 */
+  decision: 'pending' | 'approved' | 'rejected';
+  /** 표시 텍스트 */
+  content: string;
+}
+
+/**
  * 독립적으로 렌더링 가능한 채팅 아이템 Union Type
  */
 export type ChatRenderItem =
   | UserMessageItem
   | ReasoningItem
   | ToolItem
-  | AssistantMessageItem;
+  | AssistantMessageItem
+  | ApprovalItem;
 
 /**
  * 아이템 타입 가드 함수들
@@ -97,4 +109,8 @@ export function isToolItem(item: ChatRenderItem): item is ToolItem {
 
 export function isAssistantMessageItem(item: ChatRenderItem): item is AssistantMessageItem {
   return item.type === 'assistant-message';
+}
+
+export function isApprovalItem(item: ChatRenderItem): item is ApprovalItem {
+  return item.type === 'approval';
 }

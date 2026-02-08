@@ -30,6 +30,7 @@ import {
   type TabChatState,
   type TabStateMap,
 } from './useMultiTabChat.tabState';
+import { planRestoredTabs, type SavedChatTabState } from './useMultiTabChat.restore';
 export type { ChatEvent, ChatTurn, DetailMessage, GroupedToolEvent } from './useMultiTabChat.timeline';
 
 const MAX_PREVIEW_LENGTH = 160;
@@ -630,58 +631,19 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
     // TODO: Add API call to persist feedback when backend endpoint is available
   }, []);
 
-  const restoreTabs = useCallback(
-    async (savedTabs: Array<{ id: string; order: number }>, savedActiveTabId?: string) => {
-      console.log('[MultiTabChat] Restoring tabs', savedTabs, 'active:', savedActiveTabId);
-      
-      // Clear existing tabs first
-      setTabs([]);
-      setActiveTabId(null);
-      setTabStates({});
-      detailRequestGuardRef.current.clearAll();
-      
-      // Sort by order
-      const sortedTabs = [...savedTabs].sort((a, b) => a.order - b.order);
-      
-      // Restore each tab and collect their IDs
-      const restoredTabIds: string[] = [];
-      
-      for (const savedTab of sortedTabs) {
-        try {
-          const session = sessions.find(s => s.id === savedTab.id);
-          if (session) {
-            await openSessionInTab(session);
-            // openSessionInTab creates a new tab with a unique ID
-            // We need to track which tab corresponds to which session
-            restoredTabIds.push(savedTab.id);
-          }
-        } catch (error) {
-          console.error(`Failed to restore tab ${savedTab.id}`, error);
-        }
-      }
-      
-      // Restore active tab - need to find the tab that was created for this session
-      if (savedActiveTabId && restoredTabIds.length > 0) {
-        // Give tabs time to be added to state
-        setTimeout(() => {
-          setTabs(currentTabs => {
-            // Find the tab with the matching sessionId
-            const activeTab = currentTabs.find(t => t.sessionId === savedActiveTabId);
-            if (activeTab) {
-              console.log('[MultiTabChat] Setting active tab to', activeTab.id);
-              setActiveTabId(activeTab.id);
-            } else if (currentTabs.length > 0) {
-              // Fallback to first tab if saved active tab not found
-              console.log('[MultiTabChat] Active tab not found, using first tab');
-              setActiveTabId(currentTabs[0].id);
-            }
-            return currentTabs;
-          });
-        }, 50);
-      }
-    },
-    [sessions, openSessionInTab]
-  );
+  const restoreTabs = useCallback((savedTabs: SavedChatTabState[], savedActiveTabId?: string) => {
+    const restorePlan = planRestoredTabs({
+      savedTabs,
+      savedActiveTabId,
+      sessions,
+      maxTabs: MAX_TABS,
+    });
+
+    setTabStates({});
+    detailRequestGuardRef.current.clearAll();
+    setTabs(restorePlan.tabs);
+    setActiveTabId(restorePlan.activeTabId);
+  }, [sessions]);
 
   return {
     // Sessions

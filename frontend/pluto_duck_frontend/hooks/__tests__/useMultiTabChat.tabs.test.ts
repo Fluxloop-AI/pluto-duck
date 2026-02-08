@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 const tabStateModuleUrl = new URL('../useMultiTabChat.tabState.ts', import.meta.url);
+const restoreModuleUrl = new URL('../useMultiTabChat.restore.ts', import.meta.url);
 
 test('loadDetail success without preview still finalizes loading with persisted detail', async () => {
   const { startDetailLoading, completeDetailLoading } = await import(tabStateModuleUrl.href);
@@ -121,4 +122,238 @@ test('stale guard accepts only latest token for same tab out-of-order responses'
 
   assert.equal(guard.canCommit(token1, 'tab-a'), false);
   assert.equal(guard.canCommit(token2, 'tab-a'), true);
+});
+
+test('restore planner keeps saved tab order deterministically', async () => {
+  const { planRestoredTabs } = await import(restoreModuleUrl.href);
+  const sessions = [
+    {
+      id: 'session-b',
+      title: 'B',
+      status: 'completed',
+      created_at: '2026-02-10T00:00:01.000Z',
+      updated_at: '2026-02-10T00:00:02.000Z',
+      last_message_preview: null,
+    },
+    {
+      id: 'session-a',
+      title: 'A',
+      status: 'completed',
+      created_at: '2026-02-10T00:00:03.000Z',
+      updated_at: '2026-02-10T00:00:04.000Z',
+      last_message_preview: null,
+    },
+  ];
+
+  const plan = planRestoredTabs({
+    sessions,
+    savedTabs: [
+      { id: 'session-b', order: 2 },
+      { id: 'session-a', order: 1 },
+    ],
+  });
+
+  assert.deepEqual(
+    plan.tabs.map((tab: { sessionId: string }) => tab.sessionId),
+    ['session-a', 'session-b'],
+  );
+});
+
+test('restore planner activates exact saved active session when present', async () => {
+  const { planRestoredTabs, buildRestoredTabId } = await import(restoreModuleUrl.href);
+  const sessions = [
+    {
+      id: 'session-a',
+      title: 'A',
+      status: 'completed',
+      created_at: '2026-02-10T00:00:01.000Z',
+      updated_at: '2026-02-10T00:00:02.000Z',
+      last_message_preview: null,
+    },
+    {
+      id: 'session-b',
+      title: 'B',
+      status: 'completed',
+      created_at: '2026-02-10T00:00:03.000Z',
+      updated_at: '2026-02-10T00:00:04.000Z',
+      last_message_preview: null,
+    },
+  ];
+
+  const plan = planRestoredTabs({
+    sessions,
+    savedTabs: [
+      { id: 'session-a', order: 0 },
+      { id: 'session-b', order: 1 },
+    ],
+    savedActiveTabId: 'session-b',
+  });
+
+  assert.equal(plan.activeTabId, buildRestoredTabId('session-b'));
+});
+
+test('restore planner falls back to first tab when saved active session is missing', async () => {
+  const { planRestoredTabs, buildRestoredTabId } = await import(restoreModuleUrl.href);
+  const sessions = [
+    {
+      id: 'session-a',
+      title: 'A',
+      status: 'completed',
+      created_at: '2026-02-10T00:00:01.000Z',
+      updated_at: '2026-02-10T00:00:02.000Z',
+      last_message_preview: null,
+    },
+    {
+      id: 'session-b',
+      title: 'B',
+      status: 'completed',
+      created_at: '2026-02-10T00:00:03.000Z',
+      updated_at: '2026-02-10T00:00:04.000Z',
+      last_message_preview: null,
+    },
+  ];
+
+  const plan = planRestoredTabs({
+    sessions,
+    savedTabs: [
+      { id: 'session-a', order: 0 },
+      { id: 'session-b', order: 1 },
+    ],
+    savedActiveTabId: 'session-z',
+  });
+
+  assert.equal(plan.activeTabId, buildRestoredTabId('session-a'));
+});
+
+test('restore planner safely skips sessions that do not exist anymore', async () => {
+  const { planRestoredTabs } = await import(restoreModuleUrl.href);
+  const sessions = [
+    {
+      id: 'session-a',
+      title: 'A',
+      status: 'completed',
+      created_at: '2026-02-10T00:00:01.000Z',
+      updated_at: '2026-02-10T00:00:02.000Z',
+      last_message_preview: null,
+    },
+  ];
+
+  const plan = planRestoredTabs({
+    sessions,
+    savedTabs: [
+      { id: 'session-a', order: 0 },
+      { id: 'session-missing', order: 1 },
+    ],
+    savedActiveTabId: 'session-missing',
+  });
+
+  assert.deepEqual(
+    plan.tabs.map((tab: { sessionId: string }) => tab.sessionId),
+    ['session-a'],
+  );
+  assert.equal(plan.activeTabId, plan.tabs[0].id);
+});
+
+test('restore planner is idempotent for identical inputs', async () => {
+  const { planRestoredTabs } = await import(restoreModuleUrl.href);
+  const sessions = [
+    {
+      id: 'session-a',
+      title: 'A',
+      status: 'completed',
+      created_at: '2026-02-10T00:00:01.000Z',
+      updated_at: '2026-02-10T00:00:02.000Z',
+      last_message_preview: null,
+    },
+    {
+      id: 'session-b',
+      title: 'B',
+      status: 'completed',
+      created_at: '2026-02-10T00:00:03.000Z',
+      updated_at: '2026-02-10T00:00:04.000Z',
+      last_message_preview: null,
+    },
+  ];
+  const input = {
+    sessions,
+    savedTabs: [
+      { id: 'session-a', order: 0 },
+      { id: 'session-b', order: 1 },
+    ],
+    savedActiveTabId: 'session-b',
+  };
+
+  const first = planRestoredTabs(input);
+  const second = planRestoredTabs(input);
+  assert.deepEqual(first, second);
+});
+
+test('restore planner remains deterministic across 10 repeated runs', async () => {
+  const { planRestoredTabs } = await import(restoreModuleUrl.href);
+  const sessions = [
+    {
+      id: 'session-a',
+      title: 'A',
+      status: 'completed',
+      created_at: '2026-02-10T00:00:01.000Z',
+      updated_at: '2026-02-10T00:00:02.000Z',
+      last_message_preview: null,
+    },
+    {
+      id: 'session-b',
+      title: 'B',
+      status: 'completed',
+      created_at: '2026-02-10T00:00:03.000Z',
+      updated_at: '2026-02-10T00:00:04.000Z',
+      last_message_preview: null,
+    },
+  ];
+  const input = {
+    sessions,
+    savedTabs: [
+      { id: 'session-a', order: 0 },
+      { id: 'session-b', order: 1 },
+    ],
+    savedActiveTabId: 'session-b',
+  };
+  const baseline = planRestoredTabs(input);
+
+  for (let index = 0; index < 10; index += 1) {
+    assert.deepEqual(planRestoredTabs(input), baseline);
+  }
+});
+
+test('restore fingerprint is stable for same input and order-insensitive sessions', async () => {
+  const { buildRestoreFingerprint } = await import(restoreModuleUrl.href);
+  const sessionsA = [
+    {
+      id: 'session-a',
+      title: 'A',
+      status: 'completed',
+      created_at: '2026-02-10T00:00:01.000Z',
+      updated_at: '2026-02-10T00:00:02.000Z',
+      last_message_preview: null,
+    },
+    {
+      id: 'session-b',
+      title: 'B',
+      status: 'completed',
+      created_at: '2026-02-10T00:00:03.000Z',
+      updated_at: '2026-02-10T00:00:04.000Z',
+      last_message_preview: null,
+    },
+  ];
+  const sessionsB = [sessionsA[1], sessionsA[0]];
+  const input = {
+    projectId: 'project-1',
+    savedTabs: [
+      { id: 'session-b', order: 1 },
+      { id: 'session-a', order: 0 },
+    ],
+    savedActiveTabId: 'session-b',
+  };
+
+  const fingerprintA = buildRestoreFingerprint({ ...input, sessions: sessionsA });
+  const fingerprintB = buildRestoreFingerprint({ ...input, sessions: sessionsB });
+  assert.equal(fingerprintA, fingerprintB);
 });

@@ -5,6 +5,7 @@ import { PlusIcon } from 'lucide-react';
 import { TabBar } from './TabBar';
 import { ChatPanel } from './ChatPanel';
 import { useMultiTabChat, type ChatTab } from '../../hooks/useMultiTabChat';
+import { buildRestoreFingerprint } from '../../hooks/useMultiTabChat.restore';
 import type { AssetEmbedConfig } from '../editor/nodes/AssetEmbedNode';
 
 interface MultiTabChatPanelProps {
@@ -69,17 +70,11 @@ export function MultiTabChatPanel({
 
   // Restore tabs when project changes and sessions are loaded
   useEffect(() => {
-    const savedTabsKey = savedTabs ? JSON.stringify(savedTabs) : '[]';
-    const restoreKey = `${projectId ?? ''}|${savedTabsKey}|${savedActiveTabId ?? ''}|${sessions.length}`;
-
-    console.log('[MultiTabChatPanel] Restore useEffect triggered', {
+    const restoreKey = buildRestoreFingerprint({
       projectId,
       savedTabs,
       savedActiveTabId,
-      sessionsCount: sessions.length,
-      tabsCount: tabs.length,
-      restoreKey,
-      lastRestoreKey: lastRestoreKeyRef.current,
+      sessions,
     });
     
     if (!projectId) {
@@ -105,19 +100,9 @@ export function MultiTabChatPanel({
       return;
     }
     
-    // Restore tabs after sessions are loaded
-    console.log('[MultiTabChatPanel] Starting restore with', savedTabs.length, 'tabs');
     lastRestoreKeyRef.current = restoreKey;
-    
-    const timer = setTimeout(() => {
-      console.log('[MultiTabChatPanel] Calling restoreTabs with', savedTabs, savedActiveTabId);
-      void restoreTabs(savedTabs, savedActiveTabId);
-    }, 300);
-    
-    return () => {
-      clearTimeout(timer);
-    };
-  }, [projectId, sessions.length, tabs.length, savedTabs, savedActiveTabId]);
+    restoreTabs(savedTabs, savedActiveTabId);
+  }, [projectId, sessions, tabs.length, savedTabs, savedActiveTabId, restoreTabs]);
 
   return (
     <div className="flex flex-col h-full w-full border-l border-border bg-background">
@@ -188,4 +173,3 @@ export function MultiTabChatPanel({
     </div>
   );
 }
-

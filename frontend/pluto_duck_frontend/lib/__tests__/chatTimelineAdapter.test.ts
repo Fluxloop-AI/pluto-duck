@@ -460,3 +460,204 @@ test('cross-run timeline ordering follows timestamp to prevent second-turn jump-
     `reasoning:${run2}`,
   ]);
 });
+
+test('same-run mixed message/event sequence spaces keep user message before later reasoning by timestamp', async () => {
+  const { buildTimelineItemsFromEvents } = await import(adapterModuleUrl.href);
+
+  const run1 = 'run-mixed-seq-1';
+  const run2 = 'run-mixed-seq-2';
+  const items = buildTimelineItemsFromEvents({
+    messages: [
+      {
+        id: 'u-1',
+        role: 'user',
+        content: { text: '첫 질문' },
+        created_at: '2026-02-08T22:00:01.000Z',
+        seq: 1,
+        run_id: run1,
+      },
+      {
+        id: 'a-1',
+        role: 'assistant',
+        content: { text: '첫 답변' },
+        created_at: '2026-02-08T22:00:03.000Z',
+        seq: 2,
+        run_id: run1,
+      },
+      {
+        id: 'u-2',
+        role: 'user',
+        content: { text: '두 번째 질문' },
+        created_at: '2026-02-08T22:00:05.000Z',
+        seq: 3,
+        run_id: run2,
+      },
+    ],
+    events: [
+      {
+        type: 'reasoning',
+        subtype: 'start',
+        content: { phase: 'llm_start' },
+        metadata: { run_id: run2, sequence: 1, event_id: 'evt-r2-start' },
+        timestamp: '2026-02-08T22:00:05.100Z',
+      },
+    ],
+    activeRunId: run2,
+  });
+
+  const compactOrder = items.map((item: { type: string; messageId?: string; runId?: string | null }) => {
+    if (item.type === 'user-message' || item.type === 'assistant-message') return `${item.type}:${item.messageId}`;
+    return `${item.type}:${item.runId ?? 'orphan'}`;
+  });
+
+  assert.deepEqual(compactOrder, [
+    'user-message:u-1',
+    'assistant-message:a-1',
+    'user-message:u-2',
+    `reasoning:${run2}`,
+  ]);
+});
+
+test('run order remains stable when persisted and live timestamps use different clock bases', async () => {
+  const { buildTimelineItemsFromEvents } = await import(adapterModuleUrl.href);
+
+  const run1 = 'run-clock-skew-1';
+  const run2 = 'run-clock-skew-2';
+  const items = buildTimelineItemsFromEvents({
+    messages: [
+      {
+        id: 'u-1',
+        role: 'user',
+        content: { text: '첫 질문' },
+        created_at: '2026-02-08T17:07:13.451Z',
+        seq: 1,
+        run_id: run1,
+      },
+      {
+        id: 'a-1',
+        role: 'assistant',
+        content: { text: '첫 답변' },
+        created_at: '2026-02-08T17:07:20.482Z',
+        seq: 2,
+        run_id: run1,
+      },
+      {
+        id: 'u-2-temp',
+        role: 'user',
+        content: { text: '두 번째 질문' },
+        created_at: '2026-02-08T08:07:23.011Z',
+        seq: 3,
+        run_id: run2,
+      },
+    ],
+    events: [
+      {
+        type: 'reasoning',
+        subtype: 'start',
+        content: { phase: 'llm_start' },
+        metadata: { run_id: run2, sequence: 1, event_id: 'evt-r2-start' },
+        timestamp: '2026-02-08T08:07:23.320Z',
+      },
+    ],
+    activeRunId: run2,
+    streamingChunkText: '두 번째 답변 스트리밍',
+    streamingChunkIsFinal: false,
+  });
+
+  const compactOrder = items.map((item: { type: string; messageId?: string; runId?: string | null }) => {
+    if (item.type === 'user-message' || item.type === 'assistant-message') return `${item.type}:${item.messageId}`;
+    return `${item.type}:${item.runId ?? 'orphan'}`;
+  });
+
+  assert.deepEqual(compactOrder, [
+    'user-message:u-1',
+    'assistant-message:a-1',
+    'user-message:u-2-temp',
+    `reasoning:${run2}`,
+    'assistant-message:undefined',
+  ]);
+});
+
+test('optimistic user message without run_id keeps conversation seq order despite timestamp skew', async () => {
+  const { buildTimelineItemsFromEvents } = await import(adapterModuleUrl.href);
+
+  const run1 = 'run-optimistic-order-1';
+  const items = buildTimelineItemsFromEvents({
+    messages: [
+      {
+        id: 'u-1',
+        role: 'user',
+        content: { text: '첫 질문' },
+        created_at: '2026-02-08T17:10:01.000Z',
+        seq: 1,
+        run_id: run1,
+      },
+      {
+        id: 'a-1',
+        role: 'assistant',
+        content: { text: '첫 답변' },
+        created_at: '2026-02-08T17:10:04.000Z',
+        seq: 2,
+        run_id: run1,
+      },
+      {
+        id: 'u-2-temp',
+        role: 'user',
+        content: { text: '두 번째 질문(optimistic)' },
+        created_at: '2026-02-08T08:10:05.000Z',
+        seq: 3,
+        run_id: null,
+      },
+    ],
+    events: [],
+  });
+
+  const order = items.map((item: { type: string; messageId?: string }) => `${item.type}:${item.messageId}`);
+  assert.deepEqual(order, [
+    'user-message:u-1',
+    'assistant-message:a-1',
+    'user-message:u-2-temp',
+  ]);
+});
+
+test('run1 final event stays above runless optimistic user message before run2 is materialized', async () => {
+  const { buildTimelineItemsFromEvents } = await import(adapterModuleUrl.href);
+
+  const run1 = 'run-transient-order-1';
+  const items = buildTimelineItemsFromEvents({
+    messages: [
+      {
+        id: 'u-1',
+        role: 'user',
+        content: { text: '첫 질문' },
+        created_at: '2026-02-08T17:20:01.000Z',
+        seq: 1,
+        run_id: run1,
+      },
+      {
+        id: 'u-2-temp',
+        role: 'user',
+        content: { text: '두 번째 질문(optimistic)' },
+        created_at: '2026-02-08T08:20:03.000Z',
+        seq: 3,
+        run_id: null,
+      },
+    ],
+    events: [
+      {
+        type: 'message',
+        subtype: 'final',
+        content: { text: '첫 답변(이벤트 기반)' },
+        metadata: { run_id: run1, sequence: 27, event_id: 'evt-run1-final' },
+        timestamp: '2026-02-08T08:20:02.000Z',
+      },
+    ],
+  });
+
+  const order = items.map((item: { type: string; messageId?: string }) => `${item.type}:${item.messageId}`);
+  assert.deepEqual(order, [
+    'user-message:u-1',
+    'assistant-message:undefined',
+    'user-message:u-2-temp',
+  ]);
+});

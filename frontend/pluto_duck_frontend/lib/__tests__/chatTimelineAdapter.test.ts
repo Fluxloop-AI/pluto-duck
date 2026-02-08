@@ -189,3 +189,63 @@ test('inactive run empty reasoning start does not leave ghost thinking rows', as
   assert.equal(reasoning?.isStreaming, true);
   assert.equal(reasoning?.status, 'streaming');
 });
+
+test('persisted assistant message is ordered using event sequence and message events are not duplicated', async () => {
+  const { buildTimelineItemsFromEvents } = await import(adapterModuleUrl.href);
+
+  const runId = 'run-order-fix';
+  const items = buildTimelineItemsFromEvents({
+    messages: [
+      {
+        id: 'm-user',
+        role: 'user',
+        content: { text: 'hello' },
+        created_at: '2026-02-08T17:00:01.000Z',
+        seq: 1,
+        run_id: runId,
+      },
+      {
+        id: 'm-assistant',
+        role: 'assistant',
+        content: { text: 'Hello! How can I help you today?' },
+        created_at: '2026-02-08T17:00:05.000Z',
+        seq: 2,
+        run_id: runId,
+      },
+    ],
+    events: [
+      {
+        type: 'reasoning',
+        subtype: 'start',
+        content: { phase: 'llm_start' },
+        metadata: { run_id: runId, sequence: 1, event_id: 'evt-r-start' },
+        timestamp: '2026-02-08T17:00:01.100Z',
+      },
+      {
+        type: 'reasoning',
+        subtype: 'chunk',
+        content: { reason: 'intermediate thought' },
+        metadata: { run_id: runId, sequence: 6, event_id: 'evt-r-chunk' },
+        timestamp: '2026-02-08T17:00:04.900Z',
+      },
+      {
+        type: 'message',
+        subtype: 'final',
+        content: { text: 'Hello! How can I help you today?' },
+        metadata: { run_id: runId, sequence: 7, event_id: 'evt-m-final' },
+        timestamp: '2026-02-08T17:00:05.100Z',
+      },
+    ],
+  });
+
+  const assistantItems = items.filter((item: { type: string }) => item.type === 'assistant-message') as Array<{
+    sequence: number | null;
+    messageId?: string;
+  }>;
+  assert.equal(assistantItems.length, 1);
+  assert.equal(assistantItems[0].messageId, 'm-assistant');
+  assert.equal(assistantItems[0].sequence, 7);
+
+  const lastItemType = items[items.length - 1]?.type;
+  assert.equal(lastItemType, 'assistant-message');
+});

@@ -210,13 +210,48 @@ function normalizeEvents(events: TimelineEventEnvelope[]): NormalizedEvent[] {
     .sort(compareNormalizedEvents);
 }
 
-function buildMessageItems(params: BuildTimelineItemsFromEventsParams, now: () => string): TimelineItem[] {
+function buildAssistantSequenceHintsByRun(normalizedEvents: NormalizedEvent[]): Map<string, number> {
+  const hintsByRun = new Map<string, number>();
+  const maxSequenceByRun = new Map<string, number>();
+
+  for (const normalizedEvent of normalizedEvents) {
+    const runId = normalizedEvent.meta.runId ?? null;
+    const sequence = normalizedEvent.meta.sequence;
+    if (!runId || typeof sequence !== 'number') continue;
+
+    const prevMax = maxSequenceByRun.get(runId) ?? Number.MIN_SAFE_INTEGER;
+    if (sequence > prevMax) {
+      maxSequenceByRun.set(runId, sequence);
+    }
+
+    if (normalizedEvent.event.type !== 'message') continue;
+    if (normalizedEvent.event.subtype !== 'final' && normalizedEvent.event.subtype !== 'end') continue;
+    const prevHint = hintsByRun.get(runId) ?? Number.MIN_SAFE_INTEGER;
+    if (sequence > prevHint) {
+      hintsByRun.set(runId, sequence);
+    }
+  }
+
+  for (const [runId, maxSequence] of maxSequenceByRun) {
+    if (!hintsByRun.has(runId)) {
+      hintsByRun.set(runId, maxSequence);
+    }
+  }
+
+  return hintsByRun;
+}
+
+function buildMessageItems(
+  params: BuildTimelineItemsFromEventsParams,
+  now: () => string,
+  assistantSequenceHintsByRun: Map<string, number>,
+): TimelineItem[] {
   const messages = params.messages ?? [];
   const items: TimelineItem[] = [];
   for (const message of messages) {
-    const sequence = typeof message.seq === 'number' ? message.seq : null;
     const runId = message.run_id ?? params.activeRunId ?? null;
     if (message.role === 'user') {
+      const sequence = typeof message.seq === 'number' ? message.seq : null;
       const content = extractText(message.content);
       const userItem: UserMessageTimelineItem = {
         id: `timeline-user-${message.id}`,
@@ -235,6 +270,14 @@ function buildMessageItems(params: BuildTimelineItemsFromEventsParams, now: () =
       continue;
     }
     if (message.role === 'assistant') {
+      const messageSequence = typeof message.seq === 'number' ? message.seq : null;
+      const hintedSequence = runId ? assistantSequenceHintsByRun.get(runId) : undefined;
+      const sequence =
+        typeof hintedSequence === 'number'
+          ? messageSequence === null
+            ? hintedSequence
+            : Math.max(messageSequence, hintedSequence)
+          : messageSequence;
       const assistantItem: AssistantMessageTimelineItem = {
         id: `timeline-assistant-${message.id}`,
         type: 'assistant-message',
@@ -415,10 +458,18 @@ function buildApprovalItem(event: TimelineEventEnvelope, meta: CanonicalEventMet
   };
 }
 
-function buildEventItems(params: BuildTimelineItemsFromEventsParams, now: () => string): TimelineItem[] {
-  const normalizedEvents = normalizeEvents(params.events);
+function buildEventItems(
+  params: BuildTimelineItemsFromEventsParams,
+  now: () => string,
+  normalizedEvents: NormalizedEvent[],
+): TimelineItem[] {
   const toolItems = correlateToolEvents(normalizedEvents, now);
   const toolItemsById = new Map(toolItems.map(item => [item.id, item]));
+  const runsWithPersistedAssistantMessage = new Set(
+    (params.messages ?? [])
+      .filter(message => message.role === 'assistant' && typeof message.run_id === 'string' && message.run_id.trim())
+      .map(message => message.run_id as string),
+  );
   const items: TimelineItem[] = [];
   normalizedEvents.forEach(({ event, meta, index }) => {
     if (event.type === 'reasoning') {
@@ -438,6 +489,9 @@ function buildEventItems(params: BuildTimelineItemsFromEventsParams, now: () => 
       return;
     }
     if (event.type === 'message') {
+      if (meta.runId && runsWithPersistedAssistantMessage.has(meta.runId)) {
+        return;
+      }
       items.push(buildAssistantEventItem(event, meta, index, now));
       return;
     }
@@ -477,8 +531,10 @@ function buildStreamingItem(params: BuildTimelineItemsFromEventsParams, now: () 
 // Adapter skeleton for Phase 1; sequencing/correlation hooks are fixed in the contract.
 export function buildTimelineItemsFromEvents(params: BuildTimelineItemsFromEventsParams): TimelineItem[] {
   const now = params.now ?? (() => new Date().toISOString());
-  const messageItems = buildMessageItems(params, now);
-  const eventItems = buildEventItems(params, now);
+  const normalizedEvents = normalizeEvents(params.events);
+  const assistantSequenceHintsByRun = buildAssistantSequenceHintsByRun(normalizedEvents);
+  const messageItems = buildMessageItems(params, now, assistantSequenceHintsByRun);
+  const eventItems = buildEventItems(params, now, normalizedEvents);
   const streamingItem = buildStreamingItem(params, now);
   const items = streamingItem ? [...messageItems, ...eventItems, streamingItem] : [...messageItems, ...eventItems];
   return items.sort(compareTimelineItems);

@@ -11,6 +11,13 @@ import type {
   ToolItem,
   AssistantMessageItem,
 } from '../types/chatRenderItem';
+import type { TimelineItem } from '../types/chatTimelineItem';
+import {
+  buildTimelineItemsFromEvents,
+  type BuildTimelineItemsFromEventsParams,
+  type TimelineEventEnvelope,
+  type TimelineMessageEnvelope,
+} from './chatTimelineAdapter';
 
 /**
  * 다양한 형태의 content에서 텍스트 추출
@@ -35,11 +42,128 @@ export function extractMentions(text: string): string[] {
   return mentions;
 }
 
-/**
- * ChatTurn 배열을 flat한 ChatRenderItem 배열로 변환
- * API 의존성(runId) 유지하면서 UI만 독립적으로 렌더링
- */
-export function flattenTurnsToRenderItems(turns: ChatTurn[]): ChatRenderItem[] {
+function collectTimelineMessages(turns: ChatTurn[]): TimelineMessageEnvelope[] {
+  const messages: TimelineMessageEnvelope[] = [];
+  turns.forEach(turn => {
+    const runId = turn.runId;
+    turn.userMessages.forEach(message => {
+      messages.push({
+        id: message.id,
+        role: message.role,
+        content: message.content,
+        created_at: message.created_at,
+        seq: message.seq,
+        run_id: message.run_id ?? runId,
+      });
+    });
+    turn.assistantMessages.forEach(message => {
+      messages.push({
+        id: message.id,
+        role: message.role,
+        content: message.content,
+        created_at: message.created_at,
+        seq: message.seq,
+        run_id: message.run_id ?? runId,
+      });
+    });
+  });
+  return messages;
+}
+
+function collectTimelineEvents(turns: ChatTurn[]): TimelineEventEnvelope[] {
+  const events: TimelineEventEnvelope[] = [];
+  turns.forEach(turn => {
+    turn.events.forEach(event => {
+      if (event.type === 'message') {
+        return;
+      }
+      const raw = event as unknown as Record<string, unknown>;
+      events.push({
+        type: event.type,
+        subtype: event.subtype,
+        content: event.content,
+        metadata: event.metadata ?? null,
+        timestamp: event.timestamp,
+        event_id: typeof raw.event_id === 'string' ? raw.event_id : undefined,
+        sequence: typeof raw.sequence === 'number' ? raw.sequence : undefined,
+        run_id: typeof raw.run_id === 'string' ? raw.run_id : turn.runId,
+        tool_call_id: typeof raw.tool_call_id === 'string' ? raw.tool_call_id : undefined,
+        parent_event_id: typeof raw.parent_event_id === 'string' ? raw.parent_event_id : undefined,
+        phase: typeof raw.phase === 'string' ? raw.phase : undefined,
+      });
+    });
+  });
+  return events;
+}
+
+function toRenderItemsFromTimeline(timelineItems: TimelineItem[]): ChatRenderItem[] {
+  const renderItems: ChatRenderItem[] = [];
+  timelineItems.forEach((item, index) => {
+    if (item.type === 'user-message') {
+      const userItem: UserMessageItem = {
+        id: item.id,
+        type: 'user-message',
+        runId: item.runId,
+        seq: index,
+        timestamp: item.timestamp,
+        content: item.content,
+        mentions: item.mentions && item.mentions.length > 0 ? item.mentions : undefined,
+        messageId: item.messageId,
+        isStreaming: item.isStreaming,
+      };
+      renderItems.push(userItem);
+      return;
+    }
+    if (item.type === 'reasoning') {
+      const reasoningItem: ReasoningItem = {
+        id: item.id,
+        type: 'reasoning',
+        runId: item.runId,
+        seq: index,
+        timestamp: item.timestamp,
+        content: item.content,
+        phase: item.status === 'complete' ? 'complete' : 'streaming',
+        isStreaming: item.isStreaming,
+      };
+      renderItems.push(reasoningItem);
+      return;
+    }
+    if (item.type === 'tool') {
+      const toolItem: ToolItem = {
+        id: item.id,
+        type: 'tool',
+        runId: item.runId,
+        seq: index,
+        timestamp: item.timestamp,
+        toolName: item.toolName,
+        state: item.state,
+        input: item.input,
+        output: item.output,
+        error: item.error,
+        isStreaming: item.isStreaming,
+      };
+      renderItems.push(toolItem);
+      return;
+    }
+    if (item.type === 'assistant-message') {
+      const assistantItem: AssistantMessageItem = {
+        id: item.id,
+        type: 'assistant-message',
+        runId: item.runId,
+        seq: index,
+        timestamp: item.timestamp,
+        content: item.content,
+        messageId: item.messageId ?? item.id,
+        isStreaming: item.isStreaming,
+      };
+      renderItems.push(assistantItem);
+      return;
+    }
+  });
+  return renderItems;
+}
+
+function flattenTurnsToRenderItemsLegacy(turns: ChatTurn[]): ChatRenderItem[] {
   const items: ChatRenderItem[] = [];
   let globalSeq = 0;
 
@@ -47,7 +171,6 @@ export function flattenTurnsToRenderItems(turns: ChatTurn[]): ChatRenderItem[] {
     const baseRunId = turn.runId;
     const isActive = turn.isActive;
 
-    // 1. User Messages
     turn.userMessages.forEach(msg => {
       const content = extractText(msg.content);
       const mentions = extractMentions(content);
@@ -61,12 +184,11 @@ export function flattenTurnsToRenderItems(turns: ChatTurn[]): ChatRenderItem[] {
         content,
         mentions: mentions.length > 0 ? mentions : undefined,
         messageId: msg.id,
-        isStreaming: false, // 유저 메시지는 스트리밍 없음
+        isStreaming: false,
       };
       items.push(item);
     });
 
-    // 2. Reasoning (존재하거나 스트리밍 중이면)
     if (turn.reasoningText || isActive) {
       const item: ReasoningItem = {
         id: `reasoning-${baseRunId || turn.key}`,
@@ -81,7 +203,6 @@ export function flattenTurnsToRenderItems(turns: ChatTurn[]): ChatRenderItem[] {
       items.push(item);
     }
 
-    // 3. Tools (개별적으로)
     turn.groupedToolEvents.forEach((tool, idx) => {
       const item: ToolItem = {
         id: `tool-${baseRunId || turn.key}-${idx}`,
@@ -99,7 +220,6 @@ export function flattenTurnsToRenderItems(turns: ChatTurn[]): ChatRenderItem[] {
       items.push(item);
     });
 
-    // 4. Assistant Messages (streaming fallback first)
     if (!turn.assistantMessages.length && turn.streamingAssistantText) {
       const item: AssistantMessageItem = {
         id: `assistant-stream-${baseRunId || turn.key}`,
@@ -130,6 +250,41 @@ export function flattenTurnsToRenderItems(turns: ChatTurn[]): ChatRenderItem[] {
   });
 
   return items;
+}
+
+/**
+ * ChatTurn 배열을 flat한 ChatRenderItem 배열로 변환
+ * API 의존성(runId) 유지하면서 UI만 독립적으로 렌더링
+ */
+export function flattenTurnsToRenderItems(turns: ChatTurn[]): ChatRenderItem[] {
+  try {
+    const activeTurn = turns.find(turn => turn.isActive);
+    const streamingTurn = turns.find(turn => turn.isActive && turn.streamingAssistantText);
+    const params: BuildTimelineItemsFromEventsParams = {
+      events: collectTimelineEvents(turns),
+      messages: collectTimelineMessages(turns),
+      activeRunId: activeTurn?.runId ?? null,
+      streamingChunkText: streamingTurn?.streamingAssistantText ?? null,
+      streamingChunkIsFinal: streamingTurn?.streamingAssistantFinal,
+      ordering: {
+        primary: 'sequence',
+        secondary: 'timestamp',
+      },
+      correlation: {
+        toolCallIdField: 'tool_call_id',
+        sequenceField: 'sequence',
+      },
+    };
+
+    const timelineItems = buildTimelineItemsFromEvents(params);
+    const renderItems = toRenderItemsFromTimeline(timelineItems);
+    if (renderItems.length > 0 || turns.length === 0) {
+      return renderItems;
+    }
+  } catch {
+    // Preserve legacy path during migration.
+  }
+  return flattenTurnsToRenderItemsLegacy(turns);
 }
 
 /**

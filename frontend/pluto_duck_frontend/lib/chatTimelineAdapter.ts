@@ -18,6 +18,12 @@ export interface TimelineEventEnvelope {
   content: unknown;
   metadata?: Record<string, unknown> | null;
   timestamp?: string;
+  event_id?: string;
+  sequence?: number;
+  run_id?: string | null;
+  tool_call_id?: string | null;
+  parent_event_id?: string | null;
+  phase?: string;
 }
 
 export interface TimelineMessageEnvelope {
@@ -65,6 +71,12 @@ interface CanonicalEventMeta {
   phase?: string;
 }
 
+interface NormalizedEvent {
+  event: TimelineEventEnvelope;
+  meta: CanonicalEventMeta;
+  index: number;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
 }
@@ -80,15 +92,24 @@ function toOptionalNumber(value: unknown): number | undefined {
   return value;
 }
 
-function toCanonicalMeta(metadata: TimelineEventEnvelope['metadata']): CanonicalEventMeta {
-  if (!metadata) return {};
+function toCanonicalMeta(event: TimelineEventEnvelope): CanonicalEventMeta {
+  const metadata = event.metadata;
+  const topLevel = {
+    eventId: toOptionalString(event.event_id),
+    sequence: toOptionalNumber(event.sequence),
+    runId: toOptionalString(event.run_id) ?? null,
+    toolCallId: toOptionalString(event.tool_call_id) ?? null,
+    parentEventId: toOptionalString(event.parent_event_id) ?? null,
+    phase: toOptionalString(event.phase),
+  };
+  if (!metadata) return topLevel;
   return {
-    eventId: toOptionalString(metadata.event_id),
-    sequence: toOptionalNumber(metadata.sequence),
-    runId: toOptionalString(metadata.run_id) ?? null,
-    toolCallId: toOptionalString(metadata.tool_call_id) ?? null,
-    parentEventId: toOptionalString(metadata.parent_event_id) ?? null,
-    phase: toOptionalString(metadata.phase),
+    eventId: topLevel.eventId ?? toOptionalString(metadata.event_id),
+    sequence: topLevel.sequence ?? toOptionalNumber(metadata.sequence),
+    runId: topLevel.runId ?? toOptionalString(metadata.run_id) ?? null,
+    toolCallId: topLevel.toolCallId ?? toOptionalString(metadata.tool_call_id) ?? null,
+    parentEventId: topLevel.parentEventId ?? toOptionalString(metadata.parent_event_id) ?? null,
+    phase: topLevel.phase ?? toOptionalString(metadata.phase),
   };
 }
 
@@ -135,6 +156,29 @@ function compareTimelineItems(a: TimelineItem, b: TimelineItem): number {
   }
 
   return a.id.localeCompare(b.id);
+}
+
+function compareNormalizedEvents(a: NormalizedEvent, b: NormalizedEvent): number {
+  const sequenceA = a.meta.sequence ?? Number.MAX_SAFE_INTEGER;
+  const sequenceB = b.meta.sequence ?? Number.MAX_SAFE_INTEGER;
+  if (sequenceA !== sequenceB) return sequenceA - sequenceB;
+
+  const tsA = Date.parse(a.event.timestamp ?? '');
+  const tsB = Date.parse(b.event.timestamp ?? '');
+  if (Number.isFinite(tsA) && Number.isFinite(tsB) && tsA !== tsB) {
+    return tsA - tsB;
+  }
+  return a.index - b.index;
+}
+
+function normalizeEvents(events: TimelineEventEnvelope[]): NormalizedEvent[] {
+  return events
+    .map((event, index) => ({
+      event,
+      meta: toCanonicalMeta(event),
+      index,
+    }))
+    .sort(compareNormalizedEvents);
 }
 
 function buildMessageItems(params: BuildTimelineItemsFromEventsParams, now: () => string): TimelineItem[] {
@@ -203,7 +247,7 @@ function buildToolItem(event: TimelineEventEnvelope, meta: CanonicalEventMeta, i
   const content = isRecord(event.content) ? event.content : {};
   const errorText = status === 'error' ? toOptionalString(content.error) ?? toOptionalString(content.message) : undefined;
   return {
-    id: meta.eventId ?? `timeline-tool-${meta.toolCallId ?? index}`,
+    id: meta.eventId ?? `timeline-tool-${meta.runId ?? 'orphan'}-${meta.toolCallId ?? index}`,
     type: 'tool',
     runId: meta.runId ?? null,
     sequence: meta.sequence ?? null,
@@ -220,6 +264,70 @@ function buildToolItem(event: TimelineEventEnvelope, meta: CanonicalEventMeta, i
     eventId: meta.eventId,
     parentEventId: meta.parentEventId,
   };
+}
+
+function buildToolCorrelationKey(event: TimelineEventEnvelope, meta: CanonicalEventMeta): string | null {
+  const content = isRecord(event.content) ? event.content : {};
+  const contentToolCallId = toOptionalString(content.tool_call_id);
+  const toolCallId = meta.toolCallId ?? contentToolCallId;
+  if (!toolCallId) return null;
+  const runId = meta.runId ?? 'orphan-run';
+  return `${runId}:${toolCallId}`;
+}
+
+function correlateToolEvents(events: NormalizedEvent[], now: () => string): ToolTimelineItem[] {
+  const items: ToolTimelineItem[] = [];
+  const pendingByKey = new Map<string, ToolTimelineItem>();
+
+  for (const normalizedEvent of events) {
+    if (normalizedEvent.event.type !== 'tool') continue;
+    const { event, meta, index } = normalizedEvent;
+    const key = buildToolCorrelationKey(event, meta);
+    const current = buildToolItem(event, meta, index, now);
+
+    if (!key) {
+      items.push(current);
+      continue;
+    }
+
+    const pending = pendingByKey.get(key);
+
+    if (event.subtype === 'start') {
+      pendingByKey.set(key, current);
+      items.push(current);
+      continue;
+    }
+
+    if ((event.subtype === 'end' || event.subtype === 'error') && pending) {
+      pending.state = current.state;
+      pending.status = current.status;
+      pending.isStreaming = false;
+      pending.isPartial = false;
+      if (current.output !== undefined) {
+        pending.output = current.output;
+      }
+      if (current.error !== undefined) {
+        pending.error = current.error;
+      }
+      pendingByKey.delete(key);
+      continue;
+    }
+
+    if (event.subtype === 'chunk' && pending) {
+      if (current.output !== undefined) {
+        pending.output = current.output;
+      }
+      pending.status = 'streaming';
+      pending.isStreaming = true;
+      pending.isPartial = true;
+      continue;
+    }
+
+    pendingByKey.set(key, current);
+    items.push(current);
+  }
+
+  return items;
 }
 
 function buildAssistantEventItem(
@@ -265,15 +373,22 @@ function buildApprovalItem(event: TimelineEventEnvelope, meta: CanonicalEventMet
 }
 
 function buildEventItems(params: BuildTimelineItemsFromEventsParams, now: () => string): TimelineItem[] {
+  const normalizedEvents = normalizeEvents(params.events);
+  const toolItems = correlateToolEvents(normalizedEvents, now);
+  const toolItemsById = new Map(toolItems.map(item => [item.id, item]));
   const items: TimelineItem[] = [];
-  params.events.forEach((event, index) => {
-    const meta = toCanonicalMeta(event.metadata);
+  normalizedEvents.forEach(({ event, meta, index }) => {
     if (event.type === 'reasoning') {
       items.push(buildReasoningItem(event, meta, index, now));
       return;
     }
     if (event.type === 'tool') {
-      items.push(buildToolItem(event, meta, index, now));
+      const candidateToolItem = buildToolItem(event, meta, index, now);
+      const deduped = toolItemsById.get(candidateToolItem.id);
+      if (deduped) {
+        toolItemsById.delete(candidateToolItem.id);
+        items.push(deduped);
+      }
       return;
     }
     if (event.type === 'message') {

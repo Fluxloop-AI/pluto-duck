@@ -126,24 +126,42 @@ def _notes_path(profile_id: str, profiles_root: Path) -> Path:
     return profiles_root / f"{profile_id}_notes.json"
 
 
-def _load_notes(profile_id: str, profiles_root: Path) -> dict[str, str]:
-    """Load block notes from JSON. Returns {block_name: note_text}."""
+@dataclass
+class ProfileMemo:
+    """Version-level description + per-block notes."""
+
+    description: str
+    blocks: dict[str, str]
+
+
+def _load_memo(profile_id: str, profiles_root: Path) -> ProfileMemo:
+    """Load profile memo from JSON."""
     path = _notes_path(profile_id, profiles_root)
     if not path.exists():
-        return {}
+        return ProfileMemo(description="", blocks={})
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        return {k: str(v) for k, v in data.items()} if isinstance(data, dict) else {}
+        if not isinstance(data, dict):
+            return ProfileMemo(description="", blocks={})
+        # migrate flat format (block notes only) → structured
+        if "blocks" not in data and "description" not in data:
+            return ProfileMemo(description="", blocks={k: str(v) for k, v in data.items()})
+        return ProfileMemo(
+            description=str(data.get("description", "")),
+            blocks={k: str(v) for k, v in data.get("blocks", {}).items()},
+        )
     except (json.JSONDecodeError, OSError):
-        return {}
+        return ProfileMemo(description="", blocks={})
 
 
-def _save_notes(profile_id: str, profiles_root: Path, notes: dict[str, str]) -> None:
-    """Persist non-empty block notes to JSON."""
+def _save_memo(profile_id: str, profiles_root: Path, memo: ProfileMemo) -> None:
+    """Persist profile memo to JSON. Removes file if entirely empty."""
     path = _notes_path(profile_id, profiles_root)
-    clean = {k: v for k, v in notes.items() if v.strip()}
-    if clean:
-        path.write_text(json.dumps(clean, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    clean_blocks = {k: v for k, v in memo.blocks.items() if v.strip()}
+    has_content = memo.description.strip() or clean_blocks
+    if has_content:
+        payload = {"description": memo.description.strip(), "blocks": clean_blocks}
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     elif path.exists():
         path.unlink()
 
@@ -1048,15 +1066,32 @@ def _render_editor_mode(*, selected_profile: str, profiles_root: Path) -> None:
         compose_order=edited_compose_order,
     )
 
-    current_notes = _load_notes(selected_profile, profiles_root)
+    current_memo = _load_memo(selected_profile, profiles_root)
+
+    st.subheader("Version Description")
+    edited_description = st.text_area(
+        label="version description",
+        value=current_memo.description,
+        height=100,
+        key=f"memo_desc_{selected_profile}",
+        label_visibility="collapsed",
+        placeholder="이 버전의 특징이나 목적을 메모하세요...",
+    )
 
     st.subheader("Prompt Blocks (edit)")
-    edited_block_text, edited_notes = _render_block_editors(
+    edited_block_text, edited_block_notes = _render_block_editors(
         profile_id=selected_profile,
         profiles_root=profiles_root,
         block_specs=block_specs,
         resolved_text=resolved_text,
-        notes=current_notes,
+        notes=current_memo.blocks,
+    )
+
+    # auto-save memos on every rerun (independent of Save button)
+    _save_memo(
+        selected_profile,
+        profiles_root,
+        ProfileMemo(description=edited_description, blocks=edited_block_notes),
     )
 
     save_disabled = bool(validation.errors)
@@ -1074,7 +1109,6 @@ def _render_editor_mode(*, selected_profile: str, profiles_root: Path) -> None:
                 edited_block_text=edited_block_text,
                 profiles_root=profiles_root,
             )
-            _save_notes(selected_profile, profiles_root, edited_notes)
             clear_experiment_profile_cache()
             load_experiment_profile(selected_profile, profiles_root=profiles_root)
         except Exception as exc:

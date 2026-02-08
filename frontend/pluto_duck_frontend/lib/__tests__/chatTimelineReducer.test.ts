@@ -469,3 +469,45 @@ test('approval-control tool event stays in control lane without creating tool ro
   assert.equal(approvalItems[0].lane, 'control');
   assert.equal(approvalItems[0].decision, 'pending');
 });
+
+test('late pending approval signal does not override approved decision anchor', async () => {
+  const { buildTimelineItemsFromEvents } = await import(reducerModuleUrl.href);
+
+  const runId = 'run-approval-decision-anchor';
+  const items = buildTimelineItemsFromEvents({
+    events: [
+      {
+        type: 'tool',
+        subtype: 'end',
+        content: {
+          tool: 'write_file',
+          approval_id: 'approval-anchor-1',
+          decision: 'approve',
+        },
+        metadata: { run_id: runId, sequence: 5, event_id: 'evt-approval-end', tool_call_id: 'tc-anchor' },
+        timestamp: '2026-02-12T12:00:05.000Z',
+      },
+      {
+        type: 'tool',
+        subtype: 'start',
+        content: {
+          tool: 'write_file',
+          approval_required: true,
+          approval_id: 'approval-anchor-1',
+        },
+        metadata: { run_id: runId, event_id: 'evt-approval-start-late', tool_call_id: 'tc-anchor' },
+        timestamp: '2026-02-12T12:00:06.000Z',
+      },
+    ],
+  });
+
+  const approvalItems = items.filter((item: { type: string }) => item.type === 'approval') as Array<{
+    id: string;
+    decision?: string;
+    sequence: number | null;
+  }>;
+  assert.equal(approvalItems.length, 1);
+  assert.equal(approvalItems[0].id, 'approval-anchor-1');
+  assert.equal(approvalItems[0].decision, 'approved');
+  assert.equal(approvalItems[0].sequence, 5);
+});

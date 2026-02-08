@@ -115,6 +115,10 @@ interface NormalizedEvent {
   index: number;
 }
 
+interface ClassifiedEvent extends NormalizedEvent {
+  classification: TimelineEventClassification;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
 }
@@ -436,13 +440,27 @@ function normalizeEvents(events: TimelineEventEnvelope[]): NormalizedEvent[] {
   return deduped;
 }
 
-function buildAssistantSequenceHintsByRun(normalizedEvents: NormalizedEvent[]): Map<string, number> {
+function classifyNormalizedEvents(normalizedEvents: NormalizedEvent[]): ClassifiedEvent[] {
+  return normalizedEvents.map(normalizedEvent => ({
+    ...normalizedEvent,
+    classification: classifyTimelineEvent(normalizedEvent.event, normalizedEvent.meta),
+  }));
+}
+
+function selectExecutionToolEvents(classifiedEvents: ClassifiedEvent[]): ClassifiedEvent[] {
+  return classifiedEvents.filter(
+    classifiedEvent =>
+      classifiedEvent.event.type === 'tool' && classifiedEvent.classification.intent === 'execution',
+  );
+}
+
+function buildAssistantSequenceHintsByRun(classifiedEvents: ClassifiedEvent[]): Map<string, number> {
   const hintsByRun = new Map<string, number>();
   const maxSequenceByRun = new Map<string, number>();
 
-  for (const normalizedEvent of normalizedEvents) {
-    const runId = normalizedEvent.meta.runId ?? null;
-    const sequence = normalizedEvent.meta.sequence;
+  for (const classifiedEvent of classifiedEvents) {
+    const runId = classifiedEvent.meta.runId ?? null;
+    const sequence = classifiedEvent.meta.sequence;
     if (!runId || typeof sequence !== 'number') continue;
 
     const prevMax = maxSequenceByRun.get(runId) ?? Number.MIN_SAFE_INTEGER;
@@ -450,8 +468,8 @@ function buildAssistantSequenceHintsByRun(normalizedEvents: NormalizedEvent[]): 
       maxSequenceByRun.set(runId, sequence);
     }
 
-    if (normalizedEvent.event.type !== 'message') continue;
-    if (normalizedEvent.event.subtype !== 'final' && normalizedEvent.event.subtype !== 'end') continue;
+    if (classifiedEvent.event.type !== 'message') continue;
+    if (classifiedEvent.event.subtype !== 'final' && classifiedEvent.event.subtype !== 'end') continue;
     const prevHint = hintsByRun.get(runId) ?? Number.MIN_SAFE_INTEGER;
     if (sequence > prevHint) {
       hintsByRun.set(runId, sequence);
@@ -469,7 +487,7 @@ function buildAssistantSequenceHintsByRun(normalizedEvents: NormalizedEvent[]): 
 
 function collectAssistantFinalTextByRun(
   params: BuildTimelineItemsFromEventsParams,
-  normalizedEvents: NormalizedEvent[],
+  classifiedEvents: ClassifiedEvent[],
 ): Map<string, string> {
   const textsByRun = new Map<string, string>();
 
@@ -482,12 +500,12 @@ function collectAssistantFinalTextByRun(
     textsByRun.set(runId, text);
   }
 
-  for (const normalizedEvent of normalizedEvents) {
-    if (normalizedEvent.event.type !== 'message') continue;
-    if (normalizedEvent.event.subtype !== 'final' && normalizedEvent.event.subtype !== 'end') continue;
-    const runId = normalizedEvent.meta.runId ?? null;
+  for (const classifiedEvent of classifiedEvents) {
+    if (classifiedEvent.event.type !== 'message') continue;
+    if (classifiedEvent.event.subtype !== 'final' && classifiedEvent.event.subtype !== 'end') continue;
+    const runId = classifiedEvent.meta.runId ?? null;
     if (!runId) continue;
-    const text = normalizeComparableText(extractText(normalizedEvent.event.content));
+    const text = normalizeComparableText(extractText(classifiedEvent.event.content));
     if (!text) continue;
     textsByRun.set(runId, text);
   }
@@ -663,13 +681,12 @@ function buildToolCorrelationKey(event: TimelineEventEnvelope, meta: CanonicalEv
   return `${runId}:${toolCallId}`;
 }
 
-function correlateToolEvents(events: NormalizedEvent[], now: () => string): ToolTimelineItem[] {
+function correlateToolEvents(events: ClassifiedEvent[], now: () => string): ToolTimelineItem[] {
   const items: ToolTimelineItem[] = [];
   const pendingByKey = new Map<string, ToolTimelineItem>();
 
-  for (const normalizedEvent of events) {
-    if (normalizedEvent.event.type !== 'tool') continue;
-    const { event, meta, index } = normalizedEvent;
+  for (const classifiedEvent of events) {
+    const { event, meta, index } = classifiedEvent;
     const key = buildToolCorrelationKey(event, meta);
     const current = buildToolItem(event, meta, index, now);
 
@@ -753,7 +770,8 @@ function buildApprovalItem(
   const content = isRecord(event.content) ? event.content : {};
   const decision = classification?.approvalDecision ?? resolveApprovalDecision(content.decision);
   const resolvedDecision = decision ?? (content.approval_required === true ? 'pending' : undefined);
-  const approvalId = classification?.approvalId ?? toOptionalString(content.approval_id);
+  const approvalIdFromContent = toOptionalString(content.approval_id);
+  const approvalId = approvalIdFromContent ?? classification?.approvalId;
   return {
     id: approvalId ?? meta.eventId ?? `timeline-approval-${index}`,
     type: 'approval',
@@ -772,31 +790,50 @@ function buildApprovalItem(
   };
 }
 
-function mergeApprovalItem(
-  existing: ApprovalTimelineItem,
-  candidate: ApprovalTimelineItem,
-  options?: { preferCandidateSequence?: boolean },
-): void {
-  const preferCandidateSequence = options?.preferCandidateSequence === true;
+function isTerminalApprovalDecision(decision: ApprovalTimelineItem['decision']): boolean {
+  return decision === 'approved' || decision === 'rejected';
+}
+
+function mergeApprovalDecision(
+  existing: ApprovalTimelineItem['decision'],
+  candidate: ApprovalTimelineItem['decision'],
+): ApprovalTimelineItem['decision'] {
+  if (!candidate) return existing;
+  if (!existing) return candidate;
+  if (isTerminalApprovalDecision(existing) && !isTerminalApprovalDecision(candidate)) {
+    return existing;
+  }
+  return candidate;
+}
+
+function mergeApprovalSequence(existing: ApprovalTimelineItem, candidate: ApprovalTimelineItem): number | null {
   const candidateSequence = typeof candidate.sequence === 'number' && Number.isFinite(candidate.sequence) ? candidate.sequence : null;
   const existingSequence = typeof existing.sequence === 'number' && Number.isFinite(existing.sequence) ? existing.sequence : null;
 
-  if (candidateSequence !== null) {
-    if (preferCandidateSequence) {
-      existing.sequence = candidateSequence;
-    } else if (existingSequence === null || candidateSequence < existingSequence) {
-      existing.sequence = candidateSequence;
-    }
+  if (candidateSequence === null) {
+    return existingSequence;
   }
+  if (isTerminalApprovalDecision(candidate.decision)) {
+    return candidateSequence;
+  }
+  if (isTerminalApprovalDecision(existing.decision)) {
+    return existingSequence;
+  }
+  if (existingSequence === null || candidateSequence < existingSequence) {
+    return candidateSequence;
+  }
+  return existingSequence;
+}
+
+function mergeApprovalItem(existing: ApprovalTimelineItem, candidate: ApprovalTimelineItem): void {
+  existing.sequence = mergeApprovalSequence(existing, candidate);
 
   if (candidate.status !== existing.status) {
     existing.status = candidate.status;
   }
   existing.isStreaming = candidate.isStreaming;
   existing.isPartial = candidate.isPartial;
-  if (candidate.decision) {
-    existing.decision = candidate.decision;
-  }
+  existing.decision = mergeApprovalDecision(existing.decision, candidate.decision);
   if (candidate.content.trim()) {
     existing.content = candidate.content;
   }
@@ -819,7 +856,7 @@ function isMessageDeltaChunk(event: TimelineEventEnvelope): boolean {
 function buildEventItems(
   params: BuildTimelineItemsFromEventsParams,
   now: () => string,
-  normalizedEvents: NormalizedEvent[],
+  classifiedEvents: ClassifiedEvent[],
   assistantFinalTextByRun: Map<string, string>,
 ): TimelineItem[] {
   const persistedAssistantMessages = (params.messages ?? []).filter(message => message.role === 'assistant');
@@ -829,7 +866,7 @@ function buildEventItems(
       .map(message => normalizeComparableText(extractText(message.content)))
       .filter(Boolean),
   );
-  const toolItems = correlateToolEvents(normalizedEvents, now);
+  const toolItems = correlateToolEvents(selectExecutionToolEvents(classifiedEvents), now);
   const toolItemsById = new Map(toolItems.map(item => [item.id, item]));
   const runsWithPersistedAssistantMessage = new Set(
     persistedAssistantMessages
@@ -891,7 +928,7 @@ function buildEventItems(
     return item;
   }
 
-  normalizedEvents.forEach(({ event, meta, index }) => {
+  classifiedEvents.forEach(({ event, meta, index, classification }) => {
     if (event.type === 'reasoning') {
       const runKey = getReasoningRunKey(meta, index);
       const runId = meta.runId ?? null;
@@ -945,7 +982,6 @@ function buildEventItems(
       return;
     }
     if (event.type === 'tool') {
-      const classification = classifyTimelineEvent(event, meta);
       const isApprovalControl = classification.intent === 'approval-control';
 
       if (!isApprovalControl) {
@@ -964,11 +1000,7 @@ function buildEventItems(
           items.push(candidateApproval);
           approvalItemsById.set(candidateApproval.id, candidateApproval);
         } else {
-          mergeApprovalItem(existingApproval, candidateApproval, {
-            // Keep approved/rejected card anchored to decision timing.
-            // Prevent retroactive upward jumps from late-arriving start events.
-            preferCandidateSequence: classification.approvalDecision !== undefined,
-          });
+          mergeApprovalItem(existingApproval, candidateApproval);
         }
       }
       return;
@@ -992,7 +1024,6 @@ function buildEventItems(
       return;
     }
     if (event.type === 'plan') {
-      const classification = classifyTimelineEvent(event, meta);
       const approvalItem = buildApprovalItem(event, meta, index, now, classification);
       const existing = approvalItemsById.get(approvalItem.id);
       if (!existing) {
@@ -1132,13 +1163,14 @@ export function buildTimelineItemsFromTurns(params: BuildTimelineItemsFromTurnsP
 export function buildTimelineItemsFromEvents(params: BuildTimelineItemsFromEventsParams): TimelineItem[] {
   const now = params.now ?? (() => new Date().toISOString());
   const normalizedEvents = normalizeEvents(params.events);
-  const assistantSequenceHintsByRun = buildAssistantSequenceHintsByRun(normalizedEvents);
-  const assistantFinalTextByRun = collectAssistantFinalTextByRun(params, normalizedEvents);
+  const classifiedEvents = classifyNormalizedEvents(normalizedEvents);
+  const assistantSequenceHintsByRun = buildAssistantSequenceHintsByRun(classifiedEvents);
+  const assistantFinalTextByRun = collectAssistantFinalTextByRun(params, classifiedEvents);
   const messageItems = buildMessageItems(params, now, assistantSequenceHintsByRun);
-  const eventItems = buildEventItems(params, now, normalizedEvents, assistantFinalTextByRun);
+  const eventItems = buildEventItems(params, now, classifiedEvents, assistantFinalTextByRun);
   const hasFinalMessageEventForActiveRun = Boolean(
     params.activeRunId &&
-      normalizedEvents.some(
+      classifiedEvents.some(
         ({ event, meta }) =>
           event.type === 'message' &&
           (event.subtype === 'final' || event.subtype === 'end') &&

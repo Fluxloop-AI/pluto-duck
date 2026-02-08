@@ -65,6 +65,7 @@ interface ConversationMessagesProps {
   onEditUserMessage?: (messageId: string, content: string) => void;
   onFeedback?: (messageId: string, type: 'like' | 'dislike') => void;
   onSendToBoard?: (messageId: string, content: string) => void;
+  onApprovalDecision?: (approvalEventId: string, decision: 'approved' | 'rejected') => void;
 }
 
 const ConversationMessages = memo(function ConversationMessages({
@@ -76,6 +77,7 @@ const ConversationMessages = memo(function ConversationMessages({
   onEditUserMessage,
   onFeedback,
   onSendToBoard,
+  onApprovalDecision,
 }: ConversationMessagesProps) {
   const lastAssistantId = findLastAssistantMessageId(renderItems);
 
@@ -102,6 +104,7 @@ const ConversationMessages = memo(function ConversationMessages({
           if (item.type === 'tool') return 'pl-1 pr-1 pt-0 pb-0';                  // 좌 4px, 하 0px
           if (item.type === 'reasoning') return 'px-1 py-0';                       // 좌우 4px, 상하 0px
           if (item.type === 'assistant-message') return 'pl-2 pr-2 pt-3 pb-6';    // 상 12px, 좌우 8px, 하 24px
+          if (item.type === 'approval') return 'pl-2 pr-2 pt-2 pb-4';
           return `pl-[14px] pr-1 pt-0 ${isLastOfRun ? 'pb-6' : 'pb-2'}`;           // 기존 로직
         };
 
@@ -122,6 +125,7 @@ const ConversationMessages = memo(function ConversationMessages({
               onEditUserMessage={onEditUserMessage}
               onFeedback={onFeedback}
               onSendToBoard={onSendToBoard}
+              onApprovalDecision={onApprovalDecision}
             />
           </div>
         );
@@ -157,6 +161,7 @@ interface ChatPanelProps {
   onEditUserMessage?: (messageId: string, content: string) => void;
   onFeedback?: (messageId: string, type: 'like' | 'dislike') => void;
   onSendToBoard?: (messageId: string, content: string) => void;
+  onApprovalDecision?: (approvalEventId: string, decision: 'approved' | 'rejected') => void;
   onEmbedAssetToBoard?: (analysisId: string, config: AssetEmbedConfig) => void;
   feedbackMap?: Map<string, FeedbackType>;
 }
@@ -176,6 +181,7 @@ export function ChatPanel({
   onEditUserMessage,
   onFeedback,
   onSendToBoard,
+  onApprovalDecision,
   onEmbedAssetToBoard,
   feedbackMap,
 }: ChatPanelProps) {
@@ -263,6 +269,7 @@ export function ChatPanel({
                   onEditUserMessage={onEditUserMessage}
                   onFeedback={onFeedback}
                   onSendToBoard={onSendToBoard}
+                  onApprovalDecision={onApprovalDecision}
                 />
               </ConversationContent>
               <ConversationScrollButton />

@@ -6,6 +6,7 @@ import { UserMessageRenderer } from './UserMessageRenderer';
 import { ReasoningRenderer } from './ReasoningRenderer';
 import { ToolRenderer } from './ToolRenderer';
 import { AssistantMessageRenderer, type FeedbackType } from './AssistantMessageRenderer';
+import { ApprovalRenderer } from './ApprovalRenderer';
 
 export interface RenderItemProps {
   item: ChatRenderItem;
@@ -16,6 +17,7 @@ export interface RenderItemProps {
   onRegenerate?: (messageId: string) => void;
   onFeedback?: (messageId: string, type: 'like' | 'dislike') => void;
   onSendToBoard?: (messageId: string, content: string) => void;
+  onApprovalDecision?: (approvalEventId: string, decision: 'approved' | 'rejected') => void;
 }
 
 export const RenderItem = memo(function RenderItem({
@@ -27,6 +29,7 @@ export const RenderItem = memo(function RenderItem({
   onRegenerate,
   onFeedback,
   onSendToBoard,
+  onApprovalDecision,
 }: RenderItemProps) {
   switch (item.type) {
     case 'user-message':
@@ -58,7 +61,12 @@ export const RenderItem = memo(function RenderItem({
       );
 
     case 'approval':
-      return null;
+      return (
+        <ApprovalRenderer
+          item={item}
+          onDecision={onApprovalDecision}
+        />
+      );
 
     default:
       // TypeScript exhaustiveness check

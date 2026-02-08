@@ -50,6 +50,7 @@ export function MultiTabChatPanel({
     openSessionInTab,
     handleSubmit,
     handleFeedback,
+    handleApprovalDecision,
     feedbackMap,
     restoreTabs,
   } = useMultiTabChat({
@@ -141,6 +142,7 @@ export function MultiTabChatPanel({
               onSubmit={handleSubmit}
               projectId={projectId || undefined}
               onSendToBoard={onSendToBoard}
+              onApprovalDecision={handleApprovalDecision}
               onEmbedAssetToBoard={onEmbedAssetToBoard}
             />
           </div>
@@ -163,6 +165,7 @@ export function MultiTabChatPanel({
               feedbackMap={feedbackMap}
               projectId={projectId || undefined}
               onSendToBoard={onSendToBoard}
+              onApprovalDecision={handleApprovalDecision}
               onEmbedAssetToBoard={onEmbedAssetToBoard}
             />
           </div>

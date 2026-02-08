@@ -11,7 +11,7 @@ import {
 } from '../lib/chatApi';
 import { useAgentStream } from './useAgentStream';
 import { flattenTurnsToRenderItems } from '../lib/chatRenderUtils';
-import type { ChatRenderItem } from '../types/chatRenderItem';
+import type { ChatRenderItem, ApprovalItem } from '../types/chatRenderItem';
 import {
   buildChatTurns,
   computeStreamUiState,
@@ -145,6 +145,7 @@ export interface UseMultiTabChatOptions {
 }
 
 export type FeedbackType = 'like' | 'dislike' | null;
+type ApprovalDecision = ApprovalItem['decision'];
 
 export function useMultiTabChat({ selectedModel, selectedDataSource, backendReady, projectId }: UseMultiTabChatOptions) {
   const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
@@ -157,6 +158,7 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
   const lastCompletedRunRef = useRef<string | null>(null);
   // Feedback state: messageId -> feedback type (stored locally per session)
   const [feedbackMap, setFeedbackMap] = useState<Map<string, FeedbackType>>(new Map());
+  const [approvalDecisionMap, setApprovalDecisionMap] = useState<Map<string, ApprovalDecision>>(new Map());
 
   const setTabState = useCallback(
     (tabId: string, updater: (current: TabChatState | undefined) => TabChatState | undefined) => {
@@ -240,6 +242,7 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
     setTabs([]);
     setActiveTabId(null);
     setTabStates({});
+    setApprovalDecisionMap(new Map());
     detailRequestGuardRef.current.clearAll();
   }, [projectId]);
 
@@ -315,8 +318,20 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
 
   // Convert turns to flat render items for independent rendering
   const renderItems = useMemo<ChatRenderItem[]>(
-    () => flattenTurnsToRenderItems(turns),
-    [turns]
+    () => {
+      const items = flattenTurnsToRenderItems(turns);
+      if (approvalDecisionMap.size === 0) return items;
+      return items.map(item => {
+        if (item.type !== 'approval') return item;
+        const decision = approvalDecisionMap.get(item.id);
+        if (!decision) return item;
+        return {
+          ...item,
+          decision,
+        };
+      });
+    },
+    [turns, approvalDecisionMap]
   );
 
   const loading = activeTabState?.loading || false;
@@ -653,6 +668,15 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
     // TODO: Add API call to persist feedback when backend endpoint is available
   }, []);
 
+  const handleApprovalDecision = useCallback((approvalEventId: string, decision: 'approved' | 'rejected') => {
+    setApprovalDecisionMap(prev => {
+      const next = new Map(prev);
+      next.set(approvalEventId, decision);
+      return next;
+    });
+    // Keep default behavior local-only until approval_id contract is finalized end-to-end.
+  }, []);
+
   const restoreTabs = useCallback((savedTabs: SavedChatTabState[], savedActiveTabId?: string) => {
     const restorePlan = planRestoredTabs({
       savedTabs,
@@ -695,6 +719,7 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
     handleSubmit,
     handleDeleteSession,
     handleFeedback,
+    handleApprovalDecision,
     loadSessions,
     restoreTabs,
 

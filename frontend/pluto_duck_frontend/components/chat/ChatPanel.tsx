@@ -33,6 +33,7 @@ import { type ChatLoadingMode } from '../../lib/chatLoadingState';
 import { SessionSkeleton } from './SessionSkeleton';
 
 const MODELS = ALL_MODEL_OPTIONS;
+const ENABLE_SESSION_LOADING_SKELETON = false;
 
 /**
  * Find the last assistant message item for action display
@@ -80,7 +81,7 @@ const ConversationMessages = memo(function ConversationMessages({
 
   return (
     <>
-      {chatLoadingMode === 'session-loading' && (
+      {chatLoadingMode === 'session-loading' && ENABLE_SESSION_LOADING_SKELETON && (
         <div className="px-4 py-6">
           <SessionSkeleton />
         </div>

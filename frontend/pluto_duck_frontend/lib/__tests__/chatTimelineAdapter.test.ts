@@ -1272,3 +1272,100 @@ test('same-run persisted assistant does not leap ahead of lower-sequence control
     'assistant-message',
   ]);
 });
+
+test('late approval start event does not retroactively move approved card above executed tool rows', async () => {
+  const { buildTimelineItemsFromEvents } = await import(adapterModuleUrl.href);
+
+  const runId = 'run-approval-late-start';
+  const baseEvents = [
+    {
+      type: 'tool',
+      subtype: 'start',
+      content: { tool: 'write_file' },
+      metadata: { run_id: runId, sequence: 1, event_id: 'evt-write-start', tool_call_id: 'tc-write' },
+      timestamp: '2026-02-12T11:00:01.000Z',
+    },
+    {
+      type: 'tool',
+      subtype: 'error',
+      content: { tool: 'write_file', error: 'Cannot write to /projects/example' },
+      metadata: { run_id: runId, sequence: 2, event_id: 'evt-write-error', tool_call_id: 'tc-write' },
+      timestamp: '2026-02-12T11:00:02.000Z',
+    },
+    {
+      type: 'tool',
+      subtype: 'end',
+      content: { tool: 'write_file', approval_id: 'approval-late', decision: 'approve' },
+      metadata: { run_id: runId, sequence: 3, event_id: 'evt-approval-end', tool_call_id: 'tc-approval' },
+      timestamp: '2026-02-12T11:00:03.000Z',
+    },
+    {
+      type: 'message',
+      subtype: 'final',
+      content: { text: 'done' },
+      metadata: { run_id: runId, sequence: 4, event_id: 'evt-final' },
+      timestamp: '2026-02-12T11:00:04.000Z',
+    },
+  ];
+
+  const settlingItems = buildTimelineItemsFromEvents({
+    events: baseEvents,
+    messages: [
+      {
+        id: 'u-late',
+        role: 'user',
+        content: { text: 'save memory' },
+        created_at: '2026-02-12T11:00:00.000Z',
+        seq: 1,
+        run_id: runId,
+      },
+    ],
+    activeRunId: runId,
+  });
+
+  assert.deepEqual(settlingItems.map((item: { type: string }) => item.type), [
+    'user-message',
+    'tool',
+    'approval',
+    'assistant-message',
+  ]);
+
+  const persistedItems = buildTimelineItemsFromEvents({
+    events: [
+      {
+        type: 'tool',
+        subtype: 'start',
+        content: { tool: 'write_file', approval_required: true, approval_id: 'approval-late' },
+        metadata: { run_id: runId, sequence: 0, event_id: 'evt-approval-start', tool_call_id: 'tc-approval' },
+        timestamp: '2026-02-12T10:59:59.500Z',
+      },
+      ...baseEvents,
+    ],
+    messages: [
+      {
+        id: 'u-late',
+        role: 'user',
+        content: { text: 'save memory' },
+        created_at: '2026-02-12T11:00:00.000Z',
+        seq: 1,
+        run_id: runId,
+      },
+      {
+        id: 'a-late',
+        role: 'assistant',
+        content: { text: 'done' },
+        created_at: '2026-02-12T11:00:05.000Z',
+        seq: 2,
+        run_id: runId,
+      },
+    ],
+    activeRunId: runId,
+  });
+
+  assert.deepEqual(persistedItems.map((item: { type: string }) => item.type), [
+    'user-message',
+    'tool',
+    'approval',
+    'assistant-message',
+  ]);
+});

@@ -780,6 +780,42 @@ function buildApprovalItem(event: TimelineEventEnvelope, meta: CanonicalEventMet
   };
 }
 
+function mergeApprovalItem(
+  existing: ApprovalTimelineItem,
+  candidate: ApprovalTimelineItem,
+  options?: { preferCandidateSequence?: boolean },
+): void {
+  const preferCandidateSequence = options?.preferCandidateSequence === true;
+  const candidateSequence = typeof candidate.sequence === 'number' && Number.isFinite(candidate.sequence) ? candidate.sequence : null;
+  const existingSequence = typeof existing.sequence === 'number' && Number.isFinite(existing.sequence) ? existing.sequence : null;
+
+  if (candidateSequence !== null) {
+    if (preferCandidateSequence) {
+      existing.sequence = candidateSequence;
+    } else if (existingSequence === null || candidateSequence < existingSequence) {
+      existing.sequence = candidateSequence;
+    }
+  }
+
+  if (candidate.status !== existing.status) {
+    existing.status = candidate.status;
+  }
+  existing.isStreaming = candidate.isStreaming;
+  existing.isPartial = candidate.isPartial;
+  if (candidate.decision) {
+    existing.decision = candidate.decision;
+  }
+  if (candidate.content.trim()) {
+    existing.content = candidate.content;
+  }
+  if (candidate.eventId) {
+    existing.eventId = candidate.eventId;
+  }
+  if (candidate.parentEventId) {
+    existing.parentEventId = candidate.parentEventId;
+  }
+}
+
 function isMessageDeltaChunk(event: TimelineEventEnvelope): boolean {
   if (event.subtype === 'chunk') {
     return true;
@@ -939,29 +975,11 @@ function buildEventItems(
           items.push(candidateApproval);
           approvalItemsById.set(candidateApproval.id, candidateApproval);
         } else {
-          if (typeof candidateApproval.sequence === 'number') {
-            const prevSequence = existingApproval.sequence;
-            if (prevSequence === null || candidateApproval.sequence < prevSequence) {
-              existingApproval.sequence = candidateApproval.sequence;
-            }
-          }
-          if (candidateApproval.status !== existingApproval.status) {
-            existingApproval.status = candidateApproval.status;
-          }
-          existingApproval.isStreaming = candidateApproval.isStreaming;
-          existingApproval.isPartial = candidateApproval.isPartial;
-          if (candidateApproval.decision) {
-            existingApproval.decision = candidateApproval.decision;
-          }
-          if (candidateApproval.content.trim()) {
-            existingApproval.content = candidateApproval.content;
-          }
-          if (candidateApproval.eventId) {
-            existingApproval.eventId = candidateApproval.eventId;
-          }
-          if (candidateApproval.parentEventId) {
-            existingApproval.parentEventId = candidateApproval.parentEventId;
-          }
+          mergeApprovalItem(existingApproval, candidateApproval, {
+            // Keep approved/rejected card anchored to decision timing.
+            // Prevent retroactive upward jumps from late-arriving start events.
+            preferCandidateSequence: hasDecision,
+          });
         }
       }
       return;
@@ -990,6 +1008,8 @@ function buildEventItems(
       if (!existing) {
         items.push(approvalItem);
         approvalItemsById.set(approvalItem.id, approvalItem);
+      } else {
+        mergeApprovalItem(existing, approvalItem);
       }
     }
   });

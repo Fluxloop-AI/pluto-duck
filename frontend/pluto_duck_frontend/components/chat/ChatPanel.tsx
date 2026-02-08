@@ -29,6 +29,7 @@ import type { ChatSessionSummary } from '../../lib/chatApi';
 import type { ChatRenderItem, AssistantMessageItem } from '../../types/chatRenderItem';
 import { ALL_MODEL_OPTIONS } from '../../constants/models';
 import type { AssetEmbedConfig } from '../editor/nodes/AssetEmbedNode';
+import { shouldShowFallbackStreamingLoader } from '../../lib/chatStreamingLoaderGuard';
 
 const MODELS = ALL_MODEL_OPTIONS;
 
@@ -77,7 +78,10 @@ const ConversationMessages = memo(function ConversationMessages({
   onSendToBoard,
 }: ConversationMessagesProps) {
   const lastAssistantId = findLastAssistantMessageId(renderItems);
-  const hasInlineStreamingItem = renderItems.some(item => item.isStreaming);
+  const showFallbackStreamingLoader = shouldShowFallbackStreamingLoader({
+    isStreaming,
+    renderItems,
+  });
 
   return (
     <>
@@ -131,7 +135,7 @@ const ConversationMessages = memo(function ConversationMessages({
       })}
 
       {/* Show fallback loader only before any streaming row is materialized. */}
-      {isStreaming && renderItems.length > 0 && !hasInlineStreamingItem && (
+      {showFallbackStreamingLoader && (
         <div className="px-2.5 py-2.5">
           <ActivityLoader />
         </div>

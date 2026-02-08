@@ -211,3 +211,250 @@ test('buildChatTurns keeps stream snapshot during settling transition', async ()
   assert.equal(turns.length, 1);
   assert.equal(turns[0].events.length, 2);
 });
+
+test('streaming -> settling -> persisted transition keeps timeline order stable', async () => {
+  const { buildChatTurns } = await import(timelineModuleUrl.href);
+  const { buildTimelineItemsFromEvents } = await import(adapterModuleUrl.href);
+
+  const runId = 'run-phase4-transition';
+  const streamEvents = [
+    {
+      type: 'reasoning',
+      subtype: 'chunk',
+      content: { phase: 'llm_reasoning', reason: 'thinking' },
+      metadata: { run_id: runId, sequence: 2, event_id: 'evt-r1', phase: 'llm_reasoning' },
+      timestamp: '2026-02-09T02:20:02.000Z',
+    },
+    {
+      type: 'tool',
+      subtype: 'start',
+      content: { tool: 'search', input: { q: 'alpha' } },
+      metadata: { run_id: runId, sequence: 3, event_id: 'evt-t1', tool_call_id: 'tc-1' },
+      timestamp: '2026-02-09T02:20:03.000Z',
+    },
+    {
+      type: 'tool',
+      subtype: 'end',
+      content: { tool: 'search', output: { rows: 1 } },
+      metadata: { run_id: runId, sequence: 4, event_id: 'evt-t2', tool_call_id: 'tc-1' },
+      timestamp: '2026-02-09T02:20:04.000Z',
+    },
+    {
+      type: 'message',
+      subtype: 'final',
+      content: { text: 'final answer' },
+      metadata: { run_id: runId, sequence: 5, event_id: 'evt-m1' },
+      timestamp: '2026-02-09T02:20:05.000Z',
+    },
+  ];
+
+  const detailStreaming = {
+    id: 'session-phase4-transition',
+    status: 'active',
+    run_id: runId,
+    messages: [
+      {
+        id: 'u-phase4-transition',
+        role: 'user',
+        content: { text: 'question' },
+        created_at: '2026-02-09T02:20:01.000Z',
+        seq: 1,
+        run_id: runId,
+      },
+    ],
+    events: [],
+  };
+
+  const streamingTurns = buildChatTurns({
+    detail: detailStreaming,
+    streamEvents,
+    runRenderState: 'streaming',
+    activeRunId: runId,
+    chunkText: 'partial',
+    chunkIsFinal: false,
+    chunkRunId: runId,
+  });
+  const streamingItems = buildTimelineItemsFromEvents({
+    events: streamingTurns.flatMap((turn: { events: unknown[] }) => turn.events),
+    messages: streamingTurns.flatMap((turn: { userMessages: unknown[]; assistantMessages: unknown[] }) => [
+      ...turn.userMessages,
+      ...turn.assistantMessages,
+    ]),
+    activeRunId: runId,
+    streamingChunkText: 'partial',
+    streamingChunkIsFinal: false,
+  });
+
+  const settlingTurns = buildChatTurns({
+    detail: detailStreaming,
+    streamEvents,
+    runRenderState: 'settling',
+    activeRunId: runId,
+    chunkText: '',
+    chunkIsFinal: true,
+    chunkRunId: runId,
+  });
+  const settlingItems = buildTimelineItemsFromEvents({
+    events: settlingTurns.flatMap((turn: { events: unknown[] }) => turn.events),
+    messages: settlingTurns.flatMap((turn: { userMessages: unknown[]; assistantMessages: unknown[] }) => [
+      ...turn.userMessages,
+      ...turn.assistantMessages,
+    ]),
+    activeRunId: runId,
+  });
+
+  const persistedTurns = buildChatTurns({
+    detail: {
+      ...detailStreaming,
+      status: 'completed',
+      run_id: null,
+      messages: [
+        ...detailStreaming.messages,
+        {
+          id: 'a-phase4-transition',
+          role: 'assistant',
+          content: { text: 'final answer' },
+          created_at: '2026-02-09T02:20:06.000Z',
+          seq: 2,
+          run_id: runId,
+        },
+      ],
+      events: streamEvents,
+    },
+    streamEvents,
+    runRenderState: 'persisted',
+    activeRunId: runId,
+    chunkText: '',
+    chunkIsFinal: true,
+    chunkRunId: runId,
+  });
+  const persistedItems = buildTimelineItemsFromEvents({
+    events: persistedTurns.flatMap((turn: { events: unknown[] }) => turn.events),
+    messages: persistedTurns.flatMap((turn: { userMessages: unknown[]; assistantMessages: unknown[] }) => [
+      ...turn.userMessages,
+      ...turn.assistantMessages,
+    ]),
+    activeRunId: runId,
+  });
+
+  assert.equal(streamingItems.filter((item: { type: string }) => item.type === 'reasoning').length, 1);
+  assert.equal(settlingItems.filter((item: { type: string }) => item.type === 'reasoning').length, 1);
+  assert.equal(persistedItems.filter((item: { type: string }) => item.type === 'reasoning').length, 1);
+  assert.equal(settlingItems.filter((item: { type: string }) => item.type === 'assistant-message').length, 1);
+  assert.equal(persistedItems.filter((item: { type: string }) => item.type === 'assistant-message').length, 1);
+});
+
+test('detail refetch preserves item count and order after settling', async () => {
+  const { buildChatTurns } = await import(timelineModuleUrl.href);
+  const { buildTimelineItemsFromEvents } = await import(adapterModuleUrl.href);
+
+  const runId = 'run-phase4-refetch';
+  const streamEvents = [
+    {
+      type: 'reasoning',
+      subtype: 'chunk',
+      content: { phase: 'llm_reasoning', reason: 'reasoning text' },
+      metadata: { run_id: runId, sequence: 2, event_id: 'evt-r1', phase: 'llm_reasoning' },
+      timestamp: '2026-02-09T02:30:02.000Z',
+    },
+    {
+      type: 'tool',
+      subtype: 'start',
+      content: { tool: 'search', input: { q: 'alpha' } },
+      metadata: { run_id: runId, sequence: 3, event_id: 'evt-t1', tool_call_id: 'tc-1' },
+      timestamp: '2026-02-09T02:30:03.000Z',
+    },
+    {
+      type: 'tool',
+      subtype: 'end',
+      content: { tool: 'search', output: { rows: 1 } },
+      metadata: { run_id: runId, sequence: 4, event_id: 'evt-t2', tool_call_id: 'tc-1' },
+      timestamp: '2026-02-09T02:30:04.000Z',
+    },
+    {
+      type: 'message',
+      subtype: 'final',
+      content: { text: 'final answer' },
+      metadata: { run_id: runId, sequence: 5, event_id: 'evt-m1' },
+      timestamp: '2026-02-09T02:30:05.000Z',
+    },
+  ];
+
+  const settlingTurns = buildChatTurns({
+    detail: {
+      id: 'session-phase4-refetch',
+      status: 'active',
+      run_id: runId,
+      messages: [
+        {
+          id: 'u-phase4-refetch',
+          role: 'user',
+          content: { text: 'question' },
+          created_at: '2026-02-09T02:30:01.000Z',
+          seq: 1,
+          run_id: runId,
+        },
+      ],
+      events: [],
+    },
+    streamEvents,
+    runRenderState: 'settling',
+    activeRunId: runId,
+    chunkText: '',
+    chunkIsFinal: true,
+    chunkRunId: runId,
+  });
+  const settlingItems = buildTimelineItemsFromEvents({
+    events: settlingTurns.flatMap((turn: { events: unknown[] }) => turn.events),
+    messages: settlingTurns.flatMap((turn: { userMessages: unknown[]; assistantMessages: unknown[] }) => [
+      ...turn.userMessages,
+      ...turn.assistantMessages,
+    ]),
+    activeRunId: runId,
+  });
+
+  const persistedTurns = buildChatTurns({
+    detail: {
+      id: 'session-phase4-refetch',
+      status: 'completed',
+      run_id: null,
+      messages: [
+        {
+          id: 'u-phase4-refetch',
+          role: 'user',
+          content: { text: 'question' },
+          created_at: '2026-02-09T02:30:01.000Z',
+          seq: 1,
+          run_id: runId,
+        },
+        {
+          id: 'a-phase4-refetch',
+          role: 'assistant',
+          content: { text: 'final answer' },
+          created_at: '2026-02-09T02:30:06.000Z',
+          seq: 2,
+          run_id: runId,
+        },
+      ],
+      events: streamEvents,
+    },
+    streamEvents,
+    runRenderState: 'persisted',
+    activeRunId: runId,
+    chunkText: '',
+    chunkIsFinal: true,
+    chunkRunId: runId,
+  });
+  const persistedItems = buildTimelineItemsFromEvents({
+    events: persistedTurns.flatMap((turn: { events: unknown[] }) => turn.events),
+    messages: persistedTurns.flatMap((turn: { userMessages: unknown[]; assistantMessages: unknown[] }) => [
+      ...turn.userMessages,
+      ...turn.assistantMessages,
+    ]),
+    activeRunId: runId,
+  });
+
+  const compact = (items: Array<{ type: string }>) => items.map(item => item.type);
+  assert.deepEqual(compact(persistedItems), compact(settlingItems));
+  assert.equal(persistedItems.length, settlingItems.length);
+});

@@ -660,3 +660,161 @@ test('run1 final event stays above runless optimistic user message before run2 i
     'user-message:u-2-temp',
   ]);
 });
+
+test('llm_reasoning/llm_end/llm_usage/final sequence keeps a stable single thought row', async () => {
+  const { buildTimelineItemsFromEvents } = await import(adapterModuleUrl.href);
+
+  const runId = 'run-phase4-thought-stability';
+  const baseEvents = [
+    {
+      type: 'reasoning',
+      subtype: 'start',
+      content: { phase: 'llm_start' },
+      metadata: { run_id: runId, sequence: 2, event_id: 'evt-r-start', phase: 'llm_start' },
+      timestamp: '2026-02-09T02:00:02.000Z',
+    },
+    {
+      type: 'reasoning',
+      subtype: 'chunk',
+      content: { phase: 'llm_reasoning', reason: 'thought body' },
+      metadata: { run_id: runId, sequence: 3, event_id: 'evt-r-body', phase: 'llm_reasoning' },
+      timestamp: '2026-02-09T02:00:03.000Z',
+    },
+    {
+      type: 'reasoning',
+      subtype: 'chunk',
+      content: { phase: 'llm_usage', reason: 'usage should not render' },
+      metadata: { run_id: runId, sequence: 4, event_id: 'evt-r-usage', phase: 'llm_usage' },
+      timestamp: '2026-02-09T02:00:04.000Z',
+    },
+    {
+      type: 'reasoning',
+      subtype: 'chunk',
+      content: { phase: 'llm_end', reason: 'end marker should not duplicate thought' },
+      metadata: { run_id: runId, sequence: 5, event_id: 'evt-r-end', phase: 'llm_end' },
+      timestamp: '2026-02-09T02:00:05.000Z',
+    },
+    {
+      type: 'message',
+      subtype: 'final',
+      content: { text: 'final answer' },
+      metadata: { run_id: runId, sequence: 6, event_id: 'evt-m-final' },
+      timestamp: '2026-02-09T02:00:06.000Z',
+    },
+  ];
+
+  const settlingItems = buildTimelineItemsFromEvents({
+    events: baseEvents,
+    messages: [
+      {
+        id: 'u-phase4',
+        role: 'user',
+        content: { text: 'q' },
+        created_at: '2026-02-09T02:00:01.000Z',
+        seq: 1,
+        run_id: runId,
+      },
+    ],
+    activeRunId: runId,
+  });
+  const settlingThought = settlingItems.filter((item: { type: string }) => item.type === 'reasoning') as Array<{
+    content: string;
+  }>;
+  assert.equal(settlingThought.length, 1);
+  assert.equal(settlingThought[0].content, 'thought body');
+
+  const persistedItems = buildTimelineItemsFromEvents({
+    events: baseEvents,
+    messages: [
+      {
+        id: 'u-phase4',
+        role: 'user',
+        content: { text: 'q' },
+        created_at: '2026-02-09T02:00:01.000Z',
+        seq: 1,
+        run_id: runId,
+      },
+      {
+        id: 'a-phase4',
+        role: 'assistant',
+        content: { text: 'final answer' },
+        created_at: '2026-02-09T02:00:07.000Z',
+        seq: 2,
+        run_id: runId,
+      },
+    ],
+    activeRunId: runId,
+  });
+  const persistedThought = persistedItems.filter((item: { type: string }) => item.type === 'reasoning') as Array<{
+    content: string;
+  }>;
+  assert.equal(persistedThought.length, 1);
+  assert.equal(persistedThought[0].content, 'thought body');
+});
+
+test('message.final transitions cleanly to persisted assistant without duplication', async () => {
+  const { buildTimelineItemsFromEvents } = await import(adapterModuleUrl.href);
+
+  const runId = 'run-phase4-reconcile';
+  const events = [
+    {
+      type: 'reasoning',
+      subtype: 'chunk',
+      content: { phase: 'llm_reasoning', reason: 'thinking' },
+      metadata: { run_id: runId, sequence: 2, event_id: 'evt-r1', phase: 'llm_reasoning' },
+      timestamp: '2026-02-09T02:10:02.000Z',
+    },
+    {
+      type: 'message',
+      subtype: 'final',
+      content: { text: 'answer text' },
+      metadata: { run_id: runId, sequence: 3, event_id: 'evt-m1' },
+      timestamp: '2026-02-09T02:10:03.000Z',
+    },
+  ];
+
+  const settlingItems = buildTimelineItemsFromEvents({
+    events,
+    messages: [
+      {
+        id: 'u-reconcile',
+        role: 'user',
+        content: { text: 'hello' },
+        created_at: '2026-02-09T02:10:01.000Z',
+        seq: 1,
+        run_id: runId,
+      },
+    ],
+    activeRunId: runId,
+  });
+  const settlingAssistant = settlingItems.filter((item: { type: string }) => item.type === 'assistant-message');
+  assert.equal(settlingAssistant.length, 1);
+
+  const persistedItems = buildTimelineItemsFromEvents({
+    events,
+    messages: [
+      {
+        id: 'u-reconcile',
+        role: 'user',
+        content: { text: 'hello' },
+        created_at: '2026-02-09T02:10:01.000Z',
+        seq: 1,
+        run_id: runId,
+      },
+      {
+        id: 'a-reconcile',
+        role: 'assistant',
+        content: { text: 'answer text' },
+        created_at: '2026-02-09T02:10:04.000Z',
+        seq: 2,
+        run_id: runId,
+      },
+    ],
+    activeRunId: runId,
+  });
+  const persistedAssistant = persistedItems.filter((item: { type: string }) => item.type === 'assistant-message') as Array<{
+    messageId?: string;
+  }>;
+  assert.equal(persistedAssistant.length, 1);
+  assert.equal(persistedAssistant[0].messageId, 'a-reconcile');
+});

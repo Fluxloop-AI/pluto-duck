@@ -15,8 +15,23 @@ export interface ChatSessionSummary {
 export interface ChatSessionDetail {
   id: string;
   status: string;
-  messages: Array<{ id: string; role: string; content: any; created_at: string; seq: number; run_id?: string | null }>;
-  events?: Array<{ type: string; subtype: string; content: any; metadata?: any; timestamp?: string }>;
+  messages: Array<{
+    id: string;
+    role: string;
+    content: any;
+    created_at: string;
+    seq: number;
+    display_order?: number;
+    run_id?: string | null;
+  }>;
+  events?: Array<{
+    type: string;
+    subtype: string;
+    content: any;
+    metadata?: any;
+    timestamp?: string;
+    display_order?: number;
+  }>;
   events_url?: string;
   run_id?: string;
 }

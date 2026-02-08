@@ -511,3 +511,123 @@ test('late pending approval signal does not override approved decision anchor', 
   assert.equal(approvalItems[0].decision, 'approved');
   assert.equal(approvalItems[0].sequence, 5);
 });
+
+test('display_order sorts mixed message and event items in global order', async () => {
+  const { buildTimelineItemsFromEvents } = await import(reducerModuleUrl.href);
+
+  const runA = 'run-display-a';
+  const runB = 'run-display-b';
+  const items = buildTimelineItemsFromEvents({
+    events: [
+      {
+        type: 'reasoning',
+        subtype: 'chunk',
+        content: { reason: 'r-b' },
+        metadata: { run_id: runB, sequence: 1, display_order: 2, event_id: 'evt-display-r' },
+        timestamp: '2026-02-20T01:00:02.000Z',
+      },
+      {
+        type: 'tool',
+        subtype: 'start',
+        content: { tool: 'search', input: { q: 'k' } },
+        metadata: { run_id: runA, sequence: 99, display_order: 3, event_id: 'evt-display-t', tool_call_id: 'tc-1' },
+        timestamp: '2026-02-20T01:00:03.000Z',
+      },
+    ],
+    messages: [
+      {
+        id: 'u-display-1',
+        role: 'user',
+        content: { text: 'q1', display_order: 1 },
+        created_at: '2026-02-20T01:00:01.000Z',
+        seq: 1,
+        run_id: runA,
+        display_order: 1,
+      },
+      {
+        id: 'a-display-1',
+        role: 'assistant',
+        content: { text: 'a1' },
+        created_at: '2026-02-20T01:00:04.000Z',
+        seq: 2,
+        run_id: runB,
+        display_order: 4,
+      },
+    ],
+  });
+
+  assert.deepEqual(items.map((item: { type: string }) => item.type), [
+    'user-message',
+    'reasoning',
+    'tool',
+    'assistant-message',
+  ]);
+});
+
+test('items missing display_order keep legacy ordering path', async () => {
+  const { buildTimelineItemsFromEvents } = await import(reducerModuleUrl.href);
+
+  const runId = 'run-legacy-fallback';
+  const base = buildTimelineItemsFromEvents({
+    events: [
+      {
+        type: 'reasoning',
+        subtype: 'chunk',
+        content: { reason: 'reasoning-first' },
+        metadata: { run_id: runId, sequence: 2, event_id: 'evt-legacy-r' },
+        timestamp: '2026-02-20T02:00:02.000Z',
+      },
+      {
+        type: 'tool',
+        subtype: 'start',
+        content: { tool: 'search', input: { q: 'legacy' } },
+        metadata: { run_id: runId, sequence: 3, event_id: 'evt-legacy-t', tool_call_id: 'tc-legacy' },
+        timestamp: '2026-02-20T02:00:03.000Z',
+      },
+    ],
+    messages: [
+      {
+        id: 'u-legacy',
+        role: 'user',
+        content: { text: 'legacy-q' },
+        created_at: '2026-02-20T02:00:01.000Z',
+        seq: 1,
+        run_id: runId,
+      },
+    ],
+  });
+
+  const mixed = buildTimelineItemsFromEvents({
+    events: [
+      {
+        type: 'reasoning',
+        subtype: 'chunk',
+        content: { reason: 'reasoning-first' },
+        metadata: { run_id: runId, sequence: 2, event_id: 'evt-legacy-r' },
+        timestamp: '2026-02-20T02:00:02.000Z',
+      },
+      {
+        type: 'tool',
+        subtype: 'start',
+        content: { tool: 'search', input: { q: 'legacy' } },
+        metadata: { run_id: runId, sequence: 3, event_id: 'evt-legacy-t', tool_call_id: 'tc-legacy' },
+        timestamp: '2026-02-20T02:00:03.000Z',
+      },
+    ],
+    messages: [
+      {
+        id: 'u-legacy',
+        role: 'user',
+        content: { text: 'legacy-q', display_order: 1 },
+        created_at: '2026-02-20T02:00:01.000Z',
+        seq: 1,
+        run_id: runId,
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    mixed.map((item: { id: string; type: string }) => `${item.type}:${item.id}`),
+    base.map((item: { id: string; type: string }) => `${item.type}:${item.id}`),
+  );
+});

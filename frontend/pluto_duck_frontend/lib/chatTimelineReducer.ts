@@ -30,6 +30,7 @@ export interface TimelineEventEnvelope {
   tool_call_id?: string | null;
   parent_event_id?: string | null;
   phase?: string;
+  display_order?: number;
 }
 
 export interface TimelineMessageEnvelope {
@@ -38,6 +39,7 @@ export interface TimelineMessageEnvelope {
   content: unknown;
   created_at: string;
   seq?: number;
+  display_order?: number;
   run_id?: string | null;
 }
 
@@ -74,6 +76,7 @@ export interface TimelineTurnEventEnvelope {
   content: unknown;
   metadata?: Record<string, unknown> | null;
   timestamp?: string;
+  display_order?: number;
 }
 
 export interface TimelineTurnMessageEnvelope {
@@ -82,6 +85,7 @@ export interface TimelineTurnMessageEnvelope {
   content: unknown;
   created_at: string;
   seq?: number;
+  display_order?: number;
   run_id?: string | null;
 }
 
@@ -104,6 +108,7 @@ export interface BuildTimelineItemsFromTurnsParams {
 interface CanonicalEventMeta {
   eventId?: string;
   sequence?: number;
+  displayOrder?: number;
   runId?: string | null;
   toolCallId?: string | null;
   parentEventId?: string | null;
@@ -148,6 +153,7 @@ function toCanonicalMeta(event: TimelineEventEnvelope): CanonicalEventMeta {
   const topLevel = {
     eventId: toOptionalString(event.event_id),
     sequence: toOptionalNumber(event.sequence),
+    displayOrder: toOptionalNumber(event.display_order),
     runId: toOptionalString(event.run_id) ?? null,
     toolCallId: toOptionalString(event.tool_call_id) ?? null,
     parentEventId: toOptionalString(event.parent_event_id) ?? null,
@@ -157,6 +163,7 @@ function toCanonicalMeta(event: TimelineEventEnvelope): CanonicalEventMeta {
   return {
     eventId: topLevel.eventId ?? toOptionalString(metadata.event_id),
     sequence: topLevel.sequence ?? toOptionalNumber(metadata.sequence),
+    displayOrder: topLevel.displayOrder ?? toOptionalNumber(metadata.display_order),
     runId: topLevel.runId ?? toOptionalString(metadata.run_id) ?? null,
     toolCallId: topLevel.toolCallId ?? toOptionalString(metadata.tool_call_id) ?? null,
     parentEventId: topLevel.parentEventId ?? toOptionalString(metadata.parent_event_id) ?? null,
@@ -235,6 +242,20 @@ function extractMentions(text: string): string[] {
   return mentions;
 }
 
+function resolveMessageDisplayOrder(message: TimelineMessageEnvelope): number | undefined {
+  if (typeof message.display_order === 'number' && Number.isFinite(message.display_order)) {
+    return message.display_order;
+  }
+  if (!isRecord(message.content)) {
+    return undefined;
+  }
+  const nested = message.content.display_order;
+  if (typeof nested === 'number' && Number.isFinite(nested)) {
+    return nested;
+  }
+  return undefined;
+}
+
 function normalizeComparableText(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
 }
@@ -271,6 +292,14 @@ function resolveTimelineLane(item: TimelineItem): TimelineLane {
 
 function getTimelineLaneRank(item: TimelineItem): number {
   return TIMELINE_LANE_RANK[resolveTimelineLane(item)];
+}
+
+function getDisplayOrder(item: TimelineItem): number | null {
+  const value = item.displayOrder;
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null;
+  }
+  return value;
 }
 
 function compareInRunSequence(a: TimelineItem, b: TimelineItem): number {
@@ -363,6 +392,35 @@ function buildRunOrderByRun(items: TimelineItem[]): Map<string, number> {
 }
 
 function compareTimelineItems(a: TimelineItem, b: TimelineItem, runOrderByRun: Map<string, number>): number {
+  const displayOrderA = getDisplayOrder(a);
+  const displayOrderB = getDisplayOrder(b);
+  if (displayOrderA !== null && displayOrderB !== null) {
+    if (displayOrderA !== displayOrderB) {
+      return displayOrderA - displayOrderB;
+    }
+    const sameRunByDisplayOrder = (a.runId ?? null) === (b.runId ?? null);
+    if (sameRunByDisplayOrder) {
+      const laneRankA = getTimelineLaneRank(a);
+      const laneRankB = getTimelineLaneRank(b);
+      if (laneRankA !== laneRankB) {
+        return laneRankA - laneRankB;
+      }
+      if (a.type === 'reasoning' && b.type === 'reasoning') {
+        const segmentOrderA = a.segmentOrder ?? 0;
+        const segmentOrderB = b.segmentOrder ?? 0;
+        if (segmentOrderA !== segmentOrderB) {
+          return segmentOrderA - segmentOrderB;
+        }
+      }
+    }
+    const tsA = Date.parse(a.timestamp);
+    const tsB = Date.parse(b.timestamp);
+    if (Number.isFinite(tsA) && Number.isFinite(tsB) && tsA !== tsB) {
+      return tsA - tsB;
+    }
+    return a.id.localeCompare(b.id);
+  }
+
   const runIdA = a.runId ?? null;
   const runIdB = b.runId ?? null;
   if (runIdA && runIdB && runIdA !== runIdB) {
@@ -444,6 +502,12 @@ function compareTimelineItems(a: TimelineItem, b: TimelineItem, runOrderByRun: M
 }
 
 function compareNormalizedEvents(a: NormalizedEvent, b: NormalizedEvent): number {
+  const displayOrderA = a.meta.displayOrder;
+  const displayOrderB = b.meta.displayOrder;
+  if (typeof displayOrderA === 'number' && typeof displayOrderB === 'number' && displayOrderA !== displayOrderB) {
+    return displayOrderA - displayOrderB;
+  }
+
   const sequenceA = a.meta.sequence ?? Number.MAX_SAFE_INTEGER;
   const sequenceB = b.meta.sequence ?? Number.MAX_SAFE_INTEGER;
   if (sequenceA !== sequenceB) return sequenceA - sequenceB;
@@ -563,6 +627,7 @@ function buildMessageItems(
   const items: TimelineItem[] = [];
   for (const message of messages) {
     const runId = message.run_id ?? params.activeRunId ?? null;
+    const displayOrder = resolveMessageDisplayOrder(message);
     if (message.role === 'user') {
       const sequence = typeof message.seq === 'number' ? message.seq : null;
       const content = extractText(message.content);
@@ -573,6 +638,7 @@ function buildMessageItems(
         lane: 'user',
         runId,
         sequence,
+        displayOrder,
         timestamp: message.created_at || now(),
         status: 'complete',
         isStreaming: false,
@@ -600,6 +666,7 @@ function buildMessageItems(
         lane: 'assistant',
         runId,
         sequence,
+        displayOrder,
         timestamp: message.created_at || now(),
         status: 'complete',
         isStreaming: false,
@@ -674,6 +741,7 @@ function createReasoningItem(
     lane: 'reasoning',
     runId: meta.runId ?? null,
     sequence: meta.sequence ?? null,
+    displayOrder: meta.displayOrder,
     timestamp: event.timestamp ?? now(),
     status: 'pending',
     isStreaming: false,
@@ -698,6 +766,7 @@ function buildToolItem(event: TimelineEventEnvelope, meta: CanonicalEventMeta, i
     lane: 'tool',
     runId: meta.runId ?? null,
     sequence: meta.sequence ?? null,
+    displayOrder: meta.displayOrder,
     timestamp: event.timestamp ?? now(),
     status,
     isStreaming: status === 'streaming',
@@ -733,6 +802,15 @@ function mergeToolSequence(existing: number | null, candidate: number | null): n
   return null;
 }
 
+function mergeToolDisplayOrder(existing: number | undefined, candidate: number | undefined): number | undefined {
+  const hasExisting = typeof existing === 'number' && Number.isFinite(existing);
+  if (hasExisting) {
+    return existing;
+  }
+  const hasCandidate = typeof candidate === 'number' && Number.isFinite(candidate);
+  return hasCandidate ? candidate : undefined;
+}
+
 function mergeToolTimestamp(existing: string, candidate: string): string {
   const existingTs = Date.parse(existing);
   const candidateTs = Date.parse(candidate);
@@ -765,6 +843,7 @@ function correlateToolEvents(events: ClassifiedEvent[], now: () => string): Tool
       if (pending) {
         // Late start backfill should enrich existing row, not create/anchor a new earlier row.
         pending.sequence = mergeToolSequence(pending.sequence, current.sequence);
+        pending.displayOrder = mergeToolDisplayOrder(pending.displayOrder, current.displayOrder);
         pending.timestamp = mergeToolTimestamp(pending.timestamp, current.timestamp);
         if (pending.input === undefined && current.input !== undefined) {
           pending.input = current.input;
@@ -831,6 +910,7 @@ function buildAssistantEventItem(
     lane: 'assistant',
     runId: meta.runId ?? null,
     sequence: meta.sequence ?? null,
+    displayOrder: meta.displayOrder,
     timestamp: event.timestamp ?? now(),
     status,
     isStreaming: status === 'streaming',
@@ -861,6 +941,7 @@ function buildApprovalItem(
     lane: 'control',
     runId: meta.runId ?? null,
     sequence: meta.sequence ?? null,
+    displayOrder: meta.displayOrder,
     timestamp: event.timestamp ?? now(),
     status,
     isStreaming: status === 'streaming',
@@ -909,6 +990,13 @@ function mergeApprovalSequence(existing: ApprovalTimelineItem, candidate: Approv
 
 function mergeApprovalItem(existing: ApprovalTimelineItem, candidate: ApprovalTimelineItem): void {
   existing.sequence = mergeApprovalSequence(existing, candidate);
+  if (
+    !(typeof existing.displayOrder === 'number' && Number.isFinite(existing.displayOrder)) &&
+    typeof candidate.displayOrder === 'number' &&
+    Number.isFinite(candidate.displayOrder)
+  ) {
+    existing.displayOrder = candidate.displayOrder;
+  }
 
   if (candidate.status !== existing.status) {
     existing.status = candidate.status;
@@ -1186,6 +1274,8 @@ function toTimelineEventEnvelope(
     parent_event_id:
       toOptionalString(raw.parent_event_id) ?? (metadata ? toOptionalString(metadata.parent_event_id) : undefined),
     phase: toOptionalString(raw.phase) ?? (metadata ? toOptionalString(metadata.phase) : undefined),
+    display_order:
+      toOptionalNumber(raw.display_order) ?? (metadata ? toOptionalNumber(metadata.display_order) : undefined),
   };
 }
 
@@ -1201,6 +1291,7 @@ export function buildTimelineItemsFromTurns(params: BuildTimelineItemsFromTurnsP
         content: message.content,
         created_at: message.created_at,
         seq: message.seq,
+        display_order: message.display_order,
         run_id: message.run_id ?? runId,
       });
     }
@@ -1211,6 +1302,7 @@ export function buildTimelineItemsFromTurns(params: BuildTimelineItemsFromTurnsP
         content: message.content,
         created_at: message.created_at,
         seq: message.seq,
+        display_order: message.display_order,
         run_id: message.run_id ?? runId,
       });
     }

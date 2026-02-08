@@ -7,6 +7,7 @@ export interface DetailMessage {
   content: any;
   created_at: string;
   seq: number;
+  display_order?: number;
   run_id?: string | null;
 }
 
@@ -16,6 +17,13 @@ export interface ChatEvent {
   content: unknown;
   metadata?: Record<string, unknown> | null;
   timestamp?: string;
+  event_id?: string;
+  sequence?: number;
+  run_id?: string | null;
+  tool_call_id?: string | null;
+  parent_event_id?: string | null;
+  phase?: string;
+  display_order?: number;
 }
 
 export interface GroupedToolEvent {
@@ -72,12 +80,25 @@ export function getNextOptimisticSeq(messages: Array<{ seq: number }> | undefine
 }
 
 function toChatEvent(event: AgentEventAny): ChatEvent {
+  const raw = event as unknown as Record<string, unknown>;
   return {
     type: event.type,
     subtype: event.subtype,
     content: event.content,
     metadata: event.metadata ?? null,
     timestamp: event.timestamp,
+    event_id: typeof raw.event_id === 'string' ? raw.event_id : undefined,
+    sequence: typeof raw.sequence === 'number' ? raw.sequence : undefined,
+    run_id: typeof raw.run_id === 'string' ? raw.run_id : null,
+    tool_call_id: typeof raw.tool_call_id === 'string' ? raw.tool_call_id : null,
+    parent_event_id: typeof raw.parent_event_id === 'string' ? raw.parent_event_id : null,
+    phase: typeof raw.phase === 'string' ? raw.phase : undefined,
+    display_order:
+      typeof raw.display_order === 'number'
+        ? raw.display_order
+        : typeof event.metadata?.display_order === 'number'
+          ? event.metadata.display_order
+          : undefined,
   };
 }
 
@@ -129,14 +150,35 @@ export function buildChatTurns({
     content: evt.content,
     metadata: evt.metadata ?? null,
     timestamp: evt.timestamp,
+    event_id: typeof evt.metadata?.event_id === 'string' ? evt.metadata.event_id : undefined,
+    sequence: typeof evt.metadata?.sequence === 'number' ? evt.metadata.sequence : undefined,
+    run_id:
+      typeof evt.metadata?.run_id === 'string'
+        ? evt.metadata.run_id
+        : typeof detail.run_id === 'string'
+          ? detail.run_id
+          : null,
+    tool_call_id: typeof evt.metadata?.tool_call_id === 'string' ? evt.metadata.tool_call_id : null,
+    parent_event_id: typeof evt.metadata?.parent_event_id === 'string' ? evt.metadata.parent_event_id : null,
+    phase: typeof evt.metadata?.phase === 'string' ? evt.metadata.phase : undefined,
+    display_order:
+      typeof evt.display_order === 'number'
+        ? evt.display_order
+        : typeof evt.metadata?.display_order === 'number'
+          ? evt.metadata.display_order
+          : undefined,
   }));
 
   const eventsByRunId = new Map<string, ChatEvent[]>();
   const seenEventIdsByRun = new Set<string>();
   const addEvent = (event: ChatEvent) => {
-    const runId = getMetadataRunId(event.metadata);
+    const runId =
+      getMetadataRunId(event.metadata) ??
+      (typeof event.run_id === 'string' && event.run_id.trim() ? event.run_id : null);
     if (!runId) return;
-    const eventId = getMetadataEventId(event.metadata);
+    const eventId =
+      getMetadataEventId(event.metadata) ??
+      (typeof event.event_id === 'string' && event.event_id.trim() ? event.event_id : null);
     if (eventId) {
       const dedupeKey = `${runId}:${eventId}`;
       if (seenEventIdsByRun.has(dedupeKey)) {

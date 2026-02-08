@@ -11,6 +11,7 @@ export interface TimelineItemBase {
   type: TimelineItemType;
   runId: string | null;
   sequence: number | null;
+  displayOrder?: number;
   timestamp: string;
   status: TimelineItemStatus;
   isStreaming: boolean;

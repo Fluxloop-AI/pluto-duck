@@ -784,3 +784,70 @@ test('detail refetch keeps segmented reasoning order after settling', async () =
 
   assert.equal(toCompact(persistedItems), toCompact(settlingItems));
 });
+
+test('buildChatTurns preserves display_order from detail and stream payloads', async () => {
+  const { buildChatTurns } = await import(timelineModuleUrl.href);
+
+  const runId = 'run-display-order-propagation';
+  const turns = buildChatTurns({
+    detail: {
+      id: 'session-display-order-propagation',
+      status: 'active',
+      run_id: runId,
+      messages: [
+        {
+          id: 'u-display-order-propagation',
+          role: 'user',
+          content: { text: 'question' },
+          created_at: '2026-02-21T11:00:01.000Z',
+          seq: 1,
+          display_order: 10,
+          run_id: runId,
+        },
+      ],
+      events: [
+        {
+          type: 'reasoning',
+          subtype: 'chunk',
+          content: { reason: 'stored' },
+          metadata: { run_id: runId, sequence: 2, display_order: 11, event_id: 'evt-display-stored' },
+          timestamp: '2026-02-21T11:00:02.000Z',
+          display_order: 11,
+        },
+      ],
+    },
+    streamEvents: [
+      {
+        type: 'tool',
+        subtype: 'start',
+        content: { tool: 'search', input: { q: 'x' } },
+        metadata: {
+          run_id: runId,
+          sequence: 3,
+          display_order: 12,
+          event_id: 'evt-display-stream',
+          tool_call_id: 'tc-display-stream',
+        },
+        timestamp: '2026-02-21T11:00:03.000Z',
+      },
+    ],
+    runRenderState: 'streaming',
+    activeRunId: runId,
+    chunkText: '',
+    chunkIsFinal: false,
+    chunkRunId: runId,
+  });
+
+  assert.equal(turns.length, 1);
+  assert.equal(turns[0].userMessages[0].display_order, 10);
+  const storedEvent = turns[0].events.find(
+    (event: { metadata?: { event_id?: string } | null }) =>
+      (event.metadata?.event_id ?? '') === 'evt-display-stored',
+  ) as { display_order?: number } | undefined;
+  const streamEvent = turns[0].events.find(
+    (event: { metadata?: { event_id?: string } | null }) =>
+      (event.metadata?.event_id ?? '') === 'evt-display-stream',
+  ) as { display_order?: number } | undefined;
+  assert.equal(storedEvent?.display_order, 11);
+  assert.equal(streamEvent?.display_order, 12);
+});

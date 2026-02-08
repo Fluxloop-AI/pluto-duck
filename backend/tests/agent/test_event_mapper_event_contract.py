@@ -35,6 +35,7 @@ async def test_event_mapper_emits_canonical_metadata_fields() -> None:
     assert isinstance(first.metadata.get("event_id"), str)
     assert first.metadata["event_id"]
     assert first.metadata.get("sequence") == 1
+    assert first.metadata.get("display_order") == 1
     assert first.metadata.get("run_id") == "run-contract"
     assert first.metadata.get("conversation_id") == "conv-contract"
     assert first.metadata.get("experiment_profile") == "v1"
@@ -43,3 +44,4 @@ async def test_event_mapper_emits_canonical_metadata_fields() -> None:
     assert isinstance(second.metadata.get("event_id"), str)
     assert second.metadata["event_id"] != first.metadata["event_id"]
     assert second.metadata.get("sequence") == 2
+    assert second.metadata.get("display_order") == 2

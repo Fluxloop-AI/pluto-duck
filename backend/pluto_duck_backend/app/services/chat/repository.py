@@ -480,38 +480,49 @@ class ChatRepository:
         content: Dict[str, Any],
         *,
         run_id: Optional[str] = None,
+        display_order: Optional[int] = None,
         connection: Optional[duckdb.DuckDBPyConnection] = None,
     ) -> None:
+        content_to_store = dict(content) if isinstance(content, dict) else {}
+        resolved_display_order = self._as_positive_int(display_order)
         if connection is not None:
             seq = self._next_seq(conversation_id, connection=connection)
+            if resolved_display_order is None:
+                resolved_display_order = self.get_next_display_order(
+                    conversation_id, connection=connection
+                )
+            content_to_store["display_order"] = resolved_display_order
             message_id = self._generate_uuid()
             connection.execute(
                 """
                 INSERT INTO agent_messages (id, conversation_id, role, content, created_at, seq, run_id)
                 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)
                 """,
-                [message_id, conversation_id, role, json.dumps(content), seq, run_id],
+                [message_id, conversation_id, role, json.dumps(content_to_store), seq, run_id],
             )
             self._touch_conversation(
                 conversation_id,
-                last_message_preview=self._preview_from_content(content),
+                last_message_preview=self._preview_from_content(content_to_store),
                 connection=connection,
             )
             return
 
         with self._write_connection() as con:
             seq = self._next_seq(conversation_id, connection=con)
+            if resolved_display_order is None:
+                resolved_display_order = self.get_next_display_order(conversation_id, connection=con)
+            content_to_store["display_order"] = resolved_display_order
             message_id = self._generate_uuid()
             con.execute(
                 """
                 INSERT INTO agent_messages (id, conversation_id, role, content, created_at, seq, run_id)
                 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)
                 """,
-                [message_id, conversation_id, role, json.dumps(content), seq, run_id],
+                [message_id, conversation_id, role, json.dumps(content_to_store), seq, run_id],
             )
             self._touch_conversation(
                 conversation_id,
-                last_message_preview=self._preview_from_content(content),
+                last_message_preview=self._preview_from_content(content_to_store),
                 connection=con,
             )
 
@@ -531,6 +542,9 @@ class ChatRepository:
         )
         sequence = self._as_positive_int(event.get("sequence")) or self._as_positive_int(
             metadata.get("sequence")
+        )
+        display_order = self._as_positive_int(event.get("display_order")) or self._as_positive_int(
+            metadata.get("display_order")
         )
         run_id = self._as_non_empty_str(event.get("run_id")) or self._as_non_empty_str(
             metadata.get("run_id")
@@ -575,6 +589,8 @@ class ChatRepository:
                             [conversation_id],
                         ).fetchone()
                         sequence = int(max_sequence_row[0]) + 1 if max_sequence_row else 1
+                    if display_order is None:
+                        display_order = self.get_next_display_order(conversation_id, connection=con)
                     if run_id is None:
                         run_row = con.execute(
                             "SELECT run_id FROM agent_conversations WHERE id = ?",
@@ -583,6 +599,7 @@ class ChatRepository:
                         run_id = self._as_non_empty_str(run_row[0] if run_row else None) or "unknown"
                     metadata["event_id"] = event_id
                     metadata["sequence"] = sequence
+                    metadata["display_order"] = display_order
                     metadata["run_id"] = run_id
                     if tool_call_id is not None:
                         metadata["tool_call_id"] = tool_call_id
@@ -811,6 +828,57 @@ class ChatRepository:
 
         return True
 
+    def get_next_display_order(
+        self,
+        conversation_id: str,
+        *,
+        connection: Optional[duckdb.DuckDBPyConnection] = None,
+    ) -> int:
+        query = """
+            SELECT
+                GREATEST(
+                    COALESCE(
+                        (
+                            SELECT MAX(TRY_CAST(json_extract_string(metadata, '$.display_order') AS BIGINT))
+                            FROM agent_events
+                            WHERE conversation_id = ?
+                        ),
+                        0
+                    ),
+                    COALESCE(
+                        (
+                            SELECT MAX(TRY_CAST(json_extract_string(content, '$.display_order') AS BIGINT))
+                            FROM agent_messages
+                            WHERE conversation_id = ?
+                        ),
+                        0
+                    ),
+                    COALESCE(
+                        (
+                            SELECT MAX(seq)
+                            FROM agent_messages
+                            WHERE conversation_id = ?
+                        ),
+                        0
+                    ),
+                    COALESCE(
+                        (
+                            SELECT MAX(TRY_CAST(json_extract_string(metadata, '$.sequence') AS BIGINT))
+                            FROM agent_events
+                            WHERE conversation_id = ?
+                        ),
+                        0
+                    )
+                ) + 1
+        """
+        params = [conversation_id, conversation_id, conversation_id, conversation_id]
+        if connection is not None:
+            row = connection.execute(query, params).fetchone()
+            return int(row[0]) if row and row[0] is not None else 1
+        with self._connect() as con:
+            row = con.execute(query, params).fetchone()
+            return int(row[0]) if row and row[0] is not None else 1
+
     def _next_seq(
         self,
         conversation_id: str,
@@ -964,6 +1032,11 @@ class ChatRepository:
         messages: List[Dict[str, Any]] = []
         for row in rows:
             content = json.loads(row[2]) if row[2] else None
+            display_order = (
+                self._as_positive_int(content.get("display_order"))
+                if isinstance(content, dict)
+                else None
+            ) or row[4]
             messages.append(
                 {
                     "id": row[0],
@@ -971,6 +1044,7 @@ class ChatRepository:
                     "content": content,
                     "created_at": self._ensure_utc(row[3]).isoformat(),
                     "seq": row[4],
+                    "display_order": display_order,
                     "run_id": row[5],
                 }
             )
@@ -1012,8 +1086,10 @@ class ChatRepository:
             phase = self._as_non_empty_str(metadata.get("phase")) or self._as_non_empty_str(
                 payload_dict.get("phase")
             )
+            display_order = self._as_positive_int(metadata.get("display_order")) or sequence
             metadata["event_id"] = event_id
             metadata["sequence"] = sequence
+            metadata["display_order"] = display_order
             metadata["run_id"] = run_id
             if tool_call_id is not None:
                 metadata["tool_call_id"] = tool_call_id
@@ -1025,6 +1101,7 @@ class ChatRepository:
                 {
                     "event_id": event_id,
                     "sequence": sequence,
+                    "display_order": display_order,
                     "run_id": run_id,
                     "tool_call_id": tool_call_id,
                     "parent_event_id": parent_event_id,

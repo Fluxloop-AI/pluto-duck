@@ -51,15 +51,19 @@ def test_log_and_get_events_normalize_canonical_contract_fields(tmp_path) -> Non
         assert event["event_id"]
         assert isinstance(event.get("sequence"), int)
         assert event["sequence"] > 0
+        assert isinstance(event.get("display_order"), int)
+        assert event["display_order"] > 0
         assert event.get("run_id") == run_id
 
     assert first["sequence"] == 1
+    assert first["display_order"] == 1
     assert first["phase"] == "llm_start"
     assert first["metadata"]["event_id"] == first["event_id"]
     assert first["metadata"]["sequence"] == first["sequence"]
+    assert first["metadata"]["display_order"] == first["display_order"]
     assert first["metadata"]["run_id"] == first["run_id"]
 
     assert second["sequence"] == 2
+    assert second["display_order"] == 2
     assert second["tool_call_id"] == "call-1"
     assert second["metadata"]["tool_call_id"] == "call-1"
-

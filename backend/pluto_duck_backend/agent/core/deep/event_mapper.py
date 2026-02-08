@@ -33,6 +33,7 @@ class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
         conversation_id: str | None = None,
         experiment_profile: str | None = None,
         prompt_layout: str | None = None,
+        display_order_start: int = 1,
     ) -> None:
         super().__init__()
         self._sink = sink
@@ -48,6 +49,7 @@ class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
         self._max_buffer_chars = 4096
         self._last_flush = time.monotonic() - self._flush_interval_s
         self._event_sequence = 0
+        self._display_order = max(1, int(display_order_start))
 
     async def _emit(self, event: AgentEvent) -> None:
         event.metadata = self._canonicalize_event_metadata(event)
@@ -68,6 +70,12 @@ class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
         else:
             self._event_sequence = max(self._event_sequence, sequence)
             metadata["sequence"] = sequence
+        display_order = self._coerce_int(metadata.get("display_order")) or 0
+        if display_order <= 0:
+            metadata["display_order"] = self.consume_next_display_order()
+        else:
+            metadata["display_order"] = display_order
+            self._display_order = max(self._display_order, display_order + 1)
         metadata.setdefault("run_id", self._run_id)
         if self._conversation_id and "conversation_id" not in metadata:
             metadata["conversation_id"] = self._conversation_id
@@ -81,6 +89,11 @@ class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
             if value not in (None, ""):
                 metadata[field] = value
         return metadata
+
+    def consume_next_display_order(self) -> int:
+        current = self._display_order
+        self._display_order += 1
+        return current
 
     def _ts(self) -> datetime:
         return datetime.now(timezone.utc)

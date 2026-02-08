@@ -50,6 +50,12 @@ export function getMetadataRunId(metadata: ChatEvent['metadata']): string | null
   return typeof runId === 'string' && runId.trim() ? runId : null;
 }
 
+function getMetadataEventId(metadata: ChatEvent['metadata']): string | null {
+  if (!metadata) return null;
+  const eventId = metadata.event_id;
+  return typeof eventId === 'string' && eventId.trim() ? eventId : null;
+}
+
 export function getNextOptimisticSeq(messages: Array<{ seq: number }> | undefined): number {
   if (!messages || messages.length === 0) {
     return 1;
@@ -120,9 +126,18 @@ export function buildChatTurns({
   }));
 
   const eventsByRunId = new Map<string, ChatEvent[]>();
+  const seenEventIdsByRun = new Set<string>();
   const addEvent = (event: ChatEvent) => {
     const runId = getMetadataRunId(event.metadata);
     if (!runId) return;
+    const eventId = getMetadataEventId(event.metadata);
+    if (eventId) {
+      const dedupeKey = `${runId}:${eventId}`;
+      if (seenEventIdsByRun.has(dedupeKey)) {
+        return;
+      }
+      seenEventIdsByRun.add(dedupeKey);
+    }
     if (!eventsByRunId.has(runId)) {
       eventsByRunId.set(runId, []);
     }

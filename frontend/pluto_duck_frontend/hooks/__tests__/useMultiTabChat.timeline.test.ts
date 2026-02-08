@@ -122,3 +122,45 @@ test('optimistic sequence and streaming completion transitions are deterministic
   assert.equal(turns.length, 1);
   assert.equal(turns[0].events.length, 0);
 });
+
+test('buildChatTurns deduplicates stored and streaming events by metadata.event_id', async () => {
+  const { buildChatTurns } = await import(timelineModuleUrl.href);
+
+  const runId = 'run-dedupe';
+  const duplicateEvent = {
+    type: 'reasoning',
+    subtype: 'start',
+    content: { reason: 'once' },
+    metadata: { run_id: runId, sequence: 2, event_id: 'evt-dup-1' },
+    timestamp: '2026-02-08T16:00:02.000Z',
+  } as const;
+
+  const turns = buildChatTurns({
+    detail: {
+      id: 'session-dedupe',
+      status: 'active',
+      run_id: runId,
+      messages: [
+        {
+          id: 'msg-user-dedupe',
+          role: 'user',
+          content: { text: 'question' },
+          created_at: '2026-02-08T16:00:01.000Z',
+          seq: 1,
+          run_id: runId,
+        },
+      ],
+      events: [duplicateEvent],
+    },
+    streamEvents: [duplicateEvent],
+    isStreaming: true,
+    activeRunId: runId,
+    chunkText: '',
+    chunkIsFinal: false,
+    chunkRunId: runId,
+  });
+
+  assert.equal(turns.length, 1);
+  assert.equal(turns[0].events.length, 1);
+  assert.equal((turns[0].events[0].metadata as { event_id?: string } | null)?.event_id, 'evt-dup-1');
+});

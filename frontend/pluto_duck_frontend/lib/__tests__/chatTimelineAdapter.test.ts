@@ -152,3 +152,40 @@ test('missing sequence/tool_call_id falls back without rendering failure', async
   assert.equal(toolItem.state, 'error');
   assert.equal(toolItem.error, 'failed');
 });
+
+test('inactive run empty reasoning start does not leave ghost thinking rows', async () => {
+  const { buildTimelineItemsFromEvents } = await import(adapterModuleUrl.href);
+
+  const oldRunItems = buildTimelineItemsFromEvents({
+    events: [
+      {
+        type: 'reasoning',
+        subtype: 'start',
+        content: { phase: 'llm_start' },
+        metadata: { run_id: 'run-old', sequence: 1, event_id: 'evt-old-r1', phase: 'llm_start' },
+        timestamp: '2026-02-08T15:00:01.000Z',
+      },
+    ],
+    activeRunId: 'run-active',
+  });
+  assert.equal(oldRunItems.filter((item: { type: string }) => item.type === 'reasoning').length, 0);
+
+  const activeRunItems = buildTimelineItemsFromEvents({
+    events: [
+      {
+        type: 'reasoning',
+        subtype: 'start',
+        content: { phase: 'llm_start' },
+        metadata: { run_id: 'run-active', sequence: 1, event_id: 'evt-active-r1', phase: 'llm_start' },
+        timestamp: '2026-02-08T15:00:01.000Z',
+      },
+    ],
+    activeRunId: 'run-active',
+  });
+  const reasoning = activeRunItems.find((item: { type: string }) => item.type === 'reasoning') as
+    | { isStreaming: boolean; status: string }
+    | undefined;
+  assert.equal(Boolean(reasoning), true);
+  assert.equal(reasoning?.isStreaming, true);
+  assert.equal(reasoning?.status, 'streaming');
+});

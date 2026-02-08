@@ -127,6 +127,35 @@ function extractText(value: unknown): string {
   }
 }
 
+function extractReasoningText(value: unknown): string {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const text = extractReasoningText(item);
+      if (text) return text;
+    }
+    return '';
+  }
+  if (isRecord(value)) {
+    if (typeof value.reason === 'string') {
+      const trimmed = value.reason.trim();
+      if (trimmed) return trimmed;
+    }
+    if (typeof value.text === 'string') {
+      const trimmed = value.text.trim();
+      if (trimmed) return trimmed;
+    }
+    if (value.content !== undefined) {
+      return extractReasoningText(value.content);
+    }
+    return '';
+  }
+  return '';
+}
+
 function extractMentions(text: string): string[] {
   const mentionRegex = /@([\w-]+)/g;
   const mentions: string[] = [];
@@ -224,18 +253,32 @@ function buildMessageItems(params: BuildTimelineItemsFromEventsParams, now: () =
   return items;
 }
 
-function buildReasoningItem(event: TimelineEventEnvelope, meta: CanonicalEventMeta, index: number, now: () => string): ReasoningTimelineItem {
-  const status = resolveStatus(event.subtype);
+function buildReasoningItem(
+  event: TimelineEventEnvelope,
+  meta: CanonicalEventMeta,
+  index: number,
+  now: () => string,
+  activeRunId?: string | null,
+): ReasoningTimelineItem | null {
+  const rawStatus = resolveStatus(event.subtype);
+  const runId = meta.runId ?? null;
+  const isActiveRun = Boolean(activeRunId && runId && runId === activeRunId);
+  const status: TimelineItemStatus = rawStatus === 'streaming' && !isActiveRun ? 'complete' : rawStatus;
+  const content = extractReasoningText(event.content);
+  const isStreaming = status === 'streaming';
+  if (!content && !isStreaming) {
+    return null;
+  }
   return {
     id: meta.eventId ?? `timeline-reasoning-${index}`,
     type: 'reasoning',
-    runId: meta.runId ?? null,
+    runId,
     sequence: meta.sequence ?? null,
     timestamp: event.timestamp ?? now(),
     status,
-    isStreaming: status === 'streaming',
+    isStreaming,
     isPartial: event.subtype === 'chunk',
-    content: extractText(event.content),
+    content,
     phase: meta.phase,
     eventId: meta.eventId,
     parentEventId: meta.parentEventId,
@@ -379,7 +422,10 @@ function buildEventItems(params: BuildTimelineItemsFromEventsParams, now: () => 
   const items: TimelineItem[] = [];
   normalizedEvents.forEach(({ event, meta, index }) => {
     if (event.type === 'reasoning') {
-      items.push(buildReasoningItem(event, meta, index, now));
+      const reasoningItem = buildReasoningItem(event, meta, index, now, params.activeRunId);
+      if (reasoningItem) {
+        items.push(reasoningItem);
+      }
       return;
     }
     if (event.type === 'tool') {
@@ -399,7 +445,18 @@ function buildEventItems(params: BuildTimelineItemsFromEventsParams, now: () => 
       items.push(buildApprovalItem(event, meta, index, now));
     }
   });
-  return items;
+  const latestStreamingReasoningByRun = new Map<string, number>();
+  items.forEach((item, index) => {
+    if (item.type !== 'reasoning' || !item.isStreaming || !item.runId) return;
+    latestStreamingReasoningByRun.set(item.runId, index);
+  });
+  items.forEach((item, index) => {
+    if (item.type !== 'reasoning' || !item.isStreaming || !item.runId) return;
+    if (latestStreamingReasoningByRun.get(item.runId) === index) return;
+    item.isStreaming = false;
+    item.status = 'complete';
+  });
+  return items.filter(item => item.type !== 'reasoning' || item.isStreaming || item.content.trim().length > 0);
 }
 
 function buildStreamingItem(params: BuildTimelineItemsFromEventsParams, now: () => string): AssistantMessageTimelineItem | null {

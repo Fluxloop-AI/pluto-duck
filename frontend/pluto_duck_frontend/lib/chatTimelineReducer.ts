@@ -191,6 +191,37 @@ function extractReasoningText(value: unknown): string {
   return '';
 }
 
+function resolveApprovalDecision(value: unknown): ApprovalTimelineItem['decision'] {
+  const decision = toOptionalString(value);
+  if (!decision) return undefined;
+  if (decision === 'approve' || decision === 'approved' || decision === 'edit' || decision === 'edited') {
+    return 'approved';
+  }
+  if (decision === 'reject' || decision === 'rejected') {
+    return 'rejected';
+  }
+  if (decision === 'pending') {
+    return 'pending';
+  }
+  return undefined;
+}
+
+function extractApprovalDisplayContent(content: Record<string, unknown>): string {
+  const direct = extractText(content).trim();
+  if (direct) {
+    return direct;
+  }
+  const tool = toOptionalString(content.tool);
+  const requiresApproval = content.approval_required === true;
+  if (tool && requiresApproval) {
+    return `${tool} requires approval.`;
+  }
+  if (tool) {
+    return `Approval for ${tool}.`;
+  }
+  return 'Approval required before continuing.';
+}
+
 function extractMentions(text: string): string[] {
   const mentionRegex = /@([\w-]+)/g;
   const mentions: string[] = [];
@@ -703,9 +734,10 @@ function buildAssistantEventItem(
 function buildApprovalItem(event: TimelineEventEnvelope, meta: CanonicalEventMeta, index: number, now: () => string): ApprovalTimelineItem {
   const status = resolveStatus(event.subtype);
   const content = isRecord(event.content) ? event.content : {};
-  const decision = toOptionalString(content.decision) as ApprovalTimelineItem['decision'];
+  const decision = resolveApprovalDecision(content.decision) ?? (content.approval_required === true ? 'pending' : undefined);
+  const approvalId = toOptionalString(content.approval_id);
   return {
-    id: meta.eventId ?? `timeline-approval-${index}`,
+    id: approvalId ?? meta.eventId ?? `timeline-approval-${index}`,
     type: 'approval',
     runId: meta.runId ?? null,
     sequence: meta.sequence ?? null,
@@ -713,7 +745,7 @@ function buildApprovalItem(event: TimelineEventEnvelope, meta: CanonicalEventMet
     status,
     isStreaming: status === 'streaming',
     isPartial: event.subtype === 'chunk',
-    content: extractText(content),
+    content: extractApprovalDisplayContent(content),
     decision,
     eventId: meta.eventId,
     parentEventId: meta.parentEventId,
@@ -749,6 +781,7 @@ function buildEventItems(
       .map(message => message.run_id as string),
   );
   const items: TimelineItem[] = [];
+  const approvalItemsById = new Map<string, ApprovalTimelineItem>();
   const activeSpanByRun = new Map<string, ActiveReasoningSpan>();
   const nextSegmentOrderByRun = new Map<string, number>();
 
@@ -862,6 +895,43 @@ function buildEventItems(
         toolItemsById.delete(candidateToolItem.id);
         items.push(deduped);
       }
+
+      const content = isRecord(event.content) ? event.content : {};
+      const hasApprovalFlag = content.approval_required === true;
+      const approvalIdFromContent = toOptionalString(content.approval_id);
+      const hasDecision = resolveApprovalDecision(content.decision) !== undefined;
+      if (hasApprovalFlag || approvalIdFromContent || hasDecision) {
+        const candidateApproval = buildApprovalItem(event, meta, index, now);
+        const existingApproval = approvalItemsById.get(candidateApproval.id);
+        if (!existingApproval) {
+          items.push(candidateApproval);
+          approvalItemsById.set(candidateApproval.id, candidateApproval);
+        } else {
+          if (typeof candidateApproval.sequence === 'number') {
+            const prevSequence = existingApproval.sequence;
+            if (prevSequence === null || candidateApproval.sequence < prevSequence) {
+              existingApproval.sequence = candidateApproval.sequence;
+            }
+          }
+          if (candidateApproval.status !== existingApproval.status) {
+            existingApproval.status = candidateApproval.status;
+          }
+          existingApproval.isStreaming = candidateApproval.isStreaming;
+          existingApproval.isPartial = candidateApproval.isPartial;
+          if (candidateApproval.decision) {
+            existingApproval.decision = candidateApproval.decision;
+          }
+          if (candidateApproval.content.trim()) {
+            existingApproval.content = candidateApproval.content;
+          }
+          if (candidateApproval.eventId) {
+            existingApproval.eventId = candidateApproval.eventId;
+          }
+          if (candidateApproval.parentEventId) {
+            existingApproval.parentEventId = candidateApproval.parentEventId;
+          }
+        }
+      }
       return;
     }
     if (event.type === 'message') {
@@ -883,7 +953,12 @@ function buildEventItems(
       return;
     }
     if (event.type === 'plan') {
-      items.push(buildApprovalItem(event, meta, index, now));
+      const approvalItem = buildApprovalItem(event, meta, index, now);
+      const existing = approvalItemsById.get(approvalItem.id);
+      if (!existing) {
+        items.push(approvalItem);
+        approvalItemsById.set(approvalItem.id, approvalItem);
+      }
     }
   });
   return items.filter(item => {

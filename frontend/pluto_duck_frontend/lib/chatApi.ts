@@ -80,6 +80,28 @@ export async function appendMessage(
   });
 }
 
+export interface DecideApprovalResponse {
+  status: string;
+  approval_id: string;
+  run_id: string;
+}
+
+export async function decideApproval(
+  runId: string,
+  approvalId: string,
+  decision: 'approve' | 'reject' | 'edit',
+  editedArgs?: Record<string, unknown>,
+): Promise<DecideApprovalResponse> {
+  return apiJson<DecideApprovalResponse>(`/api/v1/agent/${runId}/approvals/${approvalId}/decision`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      decision,
+      ...(editedArgs ? { edited_args: editedArgs } : {}),
+    }),
+  });
+}
+
 export async function deleteConversation(conversationId: string, projectId?: string): Promise<void> {
   await apiVoid(`/api/v1/chat/sessions/${conversationId}`, {
     method: 'DELETE',

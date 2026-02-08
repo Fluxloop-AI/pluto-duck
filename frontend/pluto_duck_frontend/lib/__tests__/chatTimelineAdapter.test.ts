@@ -1164,3 +1164,62 @@ test('approval stays visible after final assistant is persisted on refetch', asy
     'approval',
   ]);
 });
+
+test('tool approval_required stream events render actionable approval item', async () => {
+  const { buildTimelineItemsFromEvents } = await import(adapterModuleUrl.href);
+
+  const runId = 'run-tool-approval-required';
+  const approvalId = 'approval-001';
+  const items = buildTimelineItemsFromEvents({
+    events: [
+      {
+        type: 'tool',
+        subtype: 'start',
+        content: {
+          tool: 'write_file',
+          approval_required: true,
+          approval_id: approvalId,
+          preview: { path: '/memories/projects/a-1/note.md' },
+        },
+        metadata: { run_id: runId, sequence: 2, event_id: 'evt-tool-start', tool_call_id: 'tc-approval' },
+        timestamp: '2026-02-11T10:00:02.000Z',
+      },
+      {
+        type: 'message',
+        subtype: 'final',
+        content: { text: 'Awaiting your approval.' },
+        metadata: { run_id: runId, sequence: 3, event_id: 'evt-final' },
+        timestamp: '2026-02-11T10:00:03.000Z',
+      },
+      {
+        type: 'tool',
+        subtype: 'end',
+        content: {
+          tool: 'write_file',
+          approval_id: approvalId,
+          decision: 'approve',
+        },
+        metadata: { run_id: runId, sequence: 4, event_id: 'evt-tool-end', tool_call_id: 'tc-approval' },
+        timestamp: '2026-02-11T10:00:04.000Z',
+      },
+    ],
+    messages: [
+      {
+        id: 'u-tool-approval',
+        role: 'user',
+        content: { text: 'Save memory' },
+        created_at: '2026-02-11T10:00:01.000Z',
+        seq: 1,
+        run_id: runId,
+      },
+    ],
+  });
+
+  const approvalItems = items.filter((item: { type: string }) => item.type === 'approval') as Array<{
+    id: string;
+    decision?: string;
+  }>;
+  assert.equal(approvalItems.length, 1);
+  assert.equal(approvalItems[0].id, approvalId);
+  assert.equal(approvalItems[0].decision, 'approved');
+});

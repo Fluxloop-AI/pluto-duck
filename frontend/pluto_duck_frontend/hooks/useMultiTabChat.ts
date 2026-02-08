@@ -5,6 +5,7 @@ import {
   fetchChatSessions,
   appendMessage,
   deleteConversation,
+  decideApproval,
   type AppendMessageResponse,
   type ChatSessionDetail,
   type ChatSessionSummary,
@@ -668,14 +669,36 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
     // TODO: Add API call to persist feedback when backend endpoint is available
   }, []);
 
-  const handleApprovalDecision = useCallback((approvalEventId: string, decision: 'approved' | 'rejected') => {
-    setApprovalDecisionMap(prev => {
-      const next = new Map(prev);
-      next.set(approvalEventId, decision);
-      return next;
-    });
-    // Keep default behavior local-only until approval_id contract is finalized end-to-end.
-  }, []);
+  const handleApprovalDecision = useCallback(
+    (approvalEventId: string, runId: string | null, decision: 'approved' | 'rejected') => {
+      let previousDecision: ApprovalDecision | undefined;
+      setApprovalDecisionMap(prev => {
+        previousDecision = prev.get(approvalEventId);
+        const next = new Map(prev);
+        next.set(approvalEventId, decision);
+        return next;
+      });
+
+      if (!runId || !approvalEventId) {
+        return;
+      }
+
+      const apiDecision = decision === 'approved' ? 'approve' : 'reject';
+      void decideApproval(runId, approvalEventId, apiDecision).catch(error => {
+        console.error('[MultiTabChat] Failed to decide approval', error);
+        setApprovalDecisionMap(prev => {
+          const next = new Map(prev);
+          if (previousDecision) {
+            next.set(approvalEventId, previousDecision);
+          } else {
+            next.delete(approvalEventId);
+          }
+          return next;
+        });
+      });
+    },
+    [],
+  );
 
   const restoreTabs = useCallback((savedTabs: SavedChatTabState[], savedActiveTabId?: string) => {
     const restorePlan = planRestoredTabs({

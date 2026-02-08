@@ -17,7 +17,7 @@ export interface RenderItemProps {
   onRegenerate?: (messageId: string) => void;
   onFeedback?: (messageId: string, type: 'like' | 'dislike') => void;
   onSendToBoard?: (messageId: string, content: string) => void;
-  onApprovalDecision?: (approvalEventId: string, decision: 'approved' | 'rejected') => void;
+  onApprovalDecision?: (approvalEventId: string, runId: string | null, decision: 'approved' | 'rejected') => void;
 }
 
 export const RenderItem = memo(function RenderItem({

@@ -13,7 +13,7 @@ import {
 
 export interface ApprovalRendererProps {
   item: ApprovalItem;
-  onDecision?: (approvalEventId: string, decision: ApprovalAction) => void;
+  onDecision?: (approvalEventId: string, runId: string | null, decision: ApprovalAction) => void;
 }
 
 export const ApprovalRenderer = memo(function ApprovalRenderer({
@@ -47,14 +47,14 @@ export const ApprovalRenderer = memo(function ApprovalRenderer({
           <button
             type="button"
             className="inline-flex h-8 items-center rounded-md border border-border px-3 text-xs font-medium hover:bg-muted"
-            onClick={() => dispatchApprovalDecision(onDecision, item.id, 'rejected')}
+            onClick={() => dispatchApprovalDecision(onDecision, item.id, item.runId, 'rejected')}
           >
             Reject
           </button>
           <button
             type="button"
             className="inline-flex h-8 items-center rounded-md bg-foreground px-3 text-xs font-medium text-background hover:bg-foreground/90"
-            onClick={() => dispatchApprovalDecision(onDecision, item.id, 'approved')}
+            onClick={() => dispatchApprovalDecision(onDecision, item.id, item.runId, 'approved')}
           >
             Approve
           </button>

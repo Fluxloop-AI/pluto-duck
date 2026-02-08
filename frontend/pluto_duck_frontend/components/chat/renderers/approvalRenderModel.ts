@@ -1,7 +1,11 @@
 import type { ApprovalItem } from '../../../types/chatRenderItem';
 
 export type ApprovalAction = 'approved' | 'rejected';
-export type ApprovalDecisionHandler = (approvalEventId: string, decision: ApprovalAction) => void;
+export type ApprovalDecisionHandler = (
+  approvalEventId: string,
+  runId: string | null,
+  decision: ApprovalAction,
+) => void;
 
 export function resolveApprovalSummary(content: string): string {
   const trimmed = content.trim();
@@ -32,7 +36,8 @@ export function resolveApprovalBadgeClass(decision: ApprovalItem['decision']): s
 export function dispatchApprovalDecision(
   onDecision: ApprovalDecisionHandler | undefined,
   approvalEventId: string,
+  runId: string | null,
   decision: ApprovalAction,
 ): void {
-  onDecision?.(approvalEventId, decision);
+  onDecision?.(approvalEventId, runId, decision);
 }

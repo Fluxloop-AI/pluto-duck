@@ -22,12 +22,12 @@ test('approval summary falls back to raw content text', () => {
 });
 
 test('approval action dispatcher calls callback with expected decision payload', () => {
-  const calls: Array<{ id: string; decision: 'approved' | 'rejected' }> = [];
-  dispatchApprovalDecision((id, decision) => calls.push({ id, decision }), 'evt-approval-1', 'approved');
-  dispatchApprovalDecision((id, decision) => calls.push({ id, decision }), 'evt-approval-1', 'rejected');
+  const calls: Array<{ id: string; runId: string | null; decision: 'approved' | 'rejected' }> = [];
+  dispatchApprovalDecision((id, runId, decision) => calls.push({ id, runId, decision }), 'evt-approval-1', 'run-1', 'approved');
+  dispatchApprovalDecision((id, runId, decision) => calls.push({ id, runId, decision }), 'evt-approval-1', 'run-1', 'rejected');
 
   assert.deepEqual(calls, [
-    { id: 'evt-approval-1', decision: 'approved' },
-    { id: 'evt-approval-1', decision: 'rejected' },
+    { id: 'evt-approval-1', runId: 'run-1', decision: 'approved' },
+    { id: 'evt-approval-1', runId: 'run-1', decision: 'rejected' },
   ]);
 });

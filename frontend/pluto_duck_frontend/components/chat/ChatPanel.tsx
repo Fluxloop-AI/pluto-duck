@@ -65,7 +65,7 @@ interface ConversationMessagesProps {
   onEditUserMessage?: (messageId: string, content: string) => void;
   onFeedback?: (messageId: string, type: 'like' | 'dislike') => void;
   onSendToBoard?: (messageId: string, content: string) => void;
-  onApprovalDecision?: (approvalEventId: string, decision: 'approved' | 'rejected') => void;
+  onApprovalDecision?: (approvalEventId: string, runId: string | null, decision: 'approved' | 'rejected') => void;
 }
 
 const ConversationMessages = memo(function ConversationMessages({
@@ -161,7 +161,7 @@ interface ChatPanelProps {
   onEditUserMessage?: (messageId: string, content: string) => void;
   onFeedback?: (messageId: string, type: 'like' | 'dislike') => void;
   onSendToBoard?: (messageId: string, content: string) => void;
-  onApprovalDecision?: (approvalEventId: string, decision: 'approved' | 'rejected') => void;
+  onApprovalDecision?: (approvalEventId: string, runId: string | null, decision: 'approved' | 'rejected') => void;
   onEmbedAssetToBoard?: (analysisId: string, config: AssetEmbedConfig) => void;
   feedbackMap?: Map<string, FeedbackType>;
 }

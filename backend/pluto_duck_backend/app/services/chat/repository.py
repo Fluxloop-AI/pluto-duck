@@ -516,9 +516,40 @@ class ChatRepository:
             )
 
     def log_event(self, conversation_id: str, event: Dict[str, Any]) -> None:
-        event_id = self._generate_uuid()
-        payload = json.dumps(event.get("content")) if event.get("content") is not None else None
-        metadata_json = json.dumps(event.get("metadata") or {})
+        event_type = self._as_non_empty_str(event.get("type"))
+        if event_type is None:
+            raise ValueError("Event type is required")
+        event_subtype = self._as_non_empty_str(event.get("subtype"))
+        content = event.get("content")
+        content_dict = content if isinstance(content, dict) else {}
+        metadata = event.get("metadata") if isinstance(event.get("metadata"), dict) else {}
+        metadata = dict(metadata)
+        event_id = (
+            self._as_non_empty_str(event.get("event_id"))
+            or self._as_non_empty_str(metadata.get("event_id"))
+            or self._generate_uuid()
+        )
+        sequence = self._as_positive_int(event.get("sequence")) or self._as_positive_int(
+            metadata.get("sequence")
+        )
+        run_id = self._as_non_empty_str(event.get("run_id")) or self._as_non_empty_str(
+            metadata.get("run_id")
+        )
+        tool_call_id = (
+            self._as_non_empty_str(event.get("tool_call_id"))
+            or self._as_non_empty_str(metadata.get("tool_call_id"))
+            or self._as_non_empty_str(content_dict.get("tool_call_id"))
+        )
+        parent_event_id = (
+            self._as_non_empty_str(event.get("parent_event_id"))
+            or self._as_non_empty_str(metadata.get("parent_event_id"))
+            or self._as_non_empty_str(content_dict.get("parent_event_id"))
+        )
+        phase = (
+            self._as_non_empty_str(event.get("phase"))
+            or self._as_non_empty_str(metadata.get("phase"))
+            or self._as_non_empty_str(content_dict.get("phase"))
+        )
         timestamp_value = event.get("timestamp")
         if isinstance(timestamp_value, str):
             try:
@@ -527,12 +558,39 @@ class ChatRepository:
                 timestamp_obj = datetime.now(UTC)
         else:
             timestamp_obj = datetime.now(UTC)
+        payload = json.dumps(content) if content is not None else None
         # High-frequency writes during streaming can create write-write conflicts in DuckDB
         # if multiple connections attempt to touch the same conversation row concurrently.
         # We serialize writes in-process and retry briefly on conflict.
         for attempt in range(_WRITE_RETRY_ATTEMPTS):
             try:
                 with self._write_connection() as con:
+                    if sequence is None:
+                        max_sequence_row = con.execute(
+                            """
+                            SELECT COALESCE(MAX(TRY_CAST(json_extract_string(metadata, '$.sequence') AS BIGINT)), 0)
+                            FROM agent_events
+                            WHERE conversation_id = ?
+                            """,
+                            [conversation_id],
+                        ).fetchone()
+                        sequence = int(max_sequence_row[0]) + 1 if max_sequence_row else 1
+                    if run_id is None:
+                        run_row = con.execute(
+                            "SELECT run_id FROM agent_conversations WHERE id = ?",
+                            [conversation_id],
+                        ).fetchone()
+                        run_id = self._as_non_empty_str(run_row[0] if run_row else None) or "unknown"
+                    metadata["event_id"] = event_id
+                    metadata["sequence"] = sequence
+                    metadata["run_id"] = run_id
+                    if tool_call_id is not None:
+                        metadata["tool_call_id"] = tool_call_id
+                    if parent_event_id is not None:
+                        metadata["parent_event_id"] = parent_event_id
+                    if phase is not None:
+                        metadata["phase"] = phase
+                    metadata_json = json.dumps(metadata)
                     con.execute(
                         """
                         INSERT INTO agent_events (id, conversation_id, type, subtype, payload, metadata, timestamp)
@@ -541,8 +599,8 @@ class ChatRepository:
                         [
                             event_id,
                             conversation_id,
-                            event.get("type"),
-                            event.get("subtype"),
+                            event_type,
+                            event_subtype,
                             payload,
                             metadata_json,
                             timestamp_obj,
@@ -920,27 +978,62 @@ class ChatRepository:
 
     def get_conversation_events(self, conversation_id: str, limit: int = 200) -> List[Dict[str, Any]]:
         with self._connect() as con:
+            run_row = con.execute(
+                "SELECT run_id FROM agent_conversations WHERE id = ?",
+                [conversation_id],
+            ).fetchone()
+            conversation_run_id = self._as_non_empty_str(run_row[0] if run_row else None)
             rows = con.execute(
                 """
-                SELECT type, subtype, payload, metadata, timestamp
+                SELECT id, type, subtype, payload, metadata, timestamp
                 FROM agent_events
                 WHERE conversation_id = ?
-                ORDER BY timestamp ASC
+                ORDER BY timestamp ASC, id ASC
                 LIMIT ?
                 """,
                 [conversation_id, limit],
             ).fetchall()
         events: List[Dict[str, Any]] = []
-        for row in rows:
-            payload = json.loads(row[2]) if row[2] else None
-            metadata = json.loads(row[3]) if row[3] else None
+        for index, row in enumerate(rows, start=1):
+            payload = json.loads(row[3]) if row[3] else None
+            payload_dict = payload if isinstance(payload, dict) else {}
+            metadata_raw = json.loads(row[4]) if row[4] else {}
+            metadata = metadata_raw if isinstance(metadata_raw, dict) else {}
+            metadata = dict(metadata)
+            event_id = self._as_non_empty_str(row[0]) or self._generate_uuid()
+            sequence = self._as_positive_int(metadata.get("sequence")) or index
+            run_id = self._as_non_empty_str(metadata.get("run_id")) or conversation_run_id or "unknown"
+            tool_call_id = self._as_non_empty_str(metadata.get("tool_call_id")) or self._as_non_empty_str(
+                payload_dict.get("tool_call_id")
+            )
+            parent_event_id = self._as_non_empty_str(
+                metadata.get("parent_event_id")
+            ) or self._as_non_empty_str(payload_dict.get("parent_event_id"))
+            phase = self._as_non_empty_str(metadata.get("phase")) or self._as_non_empty_str(
+                payload_dict.get("phase")
+            )
+            metadata["event_id"] = event_id
+            metadata["sequence"] = sequence
+            metadata["run_id"] = run_id
+            if tool_call_id is not None:
+                metadata["tool_call_id"] = tool_call_id
+            if parent_event_id is not None:
+                metadata["parent_event_id"] = parent_event_id
+            if phase is not None:
+                metadata["phase"] = phase
             events.append(
                 {
-                    "type": row[0],
-                    "subtype": row[1],
+                    "event_id": event_id,
+                    "sequence": sequence,
+                    "run_id": run_id,
+                    "tool_call_id": tool_call_id,
+                    "parent_event_id": parent_event_id,
+                    "phase": phase,
+                    "type": row[1],
+                    "subtype": row[2],
                     "content": payload,
                     "metadata": metadata,
-                    "timestamp": self._ensure_utc(row[4]).isoformat() if row[4] else None,
+                    "timestamp": self._ensure_utc(row[5]).isoformat() if row[5] else None,
                 }
             )
         return events
@@ -981,6 +1074,19 @@ class ChatRepository:
         from uuid import uuid4
 
         return str(uuid4())
+
+    def _as_non_empty_str(self, value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    def _as_positive_int(self, value: Any) -> Optional[int]:
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            return None
+        return number if number > 0 else None
 
     def _preview_from_content(self, content: Dict[str, Any]) -> Optional[str]:
         if isinstance(content, dict):

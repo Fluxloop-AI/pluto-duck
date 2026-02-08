@@ -409,7 +409,10 @@ function compareTimelineItems(a: TimelineItem, b: TimelineItem, runOrderByRun: M
     const laneB = resolveTimelineLane(b);
     const isAssistantControlPair =
       (laneA === 'assistant' && laneB === 'control') || (laneA === 'control' && laneB === 'assistant');
-    if (isAssistantControlPair) {
+    const isToolControlPair = (laneA === 'tool' && laneB === 'control') || (laneA === 'control' && laneB === 'tool');
+    // Keep control cards temporally stable when sequence tie/incompleteness occurs.
+    // Without this, lane rank can place late tool rows above already-rendered control cards.
+    if (isAssistantControlPair || isToolControlPair) {
       const tsA = Date.parse(a.timestamp);
       const tsB = Date.parse(b.timestamp);
       if (Number.isFinite(tsA) && Number.isFinite(tsB) && tsA !== tsB) {
@@ -719,6 +722,29 @@ function buildToolCorrelationKey(event: TimelineEventEnvelope, meta: CanonicalEv
   return `${runId}:${toolCallId}`;
 }
 
+function mergeToolSequence(existing: number | null, candidate: number | null): number | null {
+  const hasExisting = typeof existing === 'number' && Number.isFinite(existing);
+  const hasCandidate = typeof candidate === 'number' && Number.isFinite(candidate);
+  if (hasExisting && hasCandidate) {
+    return Math.max(existing as number, candidate as number);
+  }
+  if (hasExisting) return existing;
+  if (hasCandidate) return candidate;
+  return null;
+}
+
+function mergeToolTimestamp(existing: string, candidate: string): string {
+  const existingTs = Date.parse(existing);
+  const candidateTs = Date.parse(candidate);
+  if (Number.isFinite(existingTs) && Number.isFinite(candidateTs)) {
+    return candidateTs >= existingTs ? candidate : existing;
+  }
+  if (!Number.isFinite(existingTs) && Number.isFinite(candidateTs)) {
+    return candidate;
+  }
+  return existing;
+}
+
 function correlateToolEvents(events: ClassifiedEvent[], now: () => string): ToolTimelineItem[] {
   const items: ToolTimelineItem[] = [];
   const pendingByKey = new Map<string, ToolTimelineItem>();
@@ -736,6 +762,24 @@ function correlateToolEvents(events: ClassifiedEvent[], now: () => string): Tool
     const pending = pendingByKey.get(key);
 
     if (event.subtype === 'start') {
+      if (pending) {
+        // Late start backfill should enrich existing row, not create/anchor a new earlier row.
+        pending.sequence = mergeToolSequence(pending.sequence, current.sequence);
+        pending.timestamp = mergeToolTimestamp(pending.timestamp, current.timestamp);
+        if (pending.input === undefined && current.input !== undefined) {
+          pending.input = current.input;
+        }
+        if ((!pending.toolName || pending.toolName === 'tool') && current.toolName) {
+          pending.toolName = current.toolName;
+        }
+        if (!pending.eventId && current.eventId) {
+          pending.eventId = current.eventId;
+        }
+        if (!pending.parentEventId && current.parentEventId) {
+          pending.parentEventId = current.parentEventId;
+        }
+        continue;
+      }
       pendingByKey.set(key, current);
       items.push(current);
       continue;

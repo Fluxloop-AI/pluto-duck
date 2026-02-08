@@ -34,9 +34,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import type { ChatStatus, FileUIPart } from "@/types/aiPrimitives";
 import { canSubmitPromptOnEnter } from "@/lib/promptSubmitEligibility";
 import { cn } from "@/lib/utils";
-import type { ChatStatus, FileUIPart } from "ai";
 import {
   ArrowUpIcon,
   ImageIcon,

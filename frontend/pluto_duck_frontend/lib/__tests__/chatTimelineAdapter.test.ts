@@ -1222,4 +1222,5 @@ test('tool approval_required stream events render actionable approval item', asy
   assert.equal(approvalItems.length, 1);
   assert.equal(approvalItems[0].id, approvalId);
   assert.equal(approvalItems[0].decision, 'approved');
+  assert.equal(items.filter((item: { type: string }) => item.type === 'tool').length, 0);
 });

@@ -222,6 +222,23 @@ function extractApprovalDisplayContent(content: Record<string, unknown>): string
   return 'Approval required before continuing.';
 }
 
+function isApprovalControlToolEvent(content: Record<string, unknown>): boolean {
+  if (content.approval_required === true) {
+    return true;
+  }
+  const approvalId = toOptionalString(content.approval_id);
+  if (!approvalId) {
+    return false;
+  }
+  if (resolveApprovalDecision(content.decision) !== undefined) {
+    return true;
+  }
+  if (content.preview !== undefined || content.effective_args !== undefined) {
+    return true;
+  }
+  return false;
+}
+
 function extractMentions(text: string): string[] {
   const mentionRegex = /@([\w-]+)/g;
   const mentions: string[] = [];
@@ -889,14 +906,18 @@ function buildEventItems(
       return;
     }
     if (event.type === 'tool') {
-      const candidateToolItem = buildToolItem(event, meta, index, now);
-      const deduped = toolItemsById.get(candidateToolItem.id);
-      if (deduped) {
-        toolItemsById.delete(candidateToolItem.id);
-        items.push(deduped);
+      const content = isRecord(event.content) ? event.content : {};
+      const isApprovalControl = isApprovalControlToolEvent(content);
+
+      if (!isApprovalControl) {
+        const candidateToolItem = buildToolItem(event, meta, index, now);
+        const deduped = toolItemsById.get(candidateToolItem.id);
+        if (deduped) {
+          toolItemsById.delete(candidateToolItem.id);
+          items.push(deduped);
+        }
       }
 
-      const content = isRecord(event.content) ? event.content : {};
       const hasApprovalFlag = content.approval_required === true;
       const approvalIdFromContent = toOptionalString(content.approval_id);
       const hasDecision = resolveApprovalDecision(content.decision) !== undefined;

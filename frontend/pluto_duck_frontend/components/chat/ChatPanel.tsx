@@ -80,7 +80,8 @@ const ConversationMessages = memo(function ConversationMessages({
 
   return (
     <>
-      {loading && (
+      {/* Keep top loader for detail fetch only; streaming loader stays at bottom. */}
+      {loading && !isStreaming && (
         <div className="px-4 py-6">
           <div className="mx-auto">
             <ActivityLoader />

@@ -101,7 +101,13 @@ export function TabBar({
                 <History className="h-4 w-4" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent className="w-80 max-h-96 p-0 overflow-y-auto">
+            <DropdownMenuContent
+              side="bottom"
+              align="end"
+              sideOffset={6}
+              collisionPadding={8}
+              className="w-80 max-h-96 p-0 overflow-y-auto"
+            >
               {sessions.length === 0 ? (
                 <div className="px-4 py-6 text-center text-sm text-muted-foreground">
                   No conversations found
@@ -112,7 +118,7 @@ export function TabBar({
                     <DropdownMenuItem
                       key={session.id}
                       onSelect={() => handleSessionSelect(session)}
-                      className="w-full px-3 py-2 cursor-pointer"
+                      className="w-full px-3 py-2 cursor-pointer transition-colors"
                     >
                       <div className="w-full text-left">
                         <div className="text-xs font-medium truncate">

@@ -72,6 +72,146 @@ test('interleaved reasoning/tool events keep sequential order', async () => {
   assert.deepEqual(toolItem.output, { rows: 3 });
 });
 
+test('segmented reasoning spans interleave with tool events in sequence order', async () => {
+  const { buildTimelineItemsFromEvents } = await import(adapterModuleUrl.href);
+
+  const runId = 'run-segmented-interleave';
+  const items = buildTimelineItemsFromEvents({
+    events: [
+      {
+        type: 'reasoning',
+        subtype: 'start',
+        content: { phase: 'llm_start' },
+        metadata: { run_id: runId, sequence: 2, event_id: 'evt-r-start-1', phase: 'llm_start' },
+        timestamp: '2026-02-10T10:00:02.000Z',
+      },
+      {
+        type: 'reasoning',
+        subtype: 'chunk',
+        content: { phase: 'llm_reasoning', reason: 'first thought' },
+        metadata: { run_id: runId, sequence: 3, event_id: 'evt-r-body-1', phase: 'llm_reasoning' },
+        timestamp: '2026-02-10T10:00:03.000Z',
+      },
+      {
+        type: 'reasoning',
+        subtype: 'end',
+        content: { phase: 'llm_end' },
+        metadata: { run_id: runId, sequence: 4, event_id: 'evt-r-end-1', phase: 'llm_end' },
+        timestamp: '2026-02-10T10:00:04.000Z',
+      },
+      {
+        type: 'tool',
+        subtype: 'start',
+        content: { tool: 'search', input: { q: 'alpha' } },
+        metadata: { run_id: runId, sequence: 5, event_id: 'evt-t-start', tool_call_id: 'tc-1' },
+        timestamp: '2026-02-10T10:00:05.000Z',
+      },
+      {
+        type: 'tool',
+        subtype: 'end',
+        content: { tool: 'search', output: { rows: 2 } },
+        metadata: { run_id: runId, sequence: 6, event_id: 'evt-t-end', tool_call_id: 'tc-1' },
+        timestamp: '2026-02-10T10:00:06.000Z',
+      },
+      {
+        type: 'reasoning',
+        subtype: 'start',
+        content: { phase: 'llm_start' },
+        metadata: { run_id: runId, sequence: 7, event_id: 'evt-r-start-2', phase: 'llm_start' },
+        timestamp: '2026-02-10T10:00:07.000Z',
+      },
+      {
+        type: 'reasoning',
+        subtype: 'chunk',
+        content: { phase: 'llm_reasoning', reason: 'second thought' },
+        metadata: { run_id: runId, sequence: 8, event_id: 'evt-r-body-2', phase: 'llm_reasoning' },
+        timestamp: '2026-02-10T10:00:08.000Z',
+      },
+      {
+        type: 'reasoning',
+        subtype: 'end',
+        content: { phase: 'llm_end' },
+        metadata: { run_id: runId, sequence: 9, event_id: 'evt-r-end-2', phase: 'llm_end' },
+        timestamp: '2026-02-10T10:00:09.000Z',
+      },
+      {
+        type: 'message',
+        subtype: 'final',
+        content: { text: 'done' },
+        metadata: { run_id: runId, sequence: 10, event_id: 'evt-m-final' },
+        timestamp: '2026-02-10T10:00:10.000Z',
+      },
+    ],
+    messages: [
+      {
+        id: 'u-segmented-interleave',
+        role: 'user',
+        content: { text: 'question' },
+        created_at: '2026-02-10T10:00:01.000Z',
+        seq: 1,
+        run_id: runId,
+      },
+    ],
+  });
+
+  assert.deepEqual(items.map((item: { type: string }) => item.type), [
+    'user-message',
+    'reasoning',
+    'tool',
+    'reasoning',
+    'assistant-message',
+  ]);
+
+  const reasoningItems = items.filter((item: { type: string }) => item.type === 'reasoning') as Array<{
+    content: string;
+    segmentOrder: number;
+  }>;
+  assert.deepEqual(
+    reasoningItems.map(item => [item.content, item.segmentOrder]),
+    [
+      ['first thought', 0],
+      ['second thought', 1],
+    ],
+  );
+});
+
+test('llm_start -> llm_end without reasoning text drops span completely', async () => {
+  const { buildTimelineItemsFromEvents } = await import(adapterModuleUrl.href);
+
+  const runId = 'run-empty-span-drop';
+  const items = buildTimelineItemsFromEvents({
+    events: [
+      {
+        type: 'reasoning',
+        subtype: 'start',
+        content: { phase: 'llm_start' },
+        metadata: { run_id: runId, sequence: 2, event_id: 'evt-empty-start', phase: 'llm_start' },
+        timestamp: '2026-02-10T10:10:02.000Z',
+      },
+      {
+        type: 'reasoning',
+        subtype: 'end',
+        content: { phase: 'llm_end' },
+        metadata: { run_id: runId, sequence: 3, event_id: 'evt-empty-end', phase: 'llm_end' },
+        timestamp: '2026-02-10T10:10:03.000Z',
+      },
+    ],
+    messages: [
+      {
+        id: 'u-empty-span-drop',
+        role: 'user',
+        content: { text: 'question' },
+        created_at: '2026-02-10T10:10:01.000Z',
+        seq: 1,
+        run_id: runId,
+      },
+    ],
+    activeRunId: runId,
+  });
+
+  assert.equal(items.filter((item: { type: string }) => item.type === 'reasoning').length, 0);
+});
+
 test('duplicate tool names are correlated by tool_call_id', async () => {
   const { buildTimelineItemsFromEvents } = await import(adapterModuleUrl.href);
 

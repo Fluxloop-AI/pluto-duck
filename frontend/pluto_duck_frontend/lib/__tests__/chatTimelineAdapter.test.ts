@@ -249,3 +249,62 @@ test('persisted assistant message is ordered using event sequence and message ev
   const lastItemType = items[items.length - 1]?.type;
   assert.equal(lastItemType, 'assistant-message');
 });
+
+test('llm_end reasoning text duplicated with final assistant is suppressed', async () => {
+  const { buildTimelineItemsFromEvents } = await import(adapterModuleUrl.href);
+
+  const runId = 'run-llm-end-dedupe';
+  const finalText = 'Okay — what would you like to try again?';
+  const items = buildTimelineItemsFromEvents({
+    messages: [
+      {
+        id: 'user-1',
+        role: 'user',
+        content: { text: 'retry' },
+        created_at: '2026-02-08T18:00:01.000Z',
+        seq: 1,
+        run_id: runId,
+      },
+      {
+        id: 'assistant-1',
+        role: 'assistant',
+        content: { text: finalText },
+        created_at: '2026-02-08T18:00:04.000Z',
+        seq: 2,
+        run_id: runId,
+      },
+    ],
+    events: [
+      {
+        type: 'reasoning',
+        subtype: 'chunk',
+        content: { phase: 'llm_reasoning', reason: 'clarifying' },
+        metadata: { run_id: runId, sequence: 5, event_id: 'evt-r5', phase: 'llm_reasoning' },
+        timestamp: '2026-02-08T18:00:03.000Z',
+      },
+      {
+        type: 'reasoning',
+        subtype: 'chunk',
+        content: { phase: 'llm_end', text: finalText },
+        metadata: { run_id: runId, sequence: 6, event_id: 'evt-r6', phase: 'llm_end' },
+        timestamp: '2026-02-08T18:00:03.100Z',
+      },
+      {
+        type: 'message',
+        subtype: 'final',
+        content: { text: finalText },
+        metadata: { run_id: runId, sequence: 7, event_id: 'evt-m7' },
+        timestamp: '2026-02-08T18:00:03.200Z',
+      },
+    ],
+  });
+
+  const reasoningItems = items.filter((item: { type: string }) => item.type === 'reasoning') as Array<{
+    content: string;
+  }>;
+  assert.equal(reasoningItems.length, 1);
+  assert.equal(reasoningItems[0].content, 'clarifying');
+
+  const assistantItems = items.filter((item: { type: string }) => item.type === 'assistant-message');
+  assert.equal(assistantItems.length, 1);
+});

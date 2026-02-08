@@ -166,6 +166,10 @@ function extractMentions(text: string): string[] {
   return mentions;
 }
 
+function normalizeComparableText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
 function resolveStatus(subtype?: string): TimelineItemStatus {
   if (subtype === 'error') return 'error';
   if (subtype === 'chunk' || subtype === 'start') return 'streaming';
@@ -239,6 +243,34 @@ function buildAssistantSequenceHintsByRun(normalizedEvents: NormalizedEvent[]): 
   }
 
   return hintsByRun;
+}
+
+function collectAssistantFinalTextByRun(
+  params: BuildTimelineItemsFromEventsParams,
+  normalizedEvents: NormalizedEvent[],
+): Map<string, string> {
+  const textsByRun = new Map<string, string>();
+
+  for (const message of params.messages ?? []) {
+    if (message.role !== 'assistant') continue;
+    const runId = message.run_id ?? null;
+    if (!runId) continue;
+    const text = normalizeComparableText(extractText(message.content));
+    if (!text) continue;
+    textsByRun.set(runId, text);
+  }
+
+  for (const normalizedEvent of normalizedEvents) {
+    if (normalizedEvent.event.type !== 'message') continue;
+    if (normalizedEvent.event.subtype !== 'final' && normalizedEvent.event.subtype !== 'end') continue;
+    const runId = normalizedEvent.meta.runId ?? null;
+    if (!runId) continue;
+    const text = normalizeComparableText(extractText(normalizedEvent.event.content));
+    if (!text) continue;
+    textsByRun.set(runId, text);
+  }
+
+  return textsByRun;
 }
 
 function buildMessageItems(
@@ -462,6 +494,7 @@ function buildEventItems(
   params: BuildTimelineItemsFromEventsParams,
   now: () => string,
   normalizedEvents: NormalizedEvent[],
+  assistantFinalTextByRun: Map<string, string>,
 ): TimelineItem[] {
   const toolItems = correlateToolEvents(normalizedEvents, now);
   const toolItemsById = new Map(toolItems.map(item => [item.id, item]));
@@ -475,6 +508,12 @@ function buildEventItems(
     if (event.type === 'reasoning') {
       const reasoningItem = buildReasoningItem(event, meta, index, now, params.activeRunId);
       if (reasoningItem) {
+        if (reasoningItem.phase === 'llm_end' && reasoningItem.runId) {
+          const assistantFinalText = assistantFinalTextByRun.get(reasoningItem.runId);
+          if (assistantFinalText && normalizeComparableText(reasoningItem.content) === assistantFinalText) {
+            return;
+          }
+        }
         items.push(reasoningItem);
       }
       return;
@@ -533,8 +572,9 @@ export function buildTimelineItemsFromEvents(params: BuildTimelineItemsFromEvent
   const now = params.now ?? (() => new Date().toISOString());
   const normalizedEvents = normalizeEvents(params.events);
   const assistantSequenceHintsByRun = buildAssistantSequenceHintsByRun(normalizedEvents);
+  const assistantFinalTextByRun = collectAssistantFinalTextByRun(params, normalizedEvents);
   const messageItems = buildMessageItems(params, now, assistantSequenceHintsByRun);
-  const eventItems = buildEventItems(params, now, normalizedEvents);
+  const eventItems = buildEventItems(params, now, normalizedEvents, assistantFinalTextByRun);
   const streamingItem = buildStreamingItem(params, now);
   const items = streamingItem ? [...messageItems, ...eventItems, streamingItem] : [...messageItems, ...eventItems];
   return items.sort(compareTimelineItems);

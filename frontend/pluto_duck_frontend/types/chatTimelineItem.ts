@@ -2,6 +2,10 @@ export type TimelineItemType = 'reasoning' | 'tool' | 'assistant-message' | 'use
 
 export type TimelineItemStatus = 'pending' | 'streaming' | 'complete' | 'error';
 
+export type TimelineIntent = 'execution' | 'approval-control' | 'reasoning' | 'message' | 'unknown-control';
+
+export type TimelineLane = 'user' | 'reasoning' | 'tool' | 'assistant' | 'control';
+
 export interface TimelineItemBase {
   id: string;
   type: TimelineItemType;
@@ -13,6 +17,8 @@ export interface TimelineItemBase {
   isPartial: boolean;
   eventId?: string;
   parentEventId?: string | null;
+  intent?: TimelineIntent;
+  lane?: TimelineLane;
 }
 
 export interface ReasoningTimelineItem extends TimelineItemBase {

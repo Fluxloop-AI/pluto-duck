@@ -1,4 +1,9 @@
 import type { AgentEventAny } from '../types/agent';
+import {
+  classifyTimelineEvent,
+  resolveApprovalDecision,
+  type TimelineEventClassification,
+} from './eventIntentRegistry.ts';
 import type {
   ApprovalTimelineItem,
   AssistantMessageTimelineItem,
@@ -191,21 +196,6 @@ function extractReasoningText(value: unknown): string {
   return '';
 }
 
-function resolveApprovalDecision(value: unknown): ApprovalTimelineItem['decision'] {
-  const decision = toOptionalString(value);
-  if (!decision) return undefined;
-  if (decision === 'approve' || decision === 'approved' || decision === 'edit' || decision === 'edited') {
-    return 'approved';
-  }
-  if (decision === 'reject' || decision === 'rejected') {
-    return 'rejected';
-  }
-  if (decision === 'pending') {
-    return 'pending';
-  }
-  return undefined;
-}
-
 function extractApprovalDisplayContent(content: Record<string, unknown>): string {
   const direct = extractText(content).trim();
   if (direct) {
@@ -220,23 +210,6 @@ function extractApprovalDisplayContent(content: Record<string, unknown>): string
     return `Approval for ${tool}.`;
   }
   return 'Approval required before continuing.';
-}
-
-function isApprovalControlToolEvent(content: Record<string, unknown>): boolean {
-  if (content.approval_required === true) {
-    return true;
-  }
-  const approvalId = toOptionalString(content.approval_id);
-  if (!approvalId) {
-    return false;
-  }
-  if (resolveApprovalDecision(content.decision) !== undefined) {
-    return true;
-  }
-  if (content.preview !== undefined || content.effective_args !== undefined) {
-    return true;
-  }
-  return false;
 }
 
 function extractMentions(text: string): string[] {
@@ -537,6 +510,8 @@ function buildMessageItems(
       const userItem: UserMessageTimelineItem = {
         id: `timeline-user-${message.id}`,
         type: 'user-message',
+        intent: 'message',
+        lane: 'user',
         runId,
         sequence,
         timestamp: message.created_at || now(),
@@ -562,6 +537,8 @@ function buildMessageItems(
       const assistantItem: AssistantMessageTimelineItem = {
         id: `timeline-assistant-${message.id}`,
         type: 'assistant-message',
+        intent: 'message',
+        lane: 'assistant',
         runId,
         sequence,
         timestamp: message.created_at || now(),
@@ -634,6 +611,8 @@ function createReasoningItem(
   return {
     id: segmentId,
     type: 'reasoning',
+    intent: 'reasoning',
+    lane: 'reasoning',
     runId: meta.runId ?? null,
     sequence: meta.sequence ?? null,
     timestamp: event.timestamp ?? now(),
@@ -656,6 +635,8 @@ function buildToolItem(event: TimelineEventEnvelope, meta: CanonicalEventMeta, i
   return {
     id: meta.eventId ?? `timeline-tool-${meta.runId ?? 'orphan'}-${meta.toolCallId ?? index}`,
     type: 'tool',
+    intent: 'execution',
+    lane: 'tool',
     runId: meta.runId ?? null,
     sequence: meta.sequence ?? null,
     timestamp: event.timestamp ?? now(),
@@ -747,6 +728,8 @@ function buildAssistantEventItem(
   return {
     id: meta.eventId ?? `timeline-assistant-event-${index}`,
     type: 'assistant-message',
+    intent: 'message',
+    lane: 'assistant',
     runId: meta.runId ?? null,
     sequence: meta.sequence ?? null,
     timestamp: event.timestamp ?? now(),
@@ -759,14 +742,23 @@ function buildAssistantEventItem(
   };
 }
 
-function buildApprovalItem(event: TimelineEventEnvelope, meta: CanonicalEventMeta, index: number, now: () => string): ApprovalTimelineItem {
+function buildApprovalItem(
+  event: TimelineEventEnvelope,
+  meta: CanonicalEventMeta,
+  index: number,
+  now: () => string,
+  classification?: TimelineEventClassification,
+): ApprovalTimelineItem {
   const status = resolveStatus(event.subtype);
   const content = isRecord(event.content) ? event.content : {};
-  const decision = resolveApprovalDecision(content.decision) ?? (content.approval_required === true ? 'pending' : undefined);
-  const approvalId = toOptionalString(content.approval_id);
+  const decision = classification?.approvalDecision ?? resolveApprovalDecision(content.decision);
+  const resolvedDecision = decision ?? (content.approval_required === true ? 'pending' : undefined);
+  const approvalId = classification?.approvalId ?? toOptionalString(content.approval_id);
   return {
     id: approvalId ?? meta.eventId ?? `timeline-approval-${index}`,
     type: 'approval',
+    intent: 'approval-control',
+    lane: 'control',
     runId: meta.runId ?? null,
     sequence: meta.sequence ?? null,
     timestamp: event.timestamp ?? now(),
@@ -774,7 +766,7 @@ function buildApprovalItem(event: TimelineEventEnvelope, meta: CanonicalEventMet
     isStreaming: status === 'streaming',
     isPartial: event.subtype === 'chunk',
     content: extractApprovalDisplayContent(content),
-    decision,
+    decision: resolvedDecision,
     eventId: meta.eventId,
     parentEventId: meta.parentEventId,
   };
@@ -953,8 +945,8 @@ function buildEventItems(
       return;
     }
     if (event.type === 'tool') {
-      const content = isRecord(event.content) ? event.content : {};
-      const isApprovalControl = isApprovalControlToolEvent(content);
+      const classification = classifyTimelineEvent(event, meta);
+      const isApprovalControl = classification.intent === 'approval-control';
 
       if (!isApprovalControl) {
         const candidateToolItem = buildToolItem(event, meta, index, now);
@@ -965,11 +957,8 @@ function buildEventItems(
         }
       }
 
-      const hasApprovalFlag = content.approval_required === true;
-      const approvalIdFromContent = toOptionalString(content.approval_id);
-      const hasDecision = resolveApprovalDecision(content.decision) !== undefined;
-      if (hasApprovalFlag || approvalIdFromContent || hasDecision) {
-        const candidateApproval = buildApprovalItem(event, meta, index, now);
+      if (classification.hasApprovalSignal) {
+        const candidateApproval = buildApprovalItem(event, meta, index, now, classification);
         const existingApproval = approvalItemsById.get(candidateApproval.id);
         if (!existingApproval) {
           items.push(candidateApproval);
@@ -978,7 +967,7 @@ function buildEventItems(
           mergeApprovalItem(existingApproval, candidateApproval, {
             // Keep approved/rejected card anchored to decision timing.
             // Prevent retroactive upward jumps from late-arriving start events.
-            preferCandidateSequence: hasDecision,
+            preferCandidateSequence: classification.approvalDecision !== undefined,
           });
         }
       }
@@ -1003,7 +992,8 @@ function buildEventItems(
       return;
     }
     if (event.type === 'plan') {
-      const approvalItem = buildApprovalItem(event, meta, index, now);
+      const classification = classifyTimelineEvent(event, meta);
+      const approvalItem = buildApprovalItem(event, meta, index, now, classification);
       const existing = approvalItemsById.get(approvalItem.id);
       if (!existing) {
         items.push(approvalItem);
@@ -1045,6 +1035,8 @@ function buildStreamingItem(
   return {
     id: `timeline-streaming-${params.activeRunId ?? 'orphan'}`,
     type: 'assistant-message',
+    intent: 'message',
+    lane: 'assistant',
     runId: params.activeRunId ?? null,
     sequence: null,
     timestamp: now(),

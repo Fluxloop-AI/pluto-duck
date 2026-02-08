@@ -435,3 +435,37 @@ test('dedupes final message event when persisted assistant message has null run_
   assert.equal(assistantItems[0].messageId, 'a-first-turn');
   assert.equal(assistantItems[0].content, 'first final answer');
 });
+
+test('approval-control tool event stays in control lane without creating tool row', async () => {
+  const { buildTimelineItemsFromEvents } = await import(reducerModuleUrl.href);
+
+  const runId = 'run-approval-control';
+  const items = buildTimelineItemsFromEvents({
+    events: [
+      {
+        type: 'tool',
+        subtype: 'start',
+        content: {
+          tool: 'write_file',
+          approval_required: true,
+          approval_id: 'approval-control-1',
+        },
+        metadata: { run_id: runId, sequence: 3, event_id: 'evt-approval-control-start' },
+        timestamp: '2026-02-09T00:50:03.000Z',
+      },
+    ],
+  });
+
+  const toolItems = items.filter((item: { type: string }) => item.type === 'tool');
+  const approvalItems = items.filter((item: { type: string }) => item.type === 'approval') as Array<{
+    intent?: string;
+    lane?: string;
+    decision?: string;
+  }>;
+
+  assert.equal(toolItems.length, 0);
+  assert.equal(approvalItems.length, 1);
+  assert.equal(approvalItems[0].intent, 'approval-control');
+  assert.equal(approvalItems[0].lane, 'control');
+  assert.equal(approvalItems[0].decision, 'pending');
+});

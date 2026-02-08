@@ -8,6 +8,7 @@ import type {
   ApprovalTimelineItem,
   AssistantMessageTimelineItem,
   ReasoningTimelineItem,
+  TimelineLane,
   TimelineItem,
   TimelineItemStatus,
   ToolTimelineItem,
@@ -118,6 +119,14 @@ interface NormalizedEvent {
 interface ClassifiedEvent extends NormalizedEvent {
   classification: TimelineEventClassification;
 }
+
+const TIMELINE_LANE_RANK: Record<TimelineLane, number> = {
+  user: 0,
+  reasoning: 1,
+  tool: 1,
+  assistant: 2,
+  control: 3,
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
@@ -249,11 +258,46 @@ function getConversationMessageSequence(item: TimelineItem): number | null {
   return item.sequence;
 }
 
-function getInRunTypeRank(item: TimelineItem): number {
-  if (item.type === 'user-message') return 0;
-  if (item.type === 'approval') return 3;
-  if (item.type === 'assistant-message') return 2;
-  return 1;
+function resolveTimelineLane(item: TimelineItem): TimelineLane {
+  if (item.lane) {
+    return item.lane;
+  }
+  if (item.type === 'user-message') return 'user';
+  if (item.type === 'reasoning') return 'reasoning';
+  if (item.type === 'tool') return 'tool';
+  if (item.type === 'assistant-message') return 'assistant';
+  return 'control';
+}
+
+function getTimelineLaneRank(item: TimelineItem): number {
+  return TIMELINE_LANE_RANK[resolveTimelineLane(item)];
+}
+
+function compareInRunSequence(a: TimelineItem, b: TimelineItem): number {
+  const sequenceA = a.sequence;
+  const sequenceB = b.sequence;
+  const hasComparableSequenceA = typeof sequenceA === 'number' && Number.isFinite(sequenceA);
+  const hasComparableSequenceB = typeof sequenceB === 'number' && Number.isFinite(sequenceB);
+
+  // Message seq is conversation-wide, event sequence is run-local.
+  // Sequence ordering is safe only within the same domain.
+  const sameDomain = isPersistedMessageTimelineItem(a) === isPersistedMessageTimelineItem(b);
+  if (sameDomain) {
+    const normalizedSequenceA = sequenceA ?? Number.MAX_SAFE_INTEGER;
+    const normalizedSequenceB = sequenceB ?? Number.MAX_SAFE_INTEGER;
+    if (normalizedSequenceA !== normalizedSequenceB) {
+      return normalizedSequenceA - normalizedSequenceB;
+    }
+    return 0;
+  }
+
+  const hasUserMessage = a.type === 'user-message' || b.type === 'user-message';
+  // Cross-domain sequence compare is only safe when no user-message is involved.
+  // User message sequence uses conversation-space seq and must keep rank precedence.
+  if (!hasUserMessage && hasComparableSequenceA && hasComparableSequenceB && sequenceA !== sequenceB) {
+    return sequenceA - sequenceB;
+  }
+  return 0;
 }
 
 function setMinSequence(map: Map<string, number>, key: string, value: number): void {
@@ -356,34 +400,21 @@ function compareTimelineItems(a: TimelineItem, b: TimelineItem, runOrderByRun: M
 
   const sameRun = (a.runId ?? null) === (b.runId ?? null);
   if (sameRun) {
-    const sequenceA = a.sequence;
-    const sequenceB = b.sequence;
-    const hasComparableSequenceA = typeof sequenceA === 'number' && Number.isFinite(sequenceA);
-    const hasComparableSequenceB = typeof sequenceB === 'number' && Number.isFinite(sequenceB);
-
-    // Message seq is conversation-wide, event sequence is run-local.
-    // Sequence ordering is safe only within the same domain.
-    const sameDomain =
-      isPersistedMessageTimelineItem(a) === isPersistedMessageTimelineItem(b);
-    if (sameDomain) {
-      const normalizedSequenceA = sequenceA ?? Number.MAX_SAFE_INTEGER;
-      const normalizedSequenceB = sequenceB ?? Number.MAX_SAFE_INTEGER;
-      if (normalizedSequenceA !== normalizedSequenceB) return normalizedSequenceA - normalizedSequenceB;
-      if (a.type === 'reasoning' && b.type === 'reasoning') {
-        const segmentOrderA = a.segmentOrder ?? 0;
-        const segmentOrderB = b.segmentOrder ?? 0;
-        if (segmentOrderA !== segmentOrderB) return segmentOrderA - segmentOrderB;
+    const sequenceOrder = compareInRunSequence(a, b);
+    if (sequenceOrder !== 0) {
+      return sequenceOrder;
+    }
+    const laneRankA = getTimelineLaneRank(a);
+    const laneRankB = getTimelineLaneRank(b);
+    if (laneRankA !== laneRankB) {
+      return laneRankA - laneRankB;
+    }
+    if (a.type === 'reasoning' && b.type === 'reasoning') {
+      const segmentOrderA = a.segmentOrder ?? 0;
+      const segmentOrderB = b.segmentOrder ?? 0;
+      if (segmentOrderA !== segmentOrderB) {
+        return segmentOrderA - segmentOrderB;
       }
-    } else {
-      const hasUserMessage = a.type === 'user-message' || b.type === 'user-message';
-      // Cross-domain sequence compare is only safe when no user-message is involved.
-      // User message sequence uses conversation-space seq and must keep rank precedence.
-      if (!hasUserMessage && hasComparableSequenceA && hasComparableSequenceB && sequenceA !== sequenceB) {
-        return sequenceA - sequenceB;
-      }
-      const rankA = getInRunTypeRank(a);
-      const rankB = getInRunTypeRank(b);
-      if (rankA !== rankB) return rankA - rankB;
     }
   }
 
@@ -391,12 +422,6 @@ function compareTimelineItems(a: TimelineItem, b: TimelineItem, runOrderByRun: M
   const tsB = Date.parse(b.timestamp);
   if (Number.isFinite(tsA) && Number.isFinite(tsB) && tsA !== tsB) {
     return tsA - tsB;
-  }
-
-  if (!sameRun) {
-    const sequenceA = a.sequence ?? Number.MAX_SAFE_INTEGER;
-    const sequenceB = b.sequence ?? Number.MAX_SAFE_INTEGER;
-    if (sequenceA !== sequenceB) return sequenceA - sequenceB;
   }
 
   return a.id.localeCompare(b.id);

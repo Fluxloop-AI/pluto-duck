@@ -441,24 +441,40 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
   }, [activeTabId, resetStream]);
 
   const openSessionInTab = useCallback((session: ChatSessionSummary) => {
-    let nextActiveTabId: string | null = null;
-    setTabs(prev => {
-      const plan = planOpenSessionInTab({
-        tabs: prev,
-        session,
-        maxTabs: MAX_TABS,
-        idFactory: () => crypto.randomUUID(),
-        now: () => Date.now(),
-      });
-      nextActiveTabId = plan.activeTabId;
-      return plan.tabs;
+    const plan = planOpenSessionInTab({
+      tabs,
+      session,
+      maxTabs: MAX_TABS,
+      idFactory: () => crypto.randomUUID(),
+      now: () => Date.now(),
     });
 
-    if (nextActiveTabId && nextActiveTabId !== activeTabId) {
-      resetStream();
-      setActiveTabId(nextActiveTabId);
+    const removedTabIds = tabs
+      .map(tab => tab.id)
+      .filter(tabId => !plan.tabs.some(nextTab => nextTab.id === tabId));
+    if (removedTabIds.length > 0) {
+      setTabStates(prev => {
+        const next: TabStateMap = { ...prev };
+        let changed = false;
+        for (const removedTabId of removedTabIds) {
+          if (removedTabId in next) {
+            delete next[removedTabId];
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+      for (const removedTabId of removedTabIds) {
+        detailRequestGuardRef.current.clearTab(removedTabId);
+      }
     }
-  }, [activeTabId, resetStream]);
+
+    setTabs(plan.tabs);
+    if (plan.activeTabId !== activeTabId) {
+      resetStream();
+      setActiveTabId(plan.activeTabId);
+    }
+  }, [activeTabId, resetStream, tabs]);
 
   const handleNewConversation = useCallback(() => {
     addTab();

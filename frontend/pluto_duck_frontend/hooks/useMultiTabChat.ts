@@ -16,6 +16,7 @@ import {
   buildChatTurns,
   computeStreamUiState,
   getNextOptimisticSeq,
+  type RunRenderState,
 } from './useMultiTabChat.timeline';
 export type { ChatEvent, ChatTurn, DetailMessage, GroupedToolEvent } from './useMultiTabChat.timeline';
 
@@ -33,6 +34,7 @@ interface TabChatState {
   detail: ChatSessionDetail | null;
   loading: boolean;
   activeRunId: string | null;
+  runRenderState: RunRenderState;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -146,6 +148,8 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
   const activeTab = tabs.find(t => t.id === activeTabId) || null;
   const activeTabState = activeTabId ? tabStatesRef.current.get(activeTabId) : null;
   const activeRunId = activeTabState?.activeRunId || null;
+  const runRenderState: RunRenderState =
+    activeTabState?.runRenderState ?? (activeRunId ? 'streaming' : 'persisted');
 
   const {
     events: streamEvents,
@@ -230,6 +234,7 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
           detail: currentState?.detail ?? null,
           loading: true,
           activeRunId: currentState?.activeRunId ?? null,
+          runRenderState: currentState?.runRenderState ?? (currentState?.activeRunId ? 'streaming' : 'persisted'),
         });
 
         const response = await fetchDetail(sessionId, true);
@@ -246,6 +251,7 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
             detail: response,
             loading: false,
             activeRunId: nextRunId,
+            runRenderState: nextRunId ? 'streaming' : 'persisted',
           });
         }
       } catch (error) {
@@ -255,6 +261,7 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
             detail: currentState?.detail ?? null,
             loading: false,
             activeRunId: currentState?.activeRunId ?? null,
+            runRenderState: currentState?.runRenderState ?? (currentState?.activeRunId ? 'streaming' : 'persisted'),
           });
         }
       }
@@ -278,13 +285,13 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
       buildChatTurns({
         detail: activeTabState?.detail,
         streamEvents,
-        isStreaming,
+        runRenderState,
         activeRunId,
         chunkText,
         chunkIsFinal,
         chunkRunId,
       }),
-    [activeTabState?.detail, streamEvents, isStreaming, activeRunId, chunkText, chunkIsFinal, chunkRunId],
+    [activeTabState?.detail, streamEvents, runRenderState, activeRunId, chunkText, chunkIsFinal, chunkRunId],
   );
 
   // Convert turns to flat render items for independent rendering
@@ -316,9 +323,18 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
     if (activeRunId !== lastRunIdRef.current) {
       lastRunIdRef.current = activeRunId;
       lastCompletedRunRef.current = null;
+      if (activeTabId) {
+        const currentState = tabStatesRef.current.get(activeTabId);
+        if (currentState) {
+          tabStatesRef.current.set(activeTabId, {
+            ...currentState,
+            runRenderState: 'streaming',
+          });
+        }
+      }
       resetStream();
     }
-  }, [activeRunId, resetStream]);
+  }, [activeRunId, activeTabId, resetStream]);
 
   // Handle run completion
   useEffect(() => {
@@ -334,6 +350,15 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
         return;
       }
       lastCompletedRunRef.current = activeRunId;
+      if (activeTabId) {
+        const currentState = tabStatesRef.current.get(activeTabId);
+        if (currentState) {
+          tabStatesRef.current.set(activeTabId, {
+            ...currentState,
+            runRenderState: 'settling',
+          });
+        }
+      }
       console.info('[MultiTabChat] Run completed, refreshing session detail');
       
       void (async () => {
@@ -352,6 +377,7 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
               detail: response,
               loading: false,
               activeRunId: nextRunId,
+              runRenderState: nextRunId ? 'streaming' : 'persisted',
             });
           }
           
@@ -463,6 +489,7 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
           detail: null,
           loading: false,
           activeRunId: null,
+          runRenderState: 'persisted',
         });
       } else {
         currentTab = tabs.find(t => t.id === tabId);
@@ -512,6 +539,7 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
             },
             loading: false,
             activeRunId: null,
+            runRenderState: 'persisted',
           });
           
           // Start loading indicator
@@ -540,6 +568,7 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
             detail: placeholderState?.detail ?? null,
             loading: false,
             activeRunId: response.run_id ?? null,
+            runRenderState: response.run_id ? 'streaming' : 'persisted',
           });
 
           setIsCreatingConversation(false);
@@ -568,6 +597,7 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
               ...currentState.detail,
               messages: [...currentState.detail.messages, tempUserMessage],
             },
+            runRenderState: currentState.activeRunId ? currentState.runRenderState : 'persisted',
           });
         }
         
@@ -594,6 +624,7 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
           } : null,
           loading: false,
           activeRunId: nextRunId,
+          runRenderState: nextRunId ? 'streaming' : 'persisted',
         });
         
         void loadSessions();
@@ -716,6 +747,7 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
     lastAssistantMessageId,
     loading: activeTabState?.loading || false,
     isStreaming,
+    runRenderState,
     status,
     
     // Handlers

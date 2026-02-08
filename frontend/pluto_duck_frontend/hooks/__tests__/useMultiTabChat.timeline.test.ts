@@ -49,7 +49,7 @@ test('SSE-like timeline input renders in golden order', async () => {
         timestamp: '2026-02-08T13:00:04.000Z',
       },
     ],
-    isStreaming: true,
+    runRenderState: 'streaming',
     activeRunId: runId,
     chunkText: 'partial answer',
     chunkIsFinal: false,
@@ -111,7 +111,7 @@ test('optimistic sequence and streaming completion transitions are deterministic
       events: [],
     },
     streamEvents: runEndEvents,
-    isStreaming: streamUiState.isStreaming,
+    runRenderState: 'persisted',
     activeRunId: 'run-end',
     chunkText: '',
     chunkIsFinal: true,
@@ -152,7 +152,7 @@ test('buildChatTurns deduplicates stored and streaming events by metadata.event_
       events: [duplicateEvent],
     },
     streamEvents: [duplicateEvent],
-    isStreaming: true,
+    runRenderState: 'streaming',
     activeRunId: runId,
     chunkText: '',
     chunkIsFinal: false,
@@ -162,4 +162,52 @@ test('buildChatTurns deduplicates stored and streaming events by metadata.event_
   assert.equal(turns.length, 1);
   assert.equal(turns[0].events.length, 1);
   assert.equal((turns[0].events[0].metadata as { event_id?: string } | null)?.event_id, 'evt-dup-1');
+});
+
+test('buildChatTurns keeps stream snapshot during settling transition', async () => {
+  const { buildChatTurns } = await import(timelineModuleUrl.href);
+
+  const runId = 'run-settling-snapshot';
+  const turns = buildChatTurns({
+    detail: {
+      id: 'session-settling',
+      status: 'active',
+      run_id: runId,
+      messages: [
+        {
+          id: 'msg-user-settling',
+          role: 'user',
+          content: { text: 'question' },
+          created_at: '2026-02-09T01:00:01.000Z',
+          seq: 1,
+          run_id: runId,
+        },
+      ],
+      events: [],
+    },
+    streamEvents: [
+      {
+        type: 'reasoning',
+        subtype: 'chunk',
+        content: { reason: 'thinking...' },
+        metadata: { run_id: runId, sequence: 2, event_id: 'evt-settle-r1', phase: 'llm_reasoning' },
+        timestamp: '2026-02-09T01:00:02.000Z',
+      },
+      {
+        type: 'message',
+        subtype: 'final',
+        content: { text: 'final answer from event' },
+        metadata: { run_id: runId, sequence: 3, event_id: 'evt-settle-m1' },
+        timestamp: '2026-02-09T01:00:03.000Z',
+      },
+    ],
+    runRenderState: 'settling',
+    activeRunId: runId,
+    chunkText: '',
+    chunkIsFinal: true,
+    chunkRunId: runId,
+  });
+
+  assert.equal(turns.length, 1);
+  assert.equal(turns[0].events.length, 2);
 });

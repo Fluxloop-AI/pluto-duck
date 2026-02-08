@@ -216,7 +216,7 @@ export function flattenTurnsToRenderItems(turns: ChatTurn[]): ChatRenderItem[] {
   try {
     const timelineItems = buildTimelineItemsFromTurns({
       turns: toTimelineTurns(turns),
-      includeMessageEvents: false,
+      includeMessageEvents: true,
     });
     const renderItems = toRenderItemsFromTimeline(timelineItems);
     if (renderItems.length > 0 || turns.length === 0) {

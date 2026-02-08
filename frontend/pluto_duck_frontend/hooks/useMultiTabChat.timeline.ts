@@ -44,6 +44,8 @@ export interface ChatTurn {
   isActive: boolean;
 }
 
+export type RunRenderState = 'streaming' | 'settling' | 'persisted';
+
 export function getMetadataRunId(metadata: ChatEvent['metadata']): string | null {
   if (!metadata) return null;
   const runId = metadata.run_id;
@@ -98,17 +100,21 @@ export function computeStreamUiState(
 export interface BuildChatTurnsParams {
   detail: ChatSessionDetail | null | undefined;
   streamEvents: AgentEventAny[];
-  isStreaming: boolean;
+  runRenderState: RunRenderState;
   activeRunId: string | null;
   chunkText: string;
   chunkIsFinal: boolean;
   chunkRunId: string | null;
 }
 
+function shouldIncludeStreamSnapshot(runRenderState: RunRenderState): boolean {
+  return runRenderState === 'streaming' || runRenderState === 'settling';
+}
+
 export function buildChatTurns({
   detail,
   streamEvents,
-  isStreaming,
+  runRenderState,
   activeRunId,
   chunkText,
   chunkIsFinal,
@@ -146,7 +152,8 @@ export function buildChatTurns({
 
   storedEvents.forEach(addEvent);
 
-  if (isStreaming) {
+  const includeStreamSnapshot = shouldIncludeStreamSnapshot(runRenderState);
+  if (includeStreamSnapshot) {
     streamEvents.forEach(event => addEvent(toChatEvent(event)));
   }
 
@@ -209,7 +216,7 @@ export function buildChatTurns({
   });
 
   const streamingRunId = chunkRunId ?? activeRunId;
-  if (isStreaming && streamingRunId && !runs.has(streamingRunId)) {
+  if (includeStreamSnapshot && streamingRunId && !runs.has(streamingRunId)) {
     runs.set(streamingRunId, {
       key: `run-${streamingRunId}`,
       runId: streamingRunId,
@@ -229,8 +236,8 @@ export function buildChatTurns({
   runs.forEach(turn => {
     if (!turn.runId) return;
     turn.events = [...(eventsByRunId.get(turn.runId) ?? [])];
-    turn.isActive = isStreaming && turn.runId === activeRunId;
-    if (streamingRunId && turn.runId === streamingRunId && chunkText && turn.assistantMessages.length === 0) {
+    turn.isActive = includeStreamSnapshot && turn.runId === activeRunId;
+    if (includeStreamSnapshot && streamingRunId && turn.runId === streamingRunId && chunkText && turn.assistantMessages.length === 0) {
       turn.streamingAssistantText = chunkText;
       turn.streamingAssistantFinal = chunkIsFinal;
     }

@@ -1224,3 +1224,51 @@ test('tool approval_required stream events render actionable approval item', asy
   assert.equal(approvalItems[0].decision, 'approved');
   assert.equal(items.filter((item: { type: string }) => item.type === 'tool').length, 0);
 });
+
+test('same-run persisted assistant does not leap ahead of lower-sequence control items', async () => {
+  const { buildTimelineItemsFromEvents } = await import(adapterModuleUrl.href);
+
+  const runId = 'run-persisted-order-stability';
+  const items = buildTimelineItemsFromEvents({
+    events: [
+      {
+        type: 'tool',
+        subtype: 'start',
+        content: { tool: 'edit_file', approval_required: true, approval_id: 'approval-stable' },
+        metadata: { run_id: runId, sequence: 8, event_id: 'evt-tool-start', tool_call_id: 'tc-stable' },
+        timestamp: '2026-02-12T09:00:08.000Z',
+      },
+      {
+        type: 'message',
+        subtype: 'final',
+        content: { text: 'done' },
+        metadata: { run_id: runId, sequence: 10, event_id: 'evt-final' },
+        timestamp: '2026-02-12T09:00:10.000Z',
+      },
+    ],
+    messages: [
+      {
+        id: 'u-stable',
+        role: 'user',
+        content: { text: 'save memory' },
+        created_at: '2026-02-12T09:00:01.000Z',
+        seq: 1,
+        run_id: runId,
+      },
+      {
+        id: 'a-stable',
+        role: 'assistant',
+        content: { text: 'done' },
+        created_at: '2026-02-12T09:00:11.000Z',
+        seq: 2,
+        run_id: runId,
+      },
+    ],
+  });
+
+  assert.deepEqual(items.map((item: { type: string }) => item.type), [
+    'user-message',
+    'approval',
+    'assistant-message',
+  ]);
+});

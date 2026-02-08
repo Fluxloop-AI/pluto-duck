@@ -379,20 +379,31 @@ function compareTimelineItems(a: TimelineItem, b: TimelineItem, runOrderByRun: M
 
   const sameRun = (a.runId ?? null) === (b.runId ?? null);
   if (sameRun) {
+    const sequenceA = a.sequence;
+    const sequenceB = b.sequence;
+    const hasComparableSequenceA = typeof sequenceA === 'number' && Number.isFinite(sequenceA);
+    const hasComparableSequenceB = typeof sequenceB === 'number' && Number.isFinite(sequenceB);
+
     // Message seq is conversation-wide, event sequence is run-local.
     // Sequence ordering is safe only within the same domain.
     const sameDomain =
       isPersistedMessageTimelineItem(a) === isPersistedMessageTimelineItem(b);
     if (sameDomain) {
-      const sequenceA = a.sequence ?? Number.MAX_SAFE_INTEGER;
-      const sequenceB = b.sequence ?? Number.MAX_SAFE_INTEGER;
-      if (sequenceA !== sequenceB) return sequenceA - sequenceB;
+      const normalizedSequenceA = sequenceA ?? Number.MAX_SAFE_INTEGER;
+      const normalizedSequenceB = sequenceB ?? Number.MAX_SAFE_INTEGER;
+      if (normalizedSequenceA !== normalizedSequenceB) return normalizedSequenceA - normalizedSequenceB;
       if (a.type === 'reasoning' && b.type === 'reasoning') {
         const segmentOrderA = a.segmentOrder ?? 0;
         const segmentOrderB = b.segmentOrder ?? 0;
         if (segmentOrderA !== segmentOrderB) return segmentOrderA - segmentOrderB;
       }
     } else {
+      const hasUserMessage = a.type === 'user-message' || b.type === 'user-message';
+      // Cross-domain sequence compare is only safe when no user-message is involved.
+      // User message sequence uses conversation-space seq and must keep rank precedence.
+      if (!hasUserMessage && hasComparableSequenceA && hasComparableSequenceB && sequenceA !== sequenceB) {
+        return sequenceA - sequenceB;
+      }
       const rankA = getInRunTypeRank(a);
       const rankB = getInRunTypeRank(b);
       if (rankA !== rankB) return rankA - rankB;

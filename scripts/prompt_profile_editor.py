@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import tempfile
@@ -118,6 +119,33 @@ class BlockEditorSpec:
     rel_path: str
     editable: bool
     source: str
+
+
+def _notes_path(profile_id: str, profiles_root: Path) -> Path:
+    """Return the JSON file path for block notes of a profile."""
+    return profiles_root / f"{profile_id}_notes.json"
+
+
+def _load_notes(profile_id: str, profiles_root: Path) -> dict[str, str]:
+    """Load block notes from JSON. Returns {block_name: note_text}."""
+    path = _notes_path(profile_id, profiles_root)
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return {k: str(v) for k, v in data.items()} if isinstance(data, dict) else {}
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_notes(profile_id: str, profiles_root: Path, notes: dict[str, str]) -> None:
+    """Persist non-empty block notes to JSON."""
+    path = _notes_path(profile_id, profiles_root)
+    clean = {k: v for k, v in notes.items() if v.strip()}
+    if clean:
+        path.write_text(json.dumps(clean, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    elif path.exists():
+        path.unlink()
 
 
 def _list_profile_ids(profiles_root: Path) -> list[str]:
@@ -447,10 +475,15 @@ def _render_block_editors(
     profiles_root: Path,
     block_specs: list[BlockEditorSpec],
     resolved_text: dict[str, str],
-) -> dict[str, str]:
-    """Render block editors and return declared path -> edited text."""
+    notes: dict[str, str],
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Render block editors with side-column notes.
+
+    Returns (edited_by_rel_path, edited_notes).
+    """
 
     edited_by_rel_path: dict[str, str] = {}
+    edited_notes: dict[str, str] = {}
 
     for spec in block_specs:
         st.markdown(f"#### `{spec.block}`")
@@ -465,8 +498,10 @@ def _render_block_editors(
             except Exception:
                 pass
 
+        note_default = notes.get(spec.block, "")
+
         if spec.block == "memory_guide" and spec.editable:
-            col_edit, col_preview = st.columns([1, 1])
+            col_edit, col_preview, col_note = st.columns([3, 3, 2])
             with col_edit:
                 st.markdown("**Edit**")
                 block_text = st.text_area(
@@ -488,35 +523,56 @@ def _render_block_editors(
                     rel_path=spec.rel_path,
                     template=block_text,
                 )
+            with col_note:
+                edited_notes[spec.block] = st.text_area(
+                    label="memo",
+                    value=note_default,
+                    height=520,
+                    key=f"note_{profile_id}_{spec.block}",
+                    label_visibility="hidden",
+                    placeholder="메모를 입력하세요...",
+                )
         else:
-            block_text = st.text_area(
-                label=f"{spec.block} text",
-                value=default_text,
-                height=420,
-                disabled=not spec.editable,
-                key=_editor_state_key(
-                    profile_id=profile_id,
-                    block=spec.block,
-                    rel_path=spec.rel_path,
-                ),
-            )
+            col_edit, col_note = st.columns([3, 2])
+            with col_edit:
+                block_text = st.text_area(
+                    label=f"{spec.block} text",
+                    value=default_text,
+                    height=420,
+                    disabled=not spec.editable,
+                    key=_editor_state_key(
+                        profile_id=profile_id,
+                        block=spec.block,
+                        rel_path=spec.rel_path,
+                    ),
+                )
 
-            if spec.editable:
-                edited_by_rel_path[spec.rel_path] = block_text
-            else:
-                st.info("Inherited block (read-only). Add override in YAML to edit here.")
+                if spec.editable:
+                    edited_by_rel_path[spec.rel_path] = block_text
+                else:
+                    st.info("Inherited block (read-only). Add override in YAML to edit here.")
 
-            if spec.block == "memory_guide":
-                _render_memory_guide_feedback(
-                    profile_id=profile_id,
-                    rel_path=spec.rel_path,
-                    template=block_text,
+                if spec.block == "memory_guide":
+                    _render_memory_guide_feedback(
+                        profile_id=profile_id,
+                        rel_path=spec.rel_path,
+                        template=block_text,
+                    )
+
+            with col_note:
+                edited_notes[spec.block] = st.text_area(
+                    label="memo",
+                    value=note_default,
+                    height=420,
+                    key=f"note_{profile_id}_{spec.block}",
+                    label_visibility="hidden",
+                    placeholder="메모를 입력하세요...",
                 )
 
         if spec.block in {"runtime", "skills_guide"} and spec.editable and not block_text.strip():
             st.warning(f"{spec.block} is empty")
 
-    return edited_by_rel_path
+    return edited_by_rel_path, edited_notes
 
 
 def _write_profile_files(
@@ -787,6 +843,10 @@ def _delete_profile_materials(profile_id: str, profiles_root: Path) -> None:
     if yaml_path.exists():
         yaml_path.unlink()
 
+    notes_file = _notes_path(profile_id, profiles_root)
+    if notes_file.exists():
+        notes_file.unlink()
+
     profile_dir = profiles_root / profile_id
     if profile_dir.exists() and profile_dir.is_dir():
         shutil.rmtree(profile_dir)
@@ -988,12 +1048,15 @@ def _render_editor_mode(*, selected_profile: str, profiles_root: Path) -> None:
         compose_order=edited_compose_order,
     )
 
+    current_notes = _load_notes(selected_profile, profiles_root)
+
     st.subheader("Prompt Blocks (edit)")
-    edited_block_text = _render_block_editors(
+    edited_block_text, edited_notes = _render_block_editors(
         profile_id=selected_profile,
         profiles_root=profiles_root,
         block_specs=block_specs,
         resolved_text=resolved_text,
+        notes=current_notes,
     )
 
     save_disabled = bool(validation.errors)
@@ -1011,6 +1074,7 @@ def _render_editor_mode(*, selected_profile: str, profiles_root: Path) -> None:
                 edited_block_text=edited_block_text,
                 profiles_root=profiles_root,
             )
+            _save_notes(selected_profile, profiles_root, edited_notes)
             clear_experiment_profile_cache()
             load_experiment_profile(selected_profile, profiles_root=profiles_root)
         except Exception as exc:

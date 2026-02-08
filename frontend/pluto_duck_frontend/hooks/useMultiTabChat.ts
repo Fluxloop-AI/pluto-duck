@@ -10,9 +10,14 @@ import {
   type ChatSessionSummary,
 } from '../lib/chatApi';
 import { useAgentStream } from './useAgentStream';
-import type { AgentEventAny } from '../types/agent';
 import { flattenTurnsToRenderItems } from '../lib/chatRenderUtils';
 import type { ChatRenderItem } from '../types/chatRenderItem';
+import {
+  buildChatTurns,
+  computeStreamUiState,
+  getNextOptimisticSeq,
+} from './useMultiTabChat.timeline';
+export type { ChatEvent, ChatTurn, DetailMessage, GroupedToolEvent } from './useMultiTabChat.timeline';
 
 const MAX_PREVIEW_LENGTH = 160;
 const MAX_TABS = 10;
@@ -24,49 +29,6 @@ export interface ChatTab {
   createdAt: number;
 }
 
-export interface DetailMessage {
-  id: string;
-  role: string;
-  content: any;
-  created_at: string;
-  seq: number;
-  run_id?: string | null;
-}
-
-export interface ChatEvent {
-  type: string;
-  subtype?: string;
-  content: unknown;
-  metadata?: Record<string, unknown> | null;
-  timestamp?: string;
-}
-
-export interface GroupedToolEvent {
-  toolName: string;
-  state: 'pending' | 'completed' | 'error';
-  input?: unknown;
-  output?: unknown;
-  error?: string;
-  startEvent?: ChatEvent;
-  endEvent?: ChatEvent;
-}
-
-export interface ChatTurn {
-  key: string;
-  runId: string | null;
-  seq: number;
-  userMessages: DetailMessage[];
-  assistantMessages: DetailMessage[];
-  streamingAssistantText?: string | null;
-  streamingAssistantFinal?: boolean;
-  otherMessages: DetailMessage[];
-  events: ChatEvent[];
-  reasoningText: string;
-  toolEvents: ChatEvent[];
-  groupedToolEvents: GroupedToolEvent[];
-  isActive: boolean;
-}
-
 interface TabChatState {
   detail: ChatSessionDetail | null;
   loading: boolean;
@@ -75,25 +37,6 @@ interface TabChatState {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
-}
-
-function getMetadataRunId(metadata: ChatEvent['metadata']): string | null {
-  if (!metadata) return null;
-  const runId = metadata.run_id;
-  return typeof runId === 'string' && runId.trim() ? runId : null;
-}
-
-function getNextOptimisticSeq(messages: Array<{ seq: number }> | undefined): number {
-  if (!messages || messages.length === 0) {
-    return 1;
-  }
-  let maxSeq = 0;
-  for (const message of messages) {
-    if (typeof message.seq === 'number' && Number.isFinite(message.seq) && message.seq > maxSeq) {
-      maxSeq = message.seq;
-    }
-  }
-  return maxSeq + 1;
 }
 
 function extractTextFromUnknown(value: unknown): string | null {
@@ -324,157 +267,25 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
     };
   }, [activeTab?.id, activeTab?.sessionId, fetchDetail, updateSessionPreview]);
 
-  const runHasEndedStream = useMemo(
-    () =>
-      streamEvents.some(event =>
-        (event.type === 'run' && event.subtype === 'end') ||
-        (event.type === 'message' && event.subtype === 'final'),
-      ),
-    [streamEvents],
+  const { isStreaming, status } = useMemo(
+    () => computeStreamUiState(streamStatus, streamEvents),
+    [streamStatus, streamEvents],
   );
 
-  const isStreaming = (streamStatus === 'streaming' || streamStatus === 'connecting') && !runHasEndedStream;
-  const status: 'ready' | 'streaming' | 'error' = streamStatus === 'error' ? 'error' : isStreaming ? 'streaming' : 'ready';
-
   // Build turns from messages and events
-  const turns = useMemo<ChatTurn[]>(() => {
-    const detail = activeTabState?.detail;
-    if (!detail) return [];
-
-    const messages = (detail.messages as DetailMessage[]) || [];
-    
-    // Normalize stored events
-    const storedEvents: ChatEvent[] = (detail.events || []).map(evt => ({
-      type: evt.type,
-      subtype: evt.subtype,
-      content: evt.content,
-      metadata: evt.metadata ?? null,
-      timestamp: evt.timestamp,
-    }));
-
-    // Build event map by run_id
-    const eventsByRunId = new Map<string, ChatEvent[]>();
-
-    const addEvent = (event: ChatEvent) => {
-      const runId = getMetadataRunId(event.metadata);
-      if (!runId) return;
-      if (!eventsByRunId.has(runId)) {
-        eventsByRunId.set(runId, []);
-      }
-      eventsByRunId.get(runId)!.push(event);
-    };
-
-    storedEvents.forEach(addEvent);
-
-    // Add live stream events if streaming
-    if (isStreaming) {
-      streamEvents.forEach(event => {
-        const normalized: ChatEvent = {
-          type: event.type,
-          subtype: event.subtype,
-          content: event.content,
-          metadata: event.metadata ?? null,
-          timestamp: event.timestamp,
-        };
-        addEvent(normalized);
-      });
-    }
-
-    // Group messages by run_id
-    const runs = new Map<string, ChatTurn>();
-    const result: ChatTurn[] = [];
-
-    const ensureRunTurn = (runId: string, seq: number) => {
-      let turn = runs.get(runId);
-      if (!turn) {
-        turn = {
-          key: `run-${runId}`,
-          runId,
-          seq,
-          userMessages: [],
-          assistantMessages: [],
-          otherMessages: [],
-          events: [],
-          reasoningText: '',
-          toolEvents: [],
-          groupedToolEvents: [],
-          isActive: false,
-        };
-        runs.set(runId, turn);
-        result.push(turn);
-      } else if (seq < turn.seq) {
-        turn.seq = seq;
-      }
-      return turn;
-    };
-
-    messages.forEach(message => {
-      const seq = typeof message.seq === 'number' ? message.seq : Number.MAX_SAFE_INTEGER;
-      const runId = message.run_id ?? null;
-
-      if (runId) {
-        const turn = ensureRunTurn(runId, seq);
-        if (message.role === 'user') {
-          turn.userMessages.push(message);
-        } else if (message.role === 'assistant') {
-          turn.assistantMessages.push(message);
-        } else {
-          turn.otherMessages.push(message);
-        }
-      } else {
-        // Legacy message without run_id
-        result.push({
-          key: `message-${message.id}`,
-          runId: null,
-          seq,
-          userMessages: message.role === 'user' ? [message] : [],
-          assistantMessages: message.role === 'assistant' ? [message] : [],
-          otherMessages: message.role !== 'user' && message.role !== 'assistant' ? [message] : [],
-          events: [],
-          reasoningText: '',
-          toolEvents: [],
-          groupedToolEvents: [],
-          isActive: false,
-        });
-      }
-    });
-
-    const streamingRunId = chunkRunId ?? activeRunId;
-
-    // Add empty turn for active streaming run if not in messages yet
-    if (isStreaming && streamingRunId && !runs.has(streamingRunId)) {
-      runs.set(streamingRunId, {
-        key: `run-${streamingRunId}`,
-        runId: streamingRunId,
-        seq: Number.MAX_SAFE_INTEGER,
-        userMessages: [],
-        assistantMessages: [],
-        otherMessages: [],
-        events: [],
-        reasoningText: '',
-        toolEvents: [],
-        groupedToolEvents: [],
-        isActive: streamingRunId === activeRunId,
-      });
-      result.push(runs.get(streamingRunId)!);
-    }
-
-    // Attach events to each run; timeline adapter handles transformation.
-    runs.forEach(turn => {
-      if (turn.runId) {
-        turn.events = [...(eventsByRunId.get(turn.runId) ?? [])];
-        turn.isActive = isStreaming && turn.runId === activeRunId;
-
-        if (streamingRunId && turn.runId === streamingRunId && chunkText && turn.assistantMessages.length === 0) {
-          turn.streamingAssistantText = chunkText;
-          turn.streamingAssistantFinal = chunkIsFinal;
-        }
-      }
-    });
-
-    result.sort((a, b) => a.seq - b.seq);
-    return result;
-  }, [activeTabState?.detail, streamEvents, isStreaming, activeRunId, chunkText, chunkIsFinal, chunkRunId]);
+  const turns = useMemo(
+    () =>
+      buildChatTurns({
+        detail: activeTabState?.detail,
+        streamEvents,
+        isStreaming,
+        activeRunId,
+        chunkText,
+        chunkIsFinal,
+        chunkRunId,
+      }),
+    [activeTabState?.detail, streamEvents, isStreaming, activeRunId, chunkText, chunkIsFinal, chunkRunId],
+  );
 
   // Convert turns to flat render items for independent rendering
   const renderItems = useMemo<ChatRenderItem[]>(

@@ -510,32 +510,54 @@ function buildMessageItems(
   return items;
 }
 
-function buildReasoningItem(
+type ReasoningPhase = 'llm_start' | 'llm_reasoning' | 'llm_end' | 'llm_usage' | 'unknown';
+
+function resolveReasoningPhase(event: TimelineEventEnvelope, meta: CanonicalEventMeta): ReasoningPhase {
+  const content = isRecord(event.content) ? event.content : null;
+  const contentPhase = content ? toOptionalString(content.phase) : undefined;
+  const phase = (meta.phase ?? contentPhase ?? '').trim();
+  if (phase === 'llm_start') return 'llm_start';
+  if (phase === 'llm_reasoning') return 'llm_reasoning';
+  if (phase === 'llm_end') return 'llm_end';
+  if (phase === 'llm_usage') return 'llm_usage';
+  return 'unknown';
+}
+
+function getReasoningKey(meta: CanonicalEventMeta, index: number): string {
+  if (meta.runId) return `run:${meta.runId}`;
+  if (meta.eventId) return `event:${meta.eventId}`;
+  return `index:${index}`;
+}
+
+function mergeReasoningText(existing: string, incoming: string): string {
+  const current = existing.trim();
+  const next = incoming.trim();
+  if (!next) return current;
+  if (!current) return next;
+  if (next === current) return current;
+  if (next.startsWith(current)) return next;
+  if (current.startsWith(next)) return current;
+  if (current.includes(next)) return current;
+  if (next.includes(current)) return next;
+  return `${current}\n${next}`;
+}
+
+function createReasoningItem(
   event: TimelineEventEnvelope,
   meta: CanonicalEventMeta,
   index: number,
   now: () => string,
-  activeRunId?: string | null,
-): ReasoningTimelineItem | null {
-  const rawStatus = resolveStatus(event.subtype);
-  const runId = meta.runId ?? null;
-  const isActiveRun = Boolean(activeRunId && runId && runId === activeRunId);
-  const status: TimelineItemStatus = rawStatus === 'streaming' && !isActiveRun ? 'complete' : rawStatus;
-  const content = extractReasoningText(event.content);
-  const isStreaming = status === 'streaming';
-  if (!content && !isStreaming) {
-    return null;
-  }
+): ReasoningTimelineItem {
   return {
     id: meta.eventId ?? `timeline-reasoning-${index}`,
     type: 'reasoning',
-    runId,
+    runId: meta.runId ?? null,
     sequence: meta.sequence ?? null,
     timestamp: event.timestamp ?? now(),
-    status,
-    isStreaming,
-    isPartial: event.subtype === 'chunk',
-    content,
+    status: 'pending',
+    isStreaming: false,
+    isPartial: false,
+    content: '',
     phase: meta.phase,
     eventId: meta.eventId,
     parentEventId: meta.parentEventId,
@@ -686,24 +708,59 @@ function buildEventItems(
       .map(message => message.run_id as string),
   );
   const items: TimelineItem[] = [];
+  const reasoningByKey = new Map<string, ReasoningTimelineItem>();
   normalizedEvents.forEach(({ event, meta, index }) => {
     if (event.type === 'reasoning') {
-      const reasoningItem = buildReasoningItem(event, meta, index, now, params.activeRunId);
-      if (reasoningItem) {
-        if (reasoningItem.runId) {
-          const assistantFinalText = assistantFinalTextByRun.get(reasoningItem.runId);
-          if (assistantFinalText) {
-            const normalizedReasoningText = normalizeComparableText(reasoningItem.content);
-            if (normalizedReasoningText && normalizedReasoningText === assistantFinalText) {
-              return;
-            }
-            if (!normalizedReasoningText && reasoningItem.isStreaming) {
-              return;
-            }
-          }
-        }
+      const key = getReasoningKey(meta, index);
+      const runId = meta.runId ?? null;
+      const isActiveRun = Boolean(params.activeRunId && runId && runId === params.activeRunId);
+      let reasoningItem = reasoningByKey.get(key);
+      if (!reasoningItem) {
+        reasoningItem = createReasoningItem(event, meta, index, now);
+        reasoningByKey.set(key, reasoningItem);
         items.push(reasoningItem);
       }
+
+      if (typeof meta.sequence === 'number') {
+        if (reasoningItem.sequence === null || meta.sequence < reasoningItem.sequence) {
+          reasoningItem.sequence = meta.sequence;
+        }
+      }
+      const phase = resolveReasoningPhase(event, meta);
+      reasoningItem.phase = phase === 'unknown' ? meta.phase : phase;
+      if (meta.parentEventId) reasoningItem.parentEventId = meta.parentEventId;
+      if (meta.eventId) reasoningItem.eventId = meta.eventId;
+      if (phase === 'llm_usage') {
+        return;
+      }
+      if (phase === 'llm_start') {
+        reasoningItem.status = isActiveRun ? 'streaming' : 'complete';
+        reasoningItem.isStreaming = isActiveRun;
+        reasoningItem.isPartial = false;
+        return;
+      }
+      if (phase === 'llm_reasoning') {
+        const reasoningText = extractReasoningText(event.content);
+        reasoningItem.content = mergeReasoningText(reasoningItem.content, reasoningText);
+        reasoningItem.status = isActiveRun ? 'streaming' : 'complete';
+        reasoningItem.isStreaming = isActiveRun;
+        reasoningItem.isPartial = event.subtype === 'chunk';
+        return;
+      }
+      if (phase === 'llm_end') {
+        reasoningItem.status = 'complete';
+        reasoningItem.isStreaming = false;
+        reasoningItem.isPartial = false;
+        return;
+      }
+
+      const reasoningText = extractReasoningText(event.content);
+      reasoningItem.content = mergeReasoningText(reasoningItem.content, reasoningText);
+      const rawStatus = resolveStatus(event.subtype);
+      const status: TimelineItemStatus = rawStatus === 'streaming' && !isActiveRun ? 'complete' : rawStatus;
+      reasoningItem.status = status;
+      reasoningItem.isStreaming = status === 'streaming';
+      reasoningItem.isPartial = event.subtype === 'chunk';
       return;
     }
     if (event.type === 'tool') {
@@ -726,18 +783,24 @@ function buildEventItems(
       items.push(buildApprovalItem(event, meta, index, now));
     }
   });
-  const latestStreamingReasoningByRun = new Map<string, number>();
-  items.forEach((item, index) => {
-    if (item.type !== 'reasoning' || !item.isStreaming || !item.runId) return;
-    latestStreamingReasoningByRun.set(item.runId, index);
+  return items.filter(item => {
+    if (item.type !== 'reasoning') {
+      return true;
+    }
+    if (item.runId) {
+      const assistantFinalText = assistantFinalTextByRun.get(item.runId);
+      if (assistantFinalText) {
+        const normalizedReasoningText = normalizeComparableText(item.content);
+        if (normalizedReasoningText && normalizedReasoningText === assistantFinalText) {
+          return false;
+        }
+        if (!normalizedReasoningText && item.isStreaming) {
+          return false;
+        }
+      }
+    }
+    return item.isStreaming || item.content.trim().length > 0;
   });
-  items.forEach((item, index) => {
-    if (item.type !== 'reasoning' || !item.isStreaming || !item.runId) return;
-    if (latestStreamingReasoningByRun.get(item.runId) === index) return;
-    item.isStreaming = false;
-    item.status = 'complete';
-  });
-  return items.filter(item => item.type !== 'reasoning' || item.isStreaming || item.content.trim().length > 0);
 }
 
 function buildStreamingItem(params: BuildTimelineItemsFromEventsParams, now: () => string): AssistantMessageTimelineItem | null {

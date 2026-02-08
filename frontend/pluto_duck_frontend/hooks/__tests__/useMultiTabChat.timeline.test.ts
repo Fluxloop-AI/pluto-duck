@@ -70,7 +70,6 @@ test('SSE-like timeline input renders in golden order', async () => {
     'user-message',
     'reasoning',
     'tool',
-    'reasoning',
     'assistant-message',
   ]);
 });

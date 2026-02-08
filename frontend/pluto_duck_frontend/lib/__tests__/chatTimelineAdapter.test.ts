@@ -61,7 +61,6 @@ test('interleaved reasoning/tool events keep sequential order', async () => {
     'user-message',
     'reasoning',
     'tool',
-    'reasoning',
     'assistant-message',
   ]);
 

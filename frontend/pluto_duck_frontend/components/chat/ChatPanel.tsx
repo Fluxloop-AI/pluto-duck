@@ -31,6 +31,7 @@ import { ALL_MODEL_OPTIONS } from '../../constants/models';
 import type { AssetEmbedConfig } from '../editor/nodes/AssetEmbedNode';
 import { type ChatLoadingMode } from '../../lib/chatLoadingState';
 import { SessionSkeleton } from './SessionSkeleton';
+import { canSubmitChatPrompt } from './chatSubmitEligibility';
 
 const MODELS = ALL_MODEL_OPTIONS;
 const ENABLE_SESSION_LOADING_SKELETON = false;
@@ -212,8 +213,8 @@ export function ChatPanel({
   }, []);
 
   const handleSubmit = useCallback(async (message: PromptInputMessage) => {
-    const prompt = message.text?.trim();
-    if (!prompt || isStreaming) return;
+    const prompt = message.text?.trim() ?? '';
+    if (!canSubmitChatPrompt({ prompt, isStreaming })) return;
 
     // Build context string for active mentions present in the prompt (not appended to message)
     const mentions = Array.from(activeMentionsRef.current.values());

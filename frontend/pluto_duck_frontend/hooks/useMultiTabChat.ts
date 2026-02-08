@@ -147,7 +147,6 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [tabStates, setTabStates] = useState<TabStateMap>({});
   const tabStatesSnapshotRef = useRef<TabStateMap>({});
-  const activeTabIdRef = useRef<string | null>(null);
   const detailRequestGuardRef = useRef(new TabRequestTokenGuard());
   const lastRunIdRef = useRef<string | null>(null);
   const lastCompletedRunRef = useRef<string | null>(null);
@@ -176,10 +175,6 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
   useEffect(() => {
     tabStatesSnapshotRef.current = tabStates;
   }, [tabStates]);
-
-  useEffect(() => {
-    activeTabIdRef.current = activeTabId;
-  }, [activeTabId]);
 
   const activeTab = tabs.find(t => t.id === activeTabId) || null;
   const activeTabState = activeTabId ? tabStates[activeTabId] ?? null : null;
@@ -271,7 +266,7 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
 
       try {
         const response = await fetchDetail(sessionId, true);
-        if (!cancelled && detailRequestGuardRef.current.canCommit(requestToken, activeTabIdRef.current)) {
+        if (!cancelled && detailRequestGuardRef.current.canCommit(requestToken)) {
           const detailPreview = previewFromMessages(response.messages);
           if (detailPreview) {
             updateSessionPreview(sessionId, detailPreview);
@@ -280,7 +275,7 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
         }
       } catch (error) {
         console.error('[MultiTabChat] Failed to load detail', error);
-        if (!cancelled && detailRequestGuardRef.current.canCommit(requestToken, activeTabIdRef.current)) {
+        if (!cancelled && detailRequestGuardRef.current.canCommit(requestToken)) {
           setTabState(currentTabId, previous => failDetailLoading(previous));
         }
       }
@@ -374,7 +369,7 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
         
         try {
           const response = await fetchDetail(activeTab.sessionId, true);
-          if (!detailRequestGuardRef.current.canCommit(requestToken, activeTabIdRef.current)) {
+          if (!detailRequestGuardRef.current.canCommit(requestToken)) {
             return;
           }
           const detailPreview = previewFromMessages(response.messages);

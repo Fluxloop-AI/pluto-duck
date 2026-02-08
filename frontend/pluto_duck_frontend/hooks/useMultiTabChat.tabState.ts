@@ -165,8 +165,7 @@ export class TabRequestTokenGuard {
     return latest.sequence === token.sequence && latest.sessionId === token.sessionId;
   }
 
-  canCommit(token: TabRequestToken, activeTabId: string | null): boolean {
-    if (activeTabId !== token.tabId) return false;
+  canCommit(token: TabRequestToken): boolean {
     return this.isLatest(token);
   }
 

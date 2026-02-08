@@ -103,15 +103,15 @@ test('run refresh transition keeps settling before persisted final state', async
   assert.equal(persistedState.activeRunId, null);
 });
 
-test('stale guard rejects inactive tab response after tab switch', async () => {
+test('stale guard tracks latest token independently per tab', async () => {
   const { TabRequestTokenGuard } = await import(tabStateModuleUrl.href);
 
   const guard = new TabRequestTokenGuard();
   const tokenA = guard.begin('tab-a', 'session-a');
   const tokenB = guard.begin('tab-b', 'session-b');
 
-  assert.equal(guard.canCommit(tokenB, 'tab-b'), true);
-  assert.equal(guard.canCommit(tokenA, 'tab-b'), false);
+  assert.equal(guard.canCommit(tokenA), true);
+  assert.equal(guard.canCommit(tokenB), true);
 });
 
 test('stale guard accepts only latest token for same tab out-of-order responses', async () => {
@@ -121,8 +121,8 @@ test('stale guard accepts only latest token for same tab out-of-order responses'
   const token1 = guard.begin('tab-a', 'session-a');
   const token2 = guard.begin('tab-a', 'session-a');
 
-  assert.equal(guard.canCommit(token1, 'tab-a'), false);
-  assert.equal(guard.canCommit(token2, 'tab-a'), true);
+  assert.equal(guard.canCommit(token1), false);
+  assert.equal(guard.canCommit(token2), true);
 });
 
 test('restore planner keeps saved tab order deterministically', async () => {

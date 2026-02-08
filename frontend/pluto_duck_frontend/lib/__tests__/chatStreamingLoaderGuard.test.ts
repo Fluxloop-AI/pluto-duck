@@ -34,6 +34,16 @@ function assistantItem(id: string, isStreaming: boolean): ChatRenderItem {
   };
 }
 
+function reasoningItem(id: string, content: string, isStreaming: boolean): ChatRenderItem {
+  return {
+    ...baseItem(id),
+    type: 'reasoning',
+    content,
+    phase: isStreaming ? 'streaming' : 'complete',
+    isStreaming,
+  };
+}
+
 test('returns false when stream is not active', async () => {
   const { shouldShowFallbackStreamingLoader } = await import(guardModuleUrl.href);
   const value = shouldShowFallbackStreamingLoader({
@@ -59,6 +69,15 @@ test('returns false when inline streaming row exists', async () => {
     renderItems: [userItem('u1'), assistantItem('a1', true)],
   });
   assert.equal(value, false);
+});
+
+test('returns true when only empty streaming reasoning row exists', async () => {
+  const { shouldShowFallbackStreamingLoader } = await import(guardModuleUrl.href);
+  const value = shouldShowFallbackStreamingLoader({
+    isStreaming: true,
+    renderItems: [userItem('u1'), reasoningItem('r1', '   ', true)],
+  });
+  assert.equal(value, true);
 });
 
 test('returns false when assistant already exists after latest user (regression)', async () => {

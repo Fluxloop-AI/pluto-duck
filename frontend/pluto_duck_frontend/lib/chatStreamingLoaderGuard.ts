@@ -31,8 +31,16 @@ export function shouldShowFallbackStreamingLoader(params: {
     return false;
   }
 
-  const hasInlineStreamingItem = renderItems.some(item => item.isStreaming);
-  if (hasInlineStreamingItem) {
+  const hasBlockingInlineStreamingItem = renderItems.some(item => {
+    if (!item.isStreaming) {
+      return false;
+    }
+    if (item.type === 'reasoning' && item.content.trim().length === 0) {
+      return false;
+    }
+    return true;
+  });
+  if (hasBlockingInlineStreamingItem) {
     return false;
   }
 

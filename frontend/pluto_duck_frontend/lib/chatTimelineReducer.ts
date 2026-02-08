@@ -1,0 +1,851 @@
+import type { AgentEventAny } from '../types/agent';
+import type {
+  ApprovalTimelineItem,
+  AssistantMessageTimelineItem,
+  ReasoningTimelineItem,
+  TimelineItem,
+  TimelineItemStatus,
+  ToolTimelineItem,
+  UserMessageTimelineItem,
+} from '../types/chatTimelineItem';
+
+type AgentEventType = AgentEventAny['type'];
+type AgentEventSubtype = AgentEventAny['subtype'];
+
+export interface TimelineEventEnvelope {
+  type: AgentEventType | string;
+  subtype?: AgentEventSubtype | string;
+  content: unknown;
+  metadata?: Record<string, unknown> | null;
+  timestamp?: string;
+  event_id?: string;
+  sequence?: number;
+  run_id?: string | null;
+  tool_call_id?: string | null;
+  parent_event_id?: string | null;
+  phase?: string;
+}
+
+export interface TimelineMessageEnvelope {
+  id: string;
+  role: string;
+  content: unknown;
+  created_at: string;
+  seq?: number;
+  run_id?: string | null;
+}
+
+export interface TimelineOrderingRule {
+  primary: 'sequence';
+  secondary: 'timestamp';
+}
+
+export interface TimelineCorrelationRule {
+  toolCallIdField: 'tool_call_id';
+  sequenceField: 'sequence';
+}
+
+export interface TimelinePresentationHints {
+  includeRunLifecycle: boolean;
+  emitPartialAssistantChunks: boolean;
+}
+
+export interface BuildTimelineItemsFromEventsParams {
+  events: TimelineEventEnvelope[];
+  messages?: TimelineMessageEnvelope[];
+  activeRunId?: string | null;
+  streamingChunkText?: string | null;
+  streamingChunkIsFinal?: boolean;
+  ordering?: TimelineOrderingRule;
+  correlation?: TimelineCorrelationRule;
+  presentationHints?: Partial<TimelinePresentationHints>;
+  now?: () => string;
+}
+
+export interface TimelineTurnEventEnvelope {
+  type: AgentEventType | string;
+  subtype?: AgentEventSubtype | string;
+  content: unknown;
+  metadata?: Record<string, unknown> | null;
+  timestamp?: string;
+}
+
+export interface TimelineTurnMessageEnvelope {
+  id: string;
+  role: string;
+  content: unknown;
+  created_at: string;
+  seq?: number;
+  run_id?: string | null;
+}
+
+export interface TimelineTurnEnvelope {
+  runId: string | null;
+  userMessages: TimelineTurnMessageEnvelope[];
+  assistantMessages: TimelineTurnMessageEnvelope[];
+  events: TimelineTurnEventEnvelope[];
+  isActive: boolean;
+  streamingAssistantText?: string | null;
+  streamingAssistantFinal?: boolean;
+}
+
+export interface BuildTimelineItemsFromTurnsParams {
+  turns: TimelineTurnEnvelope[];
+  includeMessageEvents?: boolean;
+  now?: () => string;
+}
+
+interface CanonicalEventMeta {
+  eventId?: string;
+  sequence?: number;
+  runId?: string | null;
+  toolCallId?: string | null;
+  parentEventId?: string | null;
+  phase?: string;
+}
+
+interface NormalizedEvent {
+  event: TimelineEventEnvelope;
+  meta: CanonicalEventMeta;
+  index: number;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object';
+}
+
+function toOptionalString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function toOptionalNumber(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  return value;
+}
+
+function toCanonicalMeta(event: TimelineEventEnvelope): CanonicalEventMeta {
+  const metadata = event.metadata;
+  const topLevel = {
+    eventId: toOptionalString(event.event_id),
+    sequence: toOptionalNumber(event.sequence),
+    runId: toOptionalString(event.run_id) ?? null,
+    toolCallId: toOptionalString(event.tool_call_id) ?? null,
+    parentEventId: toOptionalString(event.parent_event_id) ?? null,
+    phase: toOptionalString(event.phase),
+  };
+  if (!metadata) return topLevel;
+  return {
+    eventId: topLevel.eventId ?? toOptionalString(metadata.event_id),
+    sequence: topLevel.sequence ?? toOptionalNumber(metadata.sequence),
+    runId: topLevel.runId ?? toOptionalString(metadata.run_id) ?? null,
+    toolCallId: topLevel.toolCallId ?? toOptionalString(metadata.tool_call_id) ?? null,
+    parentEventId: topLevel.parentEventId ?? toOptionalString(metadata.parent_event_id) ?? null,
+    phase: topLevel.phase ?? toOptionalString(metadata.phase),
+  };
+}
+
+function extractText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (isRecord(value)) {
+    if (typeof value.text === 'string') return value.text;
+    if (typeof value.reason === 'string') return value.reason;
+    if (value.content !== undefined) return extractText(value.content);
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return '';
+  }
+}
+
+function extractReasoningText(value: unknown): string {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const text = extractReasoningText(item);
+      if (text) return text;
+    }
+    return '';
+  }
+  if (isRecord(value)) {
+    if (typeof value.reason === 'string') {
+      const trimmed = value.reason.trim();
+      if (trimmed) return trimmed;
+    }
+    if (typeof value.text === 'string') {
+      const trimmed = value.text.trim();
+      if (trimmed) return trimmed;
+    }
+    if (value.content !== undefined) {
+      return extractReasoningText(value.content);
+    }
+    return '';
+  }
+  return '';
+}
+
+function extractMentions(text: string): string[] {
+  const mentionRegex = /@([\w-]+)/g;
+  const mentions: string[] = [];
+  let match;
+  while ((match = mentionRegex.exec(text)) !== null) {
+    mentions.push(match[1]);
+  }
+  return mentions;
+}
+
+function normalizeComparableText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+function resolveStatus(subtype?: string): TimelineItemStatus {
+  if (subtype === 'error') return 'error';
+  if (subtype === 'chunk' || subtype === 'start') return 'streaming';
+  if (subtype === 'end' || subtype === 'final') return 'complete';
+  return 'pending';
+}
+
+function isPersistedMessageTimelineItem(item: TimelineItem): boolean {
+  if (item.type === 'user-message') return true;
+  if (item.type !== 'assistant-message') return false;
+  return typeof item.messageId === 'string' && item.messageId.trim().length > 0;
+}
+
+function getConversationMessageSequence(item: TimelineItem): number | null {
+  if (!isPersistedMessageTimelineItem(item)) return null;
+  if (typeof item.sequence !== 'number' || !Number.isFinite(item.sequence)) return null;
+  return item.sequence;
+}
+
+function getInRunTypeRank(item: TimelineItem): number {
+  if (item.type === 'user-message') return 0;
+  if (item.type === 'assistant-message') return 2;
+  return 1;
+}
+
+function setMinSequence(map: Map<string, number>, key: string, value: number): void {
+  const prev = map.get(key);
+  if (prev === undefined || value < prev) {
+    map.set(key, value);
+  }
+}
+
+function buildRunOrderByRun(items: TimelineItem[]): Map<string, number> {
+  const userSeqByRun = new Map<string, number>();
+  const messageSeqByRun = new Map<string, number>();
+  const firstAppearanceIndexByRun = new Map<string, number>();
+  let maxRunlessMessageSeq = 0;
+
+  items.forEach((item, index) => {
+    const runId = item.runId;
+    const sequence = item.sequence;
+    if (!runId) {
+      const runlessMessageSequence = getConversationMessageSequence(item);
+      if (runlessMessageSequence !== null && runlessMessageSequence > maxRunlessMessageSeq) {
+        maxRunlessMessageSeq = runlessMessageSequence;
+      }
+      return;
+    }
+    if (!firstAppearanceIndexByRun.has(runId)) {
+      firstAppearanceIndexByRun.set(runId, index);
+    }
+    if (typeof sequence !== 'number' || !Number.isFinite(sequence)) return;
+
+    if (item.type === 'user-message') {
+      setMinSequence(userSeqByRun, runId, sequence);
+      return;
+    }
+    if (item.type === 'assistant-message') {
+      setMinSequence(messageSeqByRun, runId, sequence);
+    }
+  });
+
+  const order = new Map<string, number>();
+  userSeqByRun.forEach((seq, runId) => order.set(runId, seq));
+  messageSeqByRun.forEach((seq, runId) => {
+    if (!order.has(runId)) {
+      order.set(runId, seq);
+    }
+  });
+
+  const maxExplicitOrder = [...order.values()].reduce((max, value) => Math.max(max, value), 0);
+  const maxExplicitOrRunless = Math.max(maxExplicitOrder, maxRunlessMessageSeq);
+  let nextSyntheticOrder = maxExplicitOrder + 1;
+  if (nextSyntheticOrder <= maxExplicitOrRunless) {
+    nextSyntheticOrder = maxExplicitOrRunless + 1;
+  }
+  [...firstAppearanceIndexByRun.entries()]
+    .sort((a, b) => a[1] - b[1])
+    .forEach(([runId]) => {
+      if (!order.has(runId)) {
+        order.set(runId, nextSyntheticOrder++);
+      }
+    });
+
+  return order;
+}
+
+function compareTimelineItems(a: TimelineItem, b: TimelineItem, runOrderByRun: Map<string, number>): number {
+  const runIdA = a.runId ?? null;
+  const runIdB = b.runId ?? null;
+  if (runIdA && runIdB && runIdA !== runIdB) {
+    const runOrderA = runOrderByRun.get(runIdA);
+    const runOrderB = runOrderByRun.get(runIdB);
+    if (typeof runOrderA === 'number' && typeof runOrderB === 'number' && runOrderA !== runOrderB) {
+      return runOrderA - runOrderB;
+    }
+  }
+
+  if (runIdA && !runIdB) {
+    const runOrderA = runOrderByRun.get(runIdA);
+    const messageSequenceB = getConversationMessageSequence(b);
+    if (typeof runOrderA === 'number' && messageSequenceB !== null && runOrderA !== messageSequenceB) {
+      return runOrderA - messageSequenceB;
+    }
+  }
+  if (!runIdA && runIdB) {
+    const messageSequenceA = getConversationMessageSequence(a);
+    const runOrderB = runOrderByRun.get(runIdB);
+    if (messageSequenceA !== null && typeof runOrderB === 'number' && messageSequenceA !== runOrderB) {
+      return messageSequenceA - runOrderB;
+    }
+  }
+
+  // Optimistic messages can be run-less before append API resolves run_id.
+  // Keep conversation message order deterministic by seq in that transient window.
+  if (runIdA === null || runIdB === null) {
+    const conversationSeqA = getConversationMessageSequence(a);
+    const conversationSeqB = getConversationMessageSequence(b);
+    if (conversationSeqA !== null && conversationSeqB !== null && conversationSeqA !== conversationSeqB) {
+      return conversationSeqA - conversationSeqB;
+    }
+  }
+
+  const sameRun = (a.runId ?? null) === (b.runId ?? null);
+  if (sameRun) {
+    // Message seq is conversation-wide, event sequence is run-local.
+    // Sequence ordering is safe only within the same domain.
+    const sameDomain =
+      isPersistedMessageTimelineItem(a) === isPersistedMessageTimelineItem(b);
+    if (sameDomain) {
+      const sequenceA = a.sequence ?? Number.MAX_SAFE_INTEGER;
+      const sequenceB = b.sequence ?? Number.MAX_SAFE_INTEGER;
+      if (sequenceA !== sequenceB) return sequenceA - sequenceB;
+    } else {
+      const rankA = getInRunTypeRank(a);
+      const rankB = getInRunTypeRank(b);
+      if (rankA !== rankB) return rankA - rankB;
+    }
+  }
+
+  const tsA = Date.parse(a.timestamp);
+  const tsB = Date.parse(b.timestamp);
+  if (Number.isFinite(tsA) && Number.isFinite(tsB) && tsA !== tsB) {
+    return tsA - tsB;
+  }
+
+  if (!sameRun) {
+    const sequenceA = a.sequence ?? Number.MAX_SAFE_INTEGER;
+    const sequenceB = b.sequence ?? Number.MAX_SAFE_INTEGER;
+    if (sequenceA !== sequenceB) return sequenceA - sequenceB;
+  }
+
+  return a.id.localeCompare(b.id);
+}
+
+function compareNormalizedEvents(a: NormalizedEvent, b: NormalizedEvent): number {
+  const sequenceA = a.meta.sequence ?? Number.MAX_SAFE_INTEGER;
+  const sequenceB = b.meta.sequence ?? Number.MAX_SAFE_INTEGER;
+  if (sequenceA !== sequenceB) return sequenceA - sequenceB;
+
+  const tsA = Date.parse(a.event.timestamp ?? '');
+  const tsB = Date.parse(b.event.timestamp ?? '');
+  if (Number.isFinite(tsA) && Number.isFinite(tsB) && tsA !== tsB) {
+    return tsA - tsB;
+  }
+  return a.index - b.index;
+}
+
+function normalizeEvents(events: TimelineEventEnvelope[]): NormalizedEvent[] {
+  const sorted = events
+    .map((event, index) => ({
+      event,
+      meta: toCanonicalMeta(event),
+      index,
+    }))
+    .sort(compareNormalizedEvents);
+  const seenByRunEvent = new Set<string>();
+  const deduped: NormalizedEvent[] = [];
+  for (const normalizedEvent of sorted) {
+    const runId = normalizedEvent.meta.runId ?? null;
+    const eventId = normalizedEvent.meta.eventId;
+    if (runId && eventId) {
+      const dedupeKey = `${runId}:${eventId}`;
+      if (seenByRunEvent.has(dedupeKey)) {
+        continue;
+      }
+      seenByRunEvent.add(dedupeKey);
+    }
+    deduped.push(normalizedEvent);
+  }
+  return deduped;
+}
+
+function buildAssistantSequenceHintsByRun(normalizedEvents: NormalizedEvent[]): Map<string, number> {
+  const hintsByRun = new Map<string, number>();
+  const maxSequenceByRun = new Map<string, number>();
+
+  for (const normalizedEvent of normalizedEvents) {
+    const runId = normalizedEvent.meta.runId ?? null;
+    const sequence = normalizedEvent.meta.sequence;
+    if (!runId || typeof sequence !== 'number') continue;
+
+    const prevMax = maxSequenceByRun.get(runId) ?? Number.MIN_SAFE_INTEGER;
+    if (sequence > prevMax) {
+      maxSequenceByRun.set(runId, sequence);
+    }
+
+    if (normalizedEvent.event.type !== 'message') continue;
+    if (normalizedEvent.event.subtype !== 'final' && normalizedEvent.event.subtype !== 'end') continue;
+    const prevHint = hintsByRun.get(runId) ?? Number.MIN_SAFE_INTEGER;
+    if (sequence > prevHint) {
+      hintsByRun.set(runId, sequence);
+    }
+  }
+
+  for (const [runId, maxSequence] of maxSequenceByRun) {
+    if (!hintsByRun.has(runId)) {
+      hintsByRun.set(runId, maxSequence);
+    }
+  }
+
+  return hintsByRun;
+}
+
+function collectAssistantFinalTextByRun(
+  params: BuildTimelineItemsFromEventsParams,
+  normalizedEvents: NormalizedEvent[],
+): Map<string, string> {
+  const textsByRun = new Map<string, string>();
+
+  for (const message of params.messages ?? []) {
+    if (message.role !== 'assistant') continue;
+    const runId = message.run_id ?? null;
+    if (!runId) continue;
+    const text = normalizeComparableText(extractText(message.content));
+    if (!text) continue;
+    textsByRun.set(runId, text);
+  }
+
+  for (const normalizedEvent of normalizedEvents) {
+    if (normalizedEvent.event.type !== 'message') continue;
+    if (normalizedEvent.event.subtype !== 'final' && normalizedEvent.event.subtype !== 'end') continue;
+    const runId = normalizedEvent.meta.runId ?? null;
+    if (!runId) continue;
+    const text = normalizeComparableText(extractText(normalizedEvent.event.content));
+    if (!text) continue;
+    textsByRun.set(runId, text);
+  }
+
+  return textsByRun;
+}
+
+function buildMessageItems(
+  params: BuildTimelineItemsFromEventsParams,
+  now: () => string,
+  assistantSequenceHintsByRun: Map<string, number>,
+): TimelineItem[] {
+  const messages = params.messages ?? [];
+  const items: TimelineItem[] = [];
+  for (const message of messages) {
+    const runId = message.run_id ?? params.activeRunId ?? null;
+    if (message.role === 'user') {
+      const sequence = typeof message.seq === 'number' ? message.seq : null;
+      const content = extractText(message.content);
+      const userItem: UserMessageTimelineItem = {
+        id: `timeline-user-${message.id}`,
+        type: 'user-message',
+        runId,
+        sequence,
+        timestamp: message.created_at || now(),
+        status: 'complete',
+        isStreaming: false,
+        isPartial: false,
+        content,
+        mentions: extractMentions(content),
+        messageId: message.id,
+      };
+      items.push(userItem);
+      continue;
+    }
+    if (message.role === 'assistant') {
+      const messageSequence = typeof message.seq === 'number' ? message.seq : null;
+      const hintedSequence = runId ? assistantSequenceHintsByRun.get(runId) : undefined;
+      const sequence =
+        typeof hintedSequence === 'number'
+          ? messageSequence === null
+            ? hintedSequence
+            : Math.max(messageSequence, hintedSequence)
+          : messageSequence;
+      const assistantItem: AssistantMessageTimelineItem = {
+        id: `timeline-assistant-${message.id}`,
+        type: 'assistant-message',
+        runId,
+        sequence,
+        timestamp: message.created_at || now(),
+        status: 'complete',
+        isStreaming: false,
+        isPartial: false,
+        content: extractText(message.content),
+        messageId: message.id,
+      };
+      items.push(assistantItem);
+    }
+  }
+  return items;
+}
+
+function buildReasoningItem(
+  event: TimelineEventEnvelope,
+  meta: CanonicalEventMeta,
+  index: number,
+  now: () => string,
+  activeRunId?: string | null,
+): ReasoningTimelineItem | null {
+  const rawStatus = resolveStatus(event.subtype);
+  const runId = meta.runId ?? null;
+  const isActiveRun = Boolean(activeRunId && runId && runId === activeRunId);
+  const status: TimelineItemStatus = rawStatus === 'streaming' && !isActiveRun ? 'complete' : rawStatus;
+  const content = extractReasoningText(event.content);
+  const isStreaming = status === 'streaming';
+  if (!content && !isStreaming) {
+    return null;
+  }
+  return {
+    id: meta.eventId ?? `timeline-reasoning-${index}`,
+    type: 'reasoning',
+    runId,
+    sequence: meta.sequence ?? null,
+    timestamp: event.timestamp ?? now(),
+    status,
+    isStreaming,
+    isPartial: event.subtype === 'chunk',
+    content,
+    phase: meta.phase,
+    eventId: meta.eventId,
+    parentEventId: meta.parentEventId,
+  };
+}
+
+function buildToolItem(event: TimelineEventEnvelope, meta: CanonicalEventMeta, index: number, now: () => string): ToolTimelineItem {
+  const status = resolveStatus(event.subtype);
+  const content = isRecord(event.content) ? event.content : {};
+  const errorText = status === 'error' ? toOptionalString(content.error) ?? toOptionalString(content.message) : undefined;
+  return {
+    id: meta.eventId ?? `timeline-tool-${meta.runId ?? 'orphan'}-${meta.toolCallId ?? index}`,
+    type: 'tool',
+    runId: meta.runId ?? null,
+    sequence: meta.sequence ?? null,
+    timestamp: event.timestamp ?? now(),
+    status,
+    isStreaming: status === 'streaming',
+    isPartial: event.subtype === 'chunk',
+    toolName: toOptionalString(content.tool) ?? 'tool',
+    toolCallId: meta.toolCallId,
+    state: status === 'error' ? 'error' : status === 'complete' ? 'completed' : 'pending',
+    input: content.input,
+    output: content.output,
+    error: errorText,
+    eventId: meta.eventId,
+    parentEventId: meta.parentEventId,
+  };
+}
+
+function buildToolCorrelationKey(event: TimelineEventEnvelope, meta: CanonicalEventMeta): string | null {
+  const content = isRecord(event.content) ? event.content : {};
+  const contentToolCallId = toOptionalString(content.tool_call_id);
+  const toolCallId = meta.toolCallId ?? contentToolCallId;
+  if (!toolCallId) return null;
+  const runId = meta.runId ?? 'orphan-run';
+  return `${runId}:${toolCallId}`;
+}
+
+function correlateToolEvents(events: NormalizedEvent[], now: () => string): ToolTimelineItem[] {
+  const items: ToolTimelineItem[] = [];
+  const pendingByKey = new Map<string, ToolTimelineItem>();
+
+  for (const normalizedEvent of events) {
+    if (normalizedEvent.event.type !== 'tool') continue;
+    const { event, meta, index } = normalizedEvent;
+    const key = buildToolCorrelationKey(event, meta);
+    const current = buildToolItem(event, meta, index, now);
+
+    if (!key) {
+      items.push(current);
+      continue;
+    }
+
+    const pending = pendingByKey.get(key);
+
+    if (event.subtype === 'start') {
+      pendingByKey.set(key, current);
+      items.push(current);
+      continue;
+    }
+
+    if ((event.subtype === 'end' || event.subtype === 'error') && pending) {
+      pending.state = current.state;
+      pending.status = current.status;
+      pending.isStreaming = false;
+      pending.isPartial = false;
+      if (current.output !== undefined) {
+        pending.output = current.output;
+      }
+      if (current.error !== undefined) {
+        pending.error = current.error;
+      }
+      pendingByKey.delete(key);
+      continue;
+    }
+
+    if (event.subtype === 'chunk' && pending) {
+      if (current.output !== undefined) {
+        pending.output = current.output;
+      }
+      pending.status = 'streaming';
+      pending.isStreaming = true;
+      pending.isPartial = true;
+      continue;
+    }
+
+    pendingByKey.set(key, current);
+    items.push(current);
+  }
+
+  return items;
+}
+
+function buildAssistantEventItem(
+  event: TimelineEventEnvelope,
+  meta: CanonicalEventMeta,
+  index: number,
+  now: () => string,
+): AssistantMessageTimelineItem {
+  const status = resolveStatus(event.subtype);
+  return {
+    id: meta.eventId ?? `timeline-assistant-event-${index}`,
+    type: 'assistant-message',
+    runId: meta.runId ?? null,
+    sequence: meta.sequence ?? null,
+    timestamp: event.timestamp ?? now(),
+    status,
+    isStreaming: status === 'streaming',
+    isPartial: event.subtype === 'chunk',
+    content: extractText(event.content),
+    eventId: meta.eventId,
+    parentEventId: meta.parentEventId,
+  };
+}
+
+function buildApprovalItem(event: TimelineEventEnvelope, meta: CanonicalEventMeta, index: number, now: () => string): ApprovalTimelineItem {
+  const status = resolveStatus(event.subtype);
+  const content = isRecord(event.content) ? event.content : {};
+  const decision = toOptionalString(content.decision) as ApprovalTimelineItem['decision'];
+  return {
+    id: meta.eventId ?? `timeline-approval-${index}`,
+    type: 'approval',
+    runId: meta.runId ?? null,
+    sequence: meta.sequence ?? null,
+    timestamp: event.timestamp ?? now(),
+    status,
+    isStreaming: status === 'streaming',
+    isPartial: event.subtype === 'chunk',
+    content: extractText(content),
+    decision,
+    eventId: meta.eventId,
+    parentEventId: meta.parentEventId,
+  };
+}
+
+function buildEventItems(
+  params: BuildTimelineItemsFromEventsParams,
+  now: () => string,
+  normalizedEvents: NormalizedEvent[],
+  assistantFinalTextByRun: Map<string, string>,
+): TimelineItem[] {
+  const toolItems = correlateToolEvents(normalizedEvents, now);
+  const toolItemsById = new Map(toolItems.map(item => [item.id, item]));
+  const runsWithPersistedAssistantMessage = new Set(
+    (params.messages ?? [])
+      .filter(message => message.role === 'assistant' && typeof message.run_id === 'string' && message.run_id.trim())
+      .map(message => message.run_id as string),
+  );
+  const items: TimelineItem[] = [];
+  normalizedEvents.forEach(({ event, meta, index }) => {
+    if (event.type === 'reasoning') {
+      const reasoningItem = buildReasoningItem(event, meta, index, now, params.activeRunId);
+      if (reasoningItem) {
+        if (reasoningItem.runId) {
+          const assistantFinalText = assistantFinalTextByRun.get(reasoningItem.runId);
+          if (assistantFinalText) {
+            const normalizedReasoningText = normalizeComparableText(reasoningItem.content);
+            if (normalizedReasoningText && normalizedReasoningText === assistantFinalText) {
+              return;
+            }
+            if (!normalizedReasoningText && reasoningItem.isStreaming) {
+              return;
+            }
+          }
+        }
+        items.push(reasoningItem);
+      }
+      return;
+    }
+    if (event.type === 'tool') {
+      const candidateToolItem = buildToolItem(event, meta, index, now);
+      const deduped = toolItemsById.get(candidateToolItem.id);
+      if (deduped) {
+        toolItemsById.delete(candidateToolItem.id);
+        items.push(deduped);
+      }
+      return;
+    }
+    if (event.type === 'message') {
+      if (meta.runId && runsWithPersistedAssistantMessage.has(meta.runId)) {
+        return;
+      }
+      items.push(buildAssistantEventItem(event, meta, index, now));
+      return;
+    }
+    if (event.type === 'plan') {
+      items.push(buildApprovalItem(event, meta, index, now));
+    }
+  });
+  const latestStreamingReasoningByRun = new Map<string, number>();
+  items.forEach((item, index) => {
+    if (item.type !== 'reasoning' || !item.isStreaming || !item.runId) return;
+    latestStreamingReasoningByRun.set(item.runId, index);
+  });
+  items.forEach((item, index) => {
+    if (item.type !== 'reasoning' || !item.isStreaming || !item.runId) return;
+    if (latestStreamingReasoningByRun.get(item.runId) === index) return;
+    item.isStreaming = false;
+    item.status = 'complete';
+  });
+  return items.filter(item => item.type !== 'reasoning' || item.isStreaming || item.content.trim().length > 0);
+}
+
+function buildStreamingItem(params: BuildTimelineItemsFromEventsParams, now: () => string): AssistantMessageTimelineItem | null {
+  if (!params.streamingChunkText) return null;
+  return {
+    id: `timeline-streaming-${params.activeRunId ?? 'orphan'}`,
+    type: 'assistant-message',
+    runId: params.activeRunId ?? null,
+    sequence: null,
+    timestamp: now(),
+    status: params.streamingChunkIsFinal ? 'complete' : 'streaming',
+    isStreaming: !params.streamingChunkIsFinal,
+    isPartial: !params.streamingChunkIsFinal,
+    content: params.streamingChunkText,
+  };
+}
+
+function toTimelineEventEnvelope(
+  turnEvent: TimelineTurnEventEnvelope,
+  fallbackRunId: string | null,
+  includeMessageEvents: boolean,
+): TimelineEventEnvelope | null {
+  if (!includeMessageEvents && turnEvent.type === 'message') {
+    return null;
+  }
+  const raw = turnEvent as unknown as Record<string, unknown>;
+  const metadata = isRecord(turnEvent.metadata) ? turnEvent.metadata : null;
+  const topLevelRunId = toOptionalString(raw.run_id);
+  const metadataRunId = metadata ? toOptionalString(metadata.run_id) : undefined;
+  return {
+    type: turnEvent.type,
+    subtype: turnEvent.subtype,
+    content: turnEvent.content,
+    metadata: turnEvent.metadata ?? null,
+    timestamp: turnEvent.timestamp,
+    event_id: toOptionalString(raw.event_id) ?? (metadata ? toOptionalString(metadata.event_id) : undefined),
+    sequence: toOptionalNumber(raw.sequence) ?? (metadata ? toOptionalNumber(metadata.sequence) : undefined),
+    run_id: topLevelRunId ?? metadataRunId ?? fallbackRunId,
+    tool_call_id:
+      toOptionalString(raw.tool_call_id) ?? (metadata ? toOptionalString(metadata.tool_call_id) : undefined),
+    parent_event_id:
+      toOptionalString(raw.parent_event_id) ?? (metadata ? toOptionalString(metadata.parent_event_id) : undefined),
+    phase: toOptionalString(raw.phase) ?? (metadata ? toOptionalString(metadata.phase) : undefined),
+  };
+}
+
+export function buildTimelineItemsFromTurns(params: BuildTimelineItemsFromTurnsParams): TimelineItem[] {
+  const events: TimelineEventEnvelope[] = [];
+  const messages: TimelineMessageEnvelope[] = [];
+  for (const turn of params.turns) {
+    const runId = turn.runId;
+    for (const message of turn.userMessages) {
+      messages.push({
+        id: message.id,
+        role: message.role,
+        content: message.content,
+        created_at: message.created_at,
+        seq: message.seq,
+        run_id: message.run_id ?? runId,
+      });
+    }
+    for (const message of turn.assistantMessages) {
+      messages.push({
+        id: message.id,
+        role: message.role,
+        content: message.content,
+        created_at: message.created_at,
+        seq: message.seq,
+        run_id: message.run_id ?? runId,
+      });
+    }
+    for (const turnEvent of turn.events) {
+      const eventEnvelope = toTimelineEventEnvelope(turnEvent, runId, params.includeMessageEvents ?? false);
+      if (eventEnvelope) {
+        events.push(eventEnvelope);
+      }
+    }
+  }
+
+  const activeTurn = params.turns.find(turn => turn.isActive);
+  const streamingTurn = params.turns.find(turn => turn.isActive && turn.streamingAssistantText);
+  return buildTimelineItemsFromEvents({
+    events,
+    messages,
+    activeRunId: activeTurn?.runId ?? null,
+    streamingChunkText: streamingTurn?.streamingAssistantText ?? null,
+    streamingChunkIsFinal: streamingTurn?.streamingAssistantFinal,
+    ordering: {
+      primary: 'sequence',
+      secondary: 'timestamp',
+    },
+    correlation: {
+      toolCallIdField: 'tool_call_id',
+      sequenceField: 'sequence',
+    },
+    now: params.now,
+  });
+}
+
+export function buildTimelineItemsFromEvents(params: BuildTimelineItemsFromEventsParams): TimelineItem[] {
+  const now = params.now ?? (() => new Date().toISOString());
+  const normalizedEvents = normalizeEvents(params.events);
+  const assistantSequenceHintsByRun = buildAssistantSequenceHintsByRun(normalizedEvents);
+  const assistantFinalTextByRun = collectAssistantFinalTextByRun(params, normalizedEvents);
+  const messageItems = buildMessageItems(params, now, assistantSequenceHintsByRun);
+  const eventItems = buildEventItems(params, now, normalizedEvents, assistantFinalTextByRun);
+  const streamingItem = buildStreamingItem(params, now);
+  const items = streamingItem ? [...messageItems, ...eventItems, streamingItem] : [...messageItems, ...eventItems];
+  const runOrderByRun = buildRunOrderByRun(items);
+  return items.sort((a, b) => compareTimelineItems(a, b, runOrderByRun));
+}

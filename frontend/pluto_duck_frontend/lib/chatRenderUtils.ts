@@ -13,11 +13,9 @@ import type {
 } from '../types/chatRenderItem';
 import type { TimelineItem } from '../types/chatTimelineItem';
 import {
-  buildTimelineItemsFromEvents,
-  type BuildTimelineItemsFromEventsParams,
-  type TimelineEventEnvelope,
-  type TimelineMessageEnvelope,
-} from './chatTimelineAdapter';
+  buildTimelineItemsFromTurns,
+  type TimelineTurnEnvelope,
+} from './chatTimelineReducer';
 
 /**
  * 다양한 형태의 content에서 텍스트 추출
@@ -42,58 +40,16 @@ export function extractMentions(text: string): string[] {
   return mentions;
 }
 
-function collectTimelineMessages(turns: ChatTurn[]): TimelineMessageEnvelope[] {
-  const messages: TimelineMessageEnvelope[] = [];
-  turns.forEach(turn => {
-    const runId = turn.runId;
-    turn.userMessages.forEach(message => {
-      messages.push({
-        id: message.id,
-        role: message.role,
-        content: message.content,
-        created_at: message.created_at,
-        seq: message.seq,
-        run_id: message.run_id ?? runId,
-      });
-    });
-    turn.assistantMessages.forEach(message => {
-      messages.push({
-        id: message.id,
-        role: message.role,
-        content: message.content,
-        created_at: message.created_at,
-        seq: message.seq,
-        run_id: message.run_id ?? runId,
-      });
-    });
-  });
-  return messages;
-}
-
-function collectTimelineEvents(turns: ChatTurn[]): TimelineEventEnvelope[] {
-  const events: TimelineEventEnvelope[] = [];
-  turns.forEach(turn => {
-    turn.events.forEach(event => {
-      if (event.type === 'message') {
-        return;
-      }
-      const raw = event as unknown as Record<string, unknown>;
-      events.push({
-        type: event.type,
-        subtype: event.subtype,
-        content: event.content,
-        metadata: event.metadata ?? null,
-        timestamp: event.timestamp,
-        event_id: typeof raw.event_id === 'string' ? raw.event_id : undefined,
-        sequence: typeof raw.sequence === 'number' ? raw.sequence : undefined,
-        run_id: typeof raw.run_id === 'string' ? raw.run_id : turn.runId,
-        tool_call_id: typeof raw.tool_call_id === 'string' ? raw.tool_call_id : undefined,
-        parent_event_id: typeof raw.parent_event_id === 'string' ? raw.parent_event_id : undefined,
-        phase: typeof raw.phase === 'string' ? raw.phase : undefined,
-      });
-    });
-  });
-  return events;
+function toTimelineTurns(turns: ChatTurn[]): TimelineTurnEnvelope[] {
+  return turns.map(turn => ({
+    runId: turn.runId,
+    userMessages: turn.userMessages,
+    assistantMessages: turn.assistantMessages,
+    events: turn.events,
+    isActive: turn.isActive,
+    streamingAssistantText: turn.streamingAssistantText,
+    streamingAssistantFinal: turn.streamingAssistantFinal,
+  }));
 }
 
 function toRenderItemsFromTimeline(timelineItems: TimelineItem[]): ChatRenderItem[] {
@@ -258,25 +214,10 @@ function flattenTurnsToRenderItemsLegacy(turns: ChatTurn[]): ChatRenderItem[] {
  */
 export function flattenTurnsToRenderItems(turns: ChatTurn[]): ChatRenderItem[] {
   try {
-    const activeTurn = turns.find(turn => turn.isActive);
-    const streamingTurn = turns.find(turn => turn.isActive && turn.streamingAssistantText);
-    const params: BuildTimelineItemsFromEventsParams = {
-      events: collectTimelineEvents(turns),
-      messages: collectTimelineMessages(turns),
-      activeRunId: activeTurn?.runId ?? null,
-      streamingChunkText: streamingTurn?.streamingAssistantText ?? null,
-      streamingChunkIsFinal: streamingTurn?.streamingAssistantFinal,
-      ordering: {
-        primary: 'sequence',
-        secondary: 'timestamp',
-      },
-      correlation: {
-        toolCallIdField: 'tool_call_id',
-        sequenceField: 'sequence',
-      },
-    };
-
-    const timelineItems = buildTimelineItemsFromEvents(params);
+    const timelineItems = buildTimelineItemsFromTurns({
+      turns: toTimelineTurns(turns),
+      includeMessageEvents: false,
+    });
     const renderItems = toRenderItemsFromTimeline(timelineItems);
     if (renderItems.length > 0 || turns.length === 0) {
       return renderItems;

@@ -77,6 +77,7 @@ const ConversationMessages = memo(function ConversationMessages({
   onSendToBoard,
 }: ConversationMessagesProps) {
   const lastAssistantId = findLastAssistantMessageId(renderItems);
+  const hasInlineStreamingItem = renderItems.some(item => item.isStreaming);
 
   return (
     <>
@@ -129,8 +130,8 @@ const ConversationMessages = memo(function ConversationMessages({
         );
       })}
 
-      {/* Loading indicator during streaming */}
-      {isStreaming && renderItems.length > 0 && (
+      {/* Show fallback loader only before any streaming row is materialized. */}
+      {isStreaming && renderItems.length > 0 && !hasInlineStreamingItem && (
         <div className="px-2.5 py-2.5">
           <ActivityLoader />
         </div>

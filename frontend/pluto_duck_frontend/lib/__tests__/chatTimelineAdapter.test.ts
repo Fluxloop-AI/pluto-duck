@@ -818,3 +818,79 @@ test('message.final transitions cleanly to persisted assistant without duplicati
   assert.equal(persistedAssistant.length, 1);
   assert.equal(persistedAssistant[0].messageId, 'a-reconcile');
 });
+
+test('message chunk deltas are not rendered as raw assistant rows', async () => {
+  const { buildTimelineItemsFromEvents } = await import(adapterModuleUrl.href);
+
+  const runId = 'run-chunk-suppressed';
+  const items = buildTimelineItemsFromEvents({
+    events: [
+      {
+        type: 'message',
+        subtype: 'chunk',
+        content: { text_delta: 'hello ', is_final: false },
+        metadata: { run_id: runId, sequence: 2, event_id: 'evt-c1' },
+        timestamp: '2026-02-09T03:00:02.000Z',
+      },
+      {
+        type: 'message',
+        subtype: 'chunk',
+        content: { text_delta: 'world', is_final: false },
+        metadata: { run_id: runId, sequence: 3, event_id: 'evt-c2' },
+        timestamp: '2026-02-09T03:00:03.000Z',
+      },
+    ],
+    messages: [
+      {
+        id: 'u-chunk',
+        role: 'user',
+        content: { text: 'q' },
+        created_at: '2026-02-09T03:00:01.000Z',
+        seq: 1,
+        run_id: runId,
+      },
+    ],
+    activeRunId: runId,
+    streamingChunkText: 'hello world',
+    streamingChunkIsFinal: false,
+  });
+
+  const assistantItems = items.filter((item: { type: string }) => item.type === 'assistant-message') as Array<{
+    content: string;
+  }>;
+  assert.equal(assistantItems.length, 1);
+  assert.equal(assistantItems[0].content, 'hello world');
+});
+
+test('final event suppresses duplicate completed streaming chunk row', async () => {
+  const { buildTimelineItemsFromEvents } = await import(adapterModuleUrl.href);
+
+  const runId = 'run-final-no-dup-stream';
+  const items = buildTimelineItemsFromEvents({
+    events: [
+      {
+        type: 'message',
+        subtype: 'final',
+        content: { text: 'final answer' },
+        metadata: { run_id: runId, sequence: 3, event_id: 'evt-final' },
+        timestamp: '2026-02-09T03:10:03.000Z',
+      },
+    ],
+    messages: [
+      {
+        id: 'u-final-no-dup',
+        role: 'user',
+        content: { text: 'q' },
+        created_at: '2026-02-09T03:10:01.000Z',
+        seq: 1,
+        run_id: runId,
+      },
+    ],
+    activeRunId: runId,
+    streamingChunkText: 'final answer',
+    streamingChunkIsFinal: true,
+  });
+
+  const assistantItems = items.filter((item: { type: string }) => item.type === 'assistant-message');
+  assert.equal(assistantItems.length, 1);
+});

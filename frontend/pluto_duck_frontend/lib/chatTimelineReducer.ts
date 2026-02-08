@@ -694,6 +694,14 @@ function buildApprovalItem(event: TimelineEventEnvelope, meta: CanonicalEventMet
   };
 }
 
+function isMessageDeltaChunk(event: TimelineEventEnvelope): boolean {
+  if (event.subtype === 'chunk') {
+    return true;
+  }
+  const content = isRecord(event.content) ? event.content : null;
+  return Boolean(content && typeof content.text_delta === 'string');
+}
+
 function buildEventItems(
   params: BuildTimelineItemsFromEventsParams,
   now: () => string,
@@ -773,6 +781,9 @@ function buildEventItems(
       return;
     }
     if (event.type === 'message') {
+      if (isMessageDeltaChunk(event)) {
+        return;
+      }
       if (meta.runId && runsWithPersistedAssistantMessage.has(meta.runId)) {
         return;
       }
@@ -803,8 +814,15 @@ function buildEventItems(
   });
 }
 
-function buildStreamingItem(params: BuildTimelineItemsFromEventsParams, now: () => string): AssistantMessageTimelineItem | null {
+function buildStreamingItem(
+  params: BuildTimelineItemsFromEventsParams,
+  now: () => string,
+  hasFinalMessageEventForActiveRun: boolean,
+): AssistantMessageTimelineItem | null {
   if (!params.streamingChunkText) return null;
+  if (params.streamingChunkIsFinal && hasFinalMessageEventForActiveRun) {
+    return null;
+  }
   return {
     id: `timeline-streaming-${params.activeRunId ?? 'orphan'}`,
     type: 'assistant-message',
@@ -907,7 +925,16 @@ export function buildTimelineItemsFromEvents(params: BuildTimelineItemsFromEvent
   const assistantFinalTextByRun = collectAssistantFinalTextByRun(params, normalizedEvents);
   const messageItems = buildMessageItems(params, now, assistantSequenceHintsByRun);
   const eventItems = buildEventItems(params, now, normalizedEvents, assistantFinalTextByRun);
-  const streamingItem = buildStreamingItem(params, now);
+  const hasFinalMessageEventForActiveRun = Boolean(
+    params.activeRunId &&
+      normalizedEvents.some(
+        ({ event, meta }) =>
+          event.type === 'message' &&
+          (event.subtype === 'final' || event.subtype === 'end') &&
+          meta.runId === params.activeRunId,
+      ),
+  );
+  const streamingItem = buildStreamingItem(params, now, hasFinalMessageEventForActiveRun);
   const items = streamingItem ? [...messageItems, ...eventItems, streamingItem] : [...messageItems, ...eventItems];
   const runOrderByRun = buildRunOrderByRun(items);
   return items.sort((a, b) => compareTimelineItems(a, b, runOrderByRun));

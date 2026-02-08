@@ -1029,3 +1029,138 @@ test('final event suppresses duplicate completed streaming chunk row', async () 
   const assistantItems = items.filter((item: { type: string }) => item.type === 'assistant-message');
   assert.equal(assistantItems.length, 1);
 });
+
+test('approval event is preserved after final assistant in interleaved timeline', async () => {
+  const { buildTimelineItemsFromEvents } = await import(adapterModuleUrl.href);
+
+  const runId = 'run-approval-interleave';
+  const items = buildTimelineItemsFromEvents({
+    events: [
+      {
+        type: 'reasoning',
+        subtype: 'start',
+        content: { phase: 'llm_start' },
+        metadata: { run_id: runId, sequence: 2, event_id: 'evt-r-start', phase: 'llm_start' },
+        timestamp: '2026-02-10T11:00:02.000Z',
+      },
+      {
+        type: 'reasoning',
+        subtype: 'chunk',
+        content: { phase: 'llm_reasoning', reason: 'plan first' },
+        metadata: { run_id: runId, sequence: 3, event_id: 'evt-r-body', phase: 'llm_reasoning' },
+        timestamp: '2026-02-10T11:00:03.000Z',
+      },
+      {
+        type: 'tool',
+        subtype: 'end',
+        content: { tool: 'search', output: { rows: 1 } },
+        metadata: { run_id: runId, sequence: 4, event_id: 'evt-tool-end', tool_call_id: 'tc-approval' },
+        timestamp: '2026-02-10T11:00:04.000Z',
+      },
+      {
+        type: 'message',
+        subtype: 'final',
+        content: { text: 'final answer before approval' },
+        metadata: { run_id: runId, sequence: 5, event_id: 'evt-final' },
+        timestamp: '2026-02-10T11:00:05.000Z',
+      },
+      {
+        type: 'plan',
+        subtype: 'start',
+        content: { description: 'Approve file write', decision: 'pending' },
+        metadata: { run_id: runId, sequence: 6, event_id: 'evt-approval' },
+        timestamp: '2026-02-10T11:00:06.000Z',
+      },
+    ],
+    messages: [
+      {
+        id: 'u-approval-interleave',
+        role: 'user',
+        content: { text: 'run tool' },
+        created_at: '2026-02-10T11:00:01.000Z',
+        seq: 1,
+        run_id: runId,
+      },
+    ],
+  });
+
+  assert.deepEqual(items.map((item: { type: string }) => item.type), [
+    'user-message',
+    'reasoning',
+    'tool',
+    'assistant-message',
+    'approval',
+  ]);
+
+  const lastItem = items[items.length - 1] as { type: string; decision?: string; content?: string };
+  assert.equal(lastItem.type, 'approval');
+  assert.equal(lastItem.decision, 'pending');
+  assert.equal(lastItem.content, 'Approve file write');
+});
+
+test('approval stays visible after final assistant is persisted on refetch', async () => {
+  const { buildTimelineItemsFromEvents } = await import(adapterModuleUrl.href);
+
+  const runId = 'run-approval-persist';
+  const events = [
+    {
+      type: 'message',
+      subtype: 'final',
+      content: { text: 'final answer before approval' },
+      metadata: { run_id: runId, sequence: 3, event_id: 'evt-final' },
+      timestamp: '2026-02-10T11:10:03.000Z',
+    },
+    {
+      type: 'plan',
+      subtype: 'start',
+      content: { description: 'Approve operation', decision: 'pending' },
+      metadata: { run_id: runId, sequence: 4, event_id: 'evt-approval' },
+      timestamp: '2026-02-10T11:10:04.000Z',
+    },
+  ];
+
+  const settlingItems = buildTimelineItemsFromEvents({
+    events,
+    messages: [
+      {
+        id: 'u-approval-persist',
+        role: 'user',
+        content: { text: 'go' },
+        created_at: '2026-02-10T11:10:01.000Z',
+        seq: 1,
+        run_id: runId,
+      },
+    ],
+    activeRunId: runId,
+  });
+  assert.equal(settlingItems.filter((item: { type: string }) => item.type === 'approval').length, 1);
+
+  const persistedItems = buildTimelineItemsFromEvents({
+    events,
+    messages: [
+      {
+        id: 'u-approval-persist',
+        role: 'user',
+        content: { text: 'go' },
+        created_at: '2026-02-10T11:10:01.000Z',
+        seq: 1,
+        run_id: runId,
+      },
+      {
+        id: 'a-approval-persist',
+        role: 'assistant',
+        content: { text: 'final answer before approval' },
+        created_at: '2026-02-10T11:10:05.000Z',
+        seq: 2,
+        run_id: runId,
+      },
+    ],
+    activeRunId: runId,
+  });
+
+  assert.deepEqual(persistedItems.map((item: { type: string }) => item.type), [
+    'user-message',
+    'assistant-message',
+    'approval',
+  ]);
+});

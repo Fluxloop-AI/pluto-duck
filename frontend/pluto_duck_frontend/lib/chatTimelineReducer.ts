@@ -151,6 +151,8 @@ function extractText(value: unknown): string {
   if (isRecord(value)) {
     if (typeof value.text === 'string') return value.text;
     if (typeof value.reason === 'string') return value.reason;
+    if (typeof value.description === 'string') return value.description;
+    if (typeof value.message === 'string') return value.message;
     if (value.content !== undefined) return extractText(value.content);
   }
   try {
@@ -224,6 +226,7 @@ function getConversationMessageSequence(item: TimelineItem): number | null {
 
 function getInRunTypeRank(item: TimelineItem): number {
   if (item.type === 'user-message') return 0;
+  if (item.type === 'approval') return 3;
   if (item.type === 'assistant-message') return 2;
   return 1;
 }

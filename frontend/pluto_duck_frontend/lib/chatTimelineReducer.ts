@@ -404,6 +404,19 @@ function compareTimelineItems(a: TimelineItem, b: TimelineItem, runOrderByRun: M
     if (sequenceOrder !== 0) {
       return sequenceOrder;
     }
+
+    const laneA = resolveTimelineLane(a);
+    const laneB = resolveTimelineLane(b);
+    const isAssistantControlPair =
+      (laneA === 'assistant' && laneB === 'control') || (laneA === 'control' && laneB === 'assistant');
+    if (isAssistantControlPair) {
+      const tsA = Date.parse(a.timestamp);
+      const tsB = Date.parse(b.timestamp);
+      if (Number.isFinite(tsA) && Number.isFinite(tsB) && tsA !== tsB) {
+        return tsA - tsB;
+      }
+    }
+
     const laneRankA = getTimelineLaneRank(a);
     const laneRankB = getTimelineLaneRank(b);
     if (laneRankA !== laneRankB) {

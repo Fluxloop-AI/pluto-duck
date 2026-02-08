@@ -835,7 +835,7 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
           const placeholderState = tabStatesRef.current.get(tabId);
           tabStatesRef.current.set(tabId, {
             detail: placeholderState?.detail ?? null,
-            loading: true,
+            loading: false,
             activeRunId: response.run_id ?? null,
           });
 

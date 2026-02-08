@@ -73,19 +73,6 @@ interface TabChatState {
   activeRunId: string | null;
 }
 
-interface ReasoningEventContent {
-  phase?: string;
-  reason?: unknown;
-}
-
-interface ToolEventContent {
-  tool?: string;
-  input?: unknown;
-  output?: unknown;
-  error?: unknown;
-  message?: unknown;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
 }
@@ -96,41 +83,17 @@ function getMetadataRunId(metadata: ChatEvent['metadata']): string | null {
   return typeof runId === 'string' && runId.trim() ? runId : null;
 }
 
-function toReasoningEventContent(content: unknown): ReasoningEventContent | null {
-  if (!isRecord(content)) return null;
-  return {
-    phase: typeof content.phase === 'string' ? content.phase : undefined,
-    reason: content.reason,
-  };
-}
-
-function toToolEventContent(content: unknown): ToolEventContent | null {
-  if (!isRecord(content)) return null;
-  return {
-    tool: typeof content.tool === 'string' && content.tool.trim() ? content.tool : undefined,
-    input: content.input,
-    output: content.output,
-    error: content.error,
-    message: content.message,
-  };
-}
-
-function toOptionalText(value: unknown): string | undefined {
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    return trimmed ? trimmed : undefined;
+function getNextOptimisticSeq(messages: Array<{ seq: number }> | undefined): number {
+  if (!messages || messages.length === 0) {
+    return 1;
   }
-  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
-    return String(value);
-  }
-  if (isRecord(value) || Array.isArray(value)) {
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return undefined;
+  let maxSeq = 0;
+  for (const message of messages) {
+    if (typeof message.seq === 'number' && Number.isFinite(message.seq) && message.seq > maxSeq) {
+      maxSeq = message.seq;
     }
   }
-  return undefined;
+  return maxSeq + 1;
 }
 
 function extractTextFromUnknown(value: unknown): string | null {
@@ -476,11 +439,13 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
       }
     });
 
+    const streamingRunId = chunkRunId ?? activeRunId;
+
     // Add empty turn for active streaming run if not in messages yet
-    if (isStreaming && activeRunId && !runs.has(activeRunId)) {
-      runs.set(activeRunId, {
-        key: `run-${activeRunId}`,
-        runId: activeRunId,
+    if (isStreaming && streamingRunId && !runs.has(streamingRunId)) {
+      runs.set(streamingRunId, {
+        key: `run-${streamingRunId}`,
+        runId: streamingRunId,
         seq: Number.MAX_SAFE_INTEGER,
         userMessages: [],
         assistantMessages: [],
@@ -489,89 +454,16 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
         reasoningText: '',
         toolEvents: [],
         groupedToolEvents: [],
-        isActive: true,
+        isActive: streamingRunId === activeRunId,
       });
-      result.push(runs.get(activeRunId)!);
+      result.push(runs.get(streamingRunId)!);
     }
 
-    const streamingRunId = chunkRunId ?? activeRunId;
-
-    // Attach events to each run and extract reasoning/tools
+    // Attach events to each run; timeline adapter handles transformation.
     runs.forEach(turn => {
       if (turn.runId) {
         turn.events = [...(eventsByRunId.get(turn.runId) ?? [])];
         turn.isActive = isStreaming && turn.runId === activeRunId;
-        
-        // Extract reasoning text
-        turn.reasoningText = turn.events
-          .filter(event => {
-            if (event.type !== 'reasoning') return false;
-            const content = toReasoningEventContent(event.content);
-            return content?.phase === 'llm_reasoning';
-          })
-          .map(event => {
-            const content = toReasoningEventContent(event.content);
-            return content?.reason ? String(content.reason) : '';
-          })
-          .filter(Boolean)
-          .join('\n\n');
-        
-        // Extract tool events
-        turn.toolEvents = turn.events.filter(event => event.type === 'tool');
-        
-        // Group tool events by tool name (match start with end)
-        const toolMap = new Map<string, GroupedToolEvent>();
-        const toolOrder: string[] = [];
-        
-        turn.toolEvents.forEach(event => {
-          const content = toToolEventContent(event.content);
-          const toolName = content?.tool ?? 'tool';
-          const subtype = event.subtype;
-          
-          if (subtype === 'start') {
-            const key = `${toolName}-${toolOrder.filter(k => k.startsWith(toolName)).length}`;
-            toolOrder.push(key);
-            toolMap.set(key, {
-              toolName,
-              state: 'pending',
-              input: content?.input,
-              startEvent: event,
-            });
-          } else if (subtype === 'end' || subtype === 'error') {
-            // Find the most recent pending tool with this name
-            const pendingKey = [...toolOrder].reverse().find(key => {
-              const tool = toolMap.get(key);
-              return tool && tool.toolName === toolName && tool.state === 'pending';
-            });
-            
-            if (pendingKey) {
-              const tool = toolMap.get(pendingKey)!;
-              tool.state = subtype === 'error' ? 'error' : 'completed';
-              tool.output = content?.output;
-              tool.error =
-                subtype === 'error'
-                  ? toOptionalText(content?.error) ?? toOptionalText(content?.message)
-                  : undefined;
-              tool.endEvent = event;
-            } else {
-              // No matching start, create standalone entry
-              const key = `${toolName}-orphan-${Date.now()}`;
-              toolOrder.push(key);
-              toolMap.set(key, {
-                toolName,
-                state: subtype === 'error' ? 'error' : 'completed',
-                output: content?.output,
-                error:
-                  subtype === 'error'
-                    ? toOptionalText(content?.error) ?? toOptionalText(content?.message)
-                    : undefined,
-                endEvent: event,
-              });
-            }
-          }
-        });
-        
-        turn.groupedToolEvents = toolOrder.map(key => toolMap.get(key)!);
 
         if (streamingRunId && turn.runId === streamingRunId && chunkText && turn.assistantMessages.length === 0) {
           turn.streamingAssistantText = chunkText;
@@ -854,7 +746,7 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
           role: 'user',
           content: { text: prompt },
           created_at: new Date().toISOString(),
-          seq: currentState?.detail?.messages.length ?? 0 + 1,
+          seq: getNextOptimisticSeq(currentState?.detail?.messages),
           run_id: null,
         };
         

@@ -29,7 +29,8 @@ import type { ChatSessionSummary } from '../../lib/chatApi';
 import type { ChatRenderItem, AssistantMessageItem } from '../../types/chatRenderItem';
 import { ALL_MODEL_OPTIONS } from '../../constants/models';
 import type { AssetEmbedConfig } from '../editor/nodes/AssetEmbedNode';
-import { shouldShowFallbackStreamingLoader } from '../../lib/chatStreamingLoaderGuard';
+import { type ChatLoadingMode } from '../../lib/chatLoadingState';
+import { SessionSkeleton } from './SessionSkeleton';
 
 const MODELS = ALL_MODEL_OPTIONS;
 
@@ -56,8 +57,7 @@ function isRunIdChanged(current: ChatRenderItem, next: ChatRenderItem | undefine
 // Memoized conversation messages using renderItems
 interface ConversationMessagesProps {
   renderItems: ChatRenderItem[];
-  loading: boolean;
-  isStreaming: boolean;
+  chatLoadingMode: ChatLoadingMode;
   feedbackMap?: Map<string, FeedbackType>;
   onCopy: (text: string) => void;
   onRegenerate?: (messageId: string) => void;
@@ -68,8 +68,7 @@ interface ConversationMessagesProps {
 
 const ConversationMessages = memo(function ConversationMessages({
   renderItems,
-  loading,
-  isStreaming,
+  chatLoadingMode,
   feedbackMap,
   onCopy,
   onRegenerate,
@@ -78,19 +77,12 @@ const ConversationMessages = memo(function ConversationMessages({
   onSendToBoard,
 }: ConversationMessagesProps) {
   const lastAssistantId = findLastAssistantMessageId(renderItems);
-  const showFallbackStreamingLoader = shouldShowFallbackStreamingLoader({
-    isStreaming,
-    renderItems,
-  });
 
   return (
     <>
-      {/* Keep top loader for detail fetch only; streaming loader stays at bottom. */}
-      {loading && !isStreaming && (
+      {chatLoadingMode === 'session-loading' && (
         <div className="px-4 py-6">
-          <div className="mx-auto">
-            <ActivityLoader />
-          </div>
+          <SessionSkeleton />
         </div>
       )}
 
@@ -134,8 +126,7 @@ const ConversationMessages = memo(function ConversationMessages({
         );
       })}
 
-      {/* Show fallback loader only before any streaming row is materialized. */}
-      {showFallbackStreamingLoader && (
+      {chatLoadingMode === 'agent-streaming-fallback' && (
         <div className="px-2.5 py-2.5">
           <ActivityLoader />
         </div>
@@ -154,6 +145,7 @@ interface ChatPanelProps {
   renderItems: ChatRenderItem[];
   loading: boolean;
   isStreaming: boolean;
+  chatLoadingMode: ChatLoadingMode;
   status: 'ready' | 'streaming' | 'error';
   selectedModel: string;
   onModelChange: (model: string) => void;
@@ -173,6 +165,7 @@ export function ChatPanel({
   renderItems,
   loading,
   isStreaming,
+  chatLoadingMode,
   status,
   selectedModel,
   onModelChange,
@@ -240,7 +233,7 @@ export function ChatPanel({
     }, 200);
   }, [onSubmit]);
 
-  const showOnboarding = renderItems.length === 0 && !loading && !isStreaming && !isOnboardingExiting;
+  const showOnboarding = renderItems.length === 0 && chatLoadingMode === 'idle' && !isOnboardingExiting;
 
   return (
     <div className="flex h-full w-full flex-col bg-background">
@@ -262,8 +255,7 @@ export function ChatPanel({
               <ConversationContent>
                 <ConversationMessages
                   renderItems={renderItems}
-                  loading={loading}
-                  isStreaming={isStreaming}
+                  chatLoadingMode={chatLoadingMode}
                   feedbackMap={feedbackMap}
                   onCopy={handleCopy}
                   onRegenerate={onRegenerate}

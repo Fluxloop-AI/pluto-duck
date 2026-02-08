@@ -32,6 +32,11 @@ import {
 } from './useMultiTabChat.tabState';
 import { planRestoredTabs, type SavedChatTabState } from './useMultiTabChat.restore';
 import { planOpenSessionInTab } from './useMultiTabChat.tabLayout';
+import {
+  computeChatLoadingMode,
+  hasMaterializedReasoningSpan,
+  type ChatLoadingMode,
+} from '../lib/chatLoadingState';
 export type { ChatEvent, ChatTurn, DetailMessage, GroupedToolEvent } from './useMultiTabChat.timeline';
 
 const MAX_PREVIEW_LENGTH = 160;
@@ -312,6 +317,19 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
   const renderItems = useMemo<ChatRenderItem[]>(
     () => flattenTurnsToRenderItems(turns),
     [turns]
+  );
+
+  const loading = activeTabState?.loading || false;
+  const hasReasoningSpan = useMemo(() => hasMaterializedReasoningSpan(renderItems), [renderItems]);
+  const chatLoadingMode = useMemo<ChatLoadingMode>(
+    () =>
+      computeChatLoadingMode({
+        loading,
+        isStreaming,
+        renderItems,
+        hasMaterializedReasoningSpan: hasReasoningSpan,
+      }),
+    [loading, isStreaming, renderItems, hasReasoningSpan],
   );
 
   // Find last assistant message ID
@@ -662,8 +680,9 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
     turns,
     renderItems,
     lastAssistantMessageId,
-    loading: activeTabState?.loading || false,
+    loading,
     isStreaming,
+    chatLoadingMode,
     runRenderState,
     status,
     

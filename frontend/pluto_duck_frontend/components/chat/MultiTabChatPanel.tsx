@@ -41,6 +41,7 @@ export function MultiTabChatPanel({
     renderItems,
     loading,
     isStreaming,
+    chatLoadingMode,
     status,
     sessions,
     addTab,
@@ -133,6 +134,7 @@ export function MultiTabChatPanel({
               renderItems={[]}
               loading={false}
               isStreaming={false}
+              chatLoadingMode="idle"
               status="ready"
               selectedModel={selectedModel}
               onModelChange={onModelChange}
@@ -152,6 +154,7 @@ export function MultiTabChatPanel({
               renderItems={renderItems}
               loading={loading}
               isStreaming={isStreaming}
+              chatLoadingMode={chatLoadingMode}
               status={status}
               selectedModel={selectedModel}
               onModelChange={onModelChange}

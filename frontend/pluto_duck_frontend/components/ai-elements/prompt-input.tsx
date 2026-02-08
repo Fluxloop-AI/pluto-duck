@@ -34,6 +34,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { canSubmitPromptOnEnter } from "@/lib/promptSubmitEligibility";
 import { cn } from "@/lib/utils";
 import type { ChatStatus, FileUIPart } from "ai";
 import {
@@ -778,13 +779,18 @@ export const PromptInputTextarea = forwardRef<
   const [isComposing, setIsComposing] = useState(false);
 
   const handleKeyDown: KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
-    if (e.key === "Enter") {
-      if (isComposing || e.nativeEvent.isComposing) {
-        return;
-      }
-      if (e.shiftKey) {
-        return;
-      }
+    const submitButton = e.currentTarget.form?.querySelector<HTMLButtonElement>(
+      'button[type="submit"]'
+    );
+    const shouldSubmit = canSubmitPromptOnEnter({
+      key: e.key,
+      shiftKey: e.shiftKey,
+      isComposing,
+      nativeIsComposing: e.nativeEvent.isComposing,
+      submitDisabled: submitButton?.disabled ?? false,
+    });
+
+    if (shouldSubmit) {
       e.preventDefault();
       e.currentTarget.form?.requestSubmit();
     }

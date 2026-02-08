@@ -3,6 +3,7 @@ import test from 'node:test';
 
 const tabStateModuleUrl = new URL('../useMultiTabChat.tabState.ts', import.meta.url);
 const restoreModuleUrl = new URL('../useMultiTabChat.restore.ts', import.meta.url);
+const tabLayoutModuleUrl = new URL('../useMultiTabChat.tabLayout.ts', import.meta.url);
 
 test('loadDetail success without preview still finalizes loading with persisted detail', async () => {
   const { startDetailLoading, completeDetailLoading } = await import(tabStateModuleUrl.href);
@@ -356,4 +357,123 @@ test('restore fingerprint is stable for same input and order-insensitive session
   const fingerprintA = buildRestoreFingerprint({ ...input, sessions: sessionsA });
   const fingerprintB = buildRestoreFingerprint({ ...input, sessions: sessionsB });
   assert.equal(fingerprintA, fingerprintB);
+});
+
+test('history open path reuses restored tab id without conflicting with restore structure', async () => {
+  const { planRestoredTabs } = await import(restoreModuleUrl.href);
+  const { planOpenSessionInTab } = await import(tabLayoutModuleUrl.href);
+  const sessions = [
+    {
+      id: 'session-a',
+      title: 'A',
+      status: 'completed',
+      created_at: '2026-02-10T00:00:01.000Z',
+      updated_at: '2026-02-10T00:00:02.000Z',
+      last_message_preview: null,
+    },
+    {
+      id: 'session-b',
+      title: 'B',
+      status: 'completed',
+      created_at: '2026-02-10T00:00:03.000Z',
+      updated_at: '2026-02-10T00:00:04.000Z',
+      last_message_preview: null,
+    },
+  ];
+  const restored = planRestoredTabs({
+    sessions,
+    savedTabs: [
+      { id: 'session-a', order: 0 },
+      { id: 'session-b', order: 1 },
+    ],
+    savedActiveTabId: 'session-a',
+  });
+
+  const reopened = planOpenSessionInTab({
+    tabs: restored.tabs,
+    session: sessions[0],
+    maxTabs: 10,
+    idFactory: () => 'manual-session-a',
+    now: () => 10,
+  });
+
+  assert.equal(reopened.activeTabId, restored.tabs[0].id);
+  assert.equal(reopened.tabs.length, restored.tabs.length);
+});
+
+test('restore + manual open near MAX_TABS keeps stable count/order and no duplicate session', async () => {
+  const { planRestoredTabs } = await import(restoreModuleUrl.href);
+  const { planOpenSessionInTab } = await import(tabLayoutModuleUrl.href);
+  const sessions = [
+    {
+      id: 'session-a',
+      title: 'A',
+      status: 'completed',
+      created_at: '2026-02-10T00:00:01.000Z',
+      updated_at: '2026-02-10T00:00:02.000Z',
+      last_message_preview: null,
+    },
+    {
+      id: 'session-b',
+      title: 'B',
+      status: 'completed',
+      created_at: '2026-02-10T00:00:03.000Z',
+      updated_at: '2026-02-10T00:00:04.000Z',
+      last_message_preview: null,
+    },
+    {
+      id: 'session-c',
+      title: 'C',
+      status: 'completed',
+      created_at: '2026-02-10T00:00:05.000Z',
+      updated_at: '2026-02-10T00:00:06.000Z',
+      last_message_preview: null,
+    },
+    {
+      id: 'session-d',
+      title: 'D',
+      status: 'completed',
+      created_at: '2026-02-10T00:00:07.000Z',
+      updated_at: '2026-02-10T00:00:08.000Z',
+      last_message_preview: null,
+    },
+  ];
+
+  const restored = planRestoredTabs({
+    sessions,
+    savedTabs: [
+      { id: 'session-a', order: 0 },
+      { id: 'session-b', order: 1 },
+      { id: 'session-c', order: 2 },
+    ],
+    savedActiveTabId: 'session-b',
+    maxTabs: 3,
+  });
+  const afterOpenD = planOpenSessionInTab({
+    tabs: restored.tabs,
+    session: sessions[3],
+    maxTabs: 3,
+    idFactory: () => 'manual-session-d',
+    now: () => 11,
+  });
+
+  assert.deepEqual(
+    afterOpenD.tabs.map((tab: { sessionId: string | null }) => tab.sessionId),
+    ['session-b', 'session-c', 'session-d'],
+  );
+  assert.equal(afterOpenD.tabs.length, 3);
+  assert.equal(afterOpenD.activeTabId, 'manual-session-d');
+
+  const reopenB = planOpenSessionInTab({
+    tabs: afterOpenD.tabs,
+    session: sessions[1],
+    maxTabs: 3,
+    idFactory: () => 'manual-session-b',
+    now: () => 12,
+  });
+  assert.equal(reopenB.tabs.length, 3);
+  assert.equal(
+    reopenB.tabs.filter((tab: { sessionId: string | null }) => tab.sessionId === 'session-b').length,
+    1,
+  );
 });

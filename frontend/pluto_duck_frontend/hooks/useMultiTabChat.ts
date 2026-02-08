@@ -31,6 +31,7 @@ import {
   type TabStateMap,
 } from './useMultiTabChat.tabState';
 import { planRestoredTabs, type SavedChatTabState } from './useMultiTabChat.restore';
+import { planOpenSessionInTab } from './useMultiTabChat.tabLayout';
 export type { ChatEvent, ChatTurn, DetailMessage, GroupedToolEvent } from './useMultiTabChat.timeline';
 
 const MAX_PREVIEW_LENGTH = 160;
@@ -440,32 +441,24 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
   }, [activeTabId, resetStream]);
 
   const openSessionInTab = useCallback((session: ChatSessionSummary) => {
-    // Check if session is already open in a tab
-    const existingTab = tabs.find(t => t.sessionId === session.id);
-    if (existingTab) {
-      switchTab(existingTab.id);
-      return;
-    }
+    let nextActiveTabId: string | null = null;
+    setTabs(prev => {
+      const plan = planOpenSessionInTab({
+        tabs: prev,
+        session,
+        maxTabs: MAX_TABS,
+        idFactory: () => crypto.randomUUID(),
+        now: () => Date.now(),
+      });
+      nextActiveTabId = plan.activeTabId;
+      return plan.tabs;
+    });
 
-    // Check tab limit
-    if (tabs.length >= MAX_TABS) {
-      // Close oldest tab
-      const oldestTab = tabs[0];
-      closeTab(oldestTab.id);
+    if (nextActiveTabId && nextActiveTabId !== activeTabId) {
+      resetStream();
+      setActiveTabId(nextActiveTabId);
     }
-
-    // Create new tab
-    const newTab: ChatTab = {
-      id: crypto.randomUUID(),
-      sessionId: session.id,
-      title: session.title || 'Untitled',
-      createdAt: Date.now(),
-    };
-    
-    setTabs(prev => [...prev, newTab]);
-    setActiveTabId(newTab.id);
-    resetStream();
-  }, [tabs, switchTab, closeTab, resetStream]);
+  }, [activeTabId, resetStream]);
 
   const handleNewConversation = useCallback(() => {
     addTab();

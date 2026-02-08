@@ -511,6 +511,7 @@ function buildMessageItems(
 }
 
 type ReasoningPhase = 'llm_start' | 'llm_reasoning' | 'llm_end' | 'llm_usage' | 'unknown';
+type ReasoningLifecycleState = 'opened' | 'materialized' | 'closed' | 'dropped';
 
 function resolveReasoningPhase(event: TimelineEventEnvelope, meta: CanonicalEventMeta): ReasoningPhase {
   const content = isRecord(event.content) ? event.content : null;
@@ -548,8 +549,9 @@ function createReasoningItem(
   index: number,
   now: () => string,
 ): ReasoningTimelineItem {
+  const itemId = meta.eventId ?? `timeline-reasoning-${index}`;
   return {
-    id: meta.eventId ?? `timeline-reasoning-${index}`,
+    id: itemId,
     type: 'reasoning',
     runId: meta.runId ?? null,
     sequence: meta.sequence ?? null,
@@ -557,6 +559,8 @@ function createReasoningItem(
     status: 'pending',
     isStreaming: false,
     isPartial: false,
+    segmentId: itemId,
+    segmentOrder: 0,
     content: '',
     phase: meta.phase,
     eventId: meta.eventId,
@@ -708,15 +712,23 @@ function buildEventItems(
   normalizedEvents: NormalizedEvent[],
   assistantFinalTextByRun: Map<string, string>,
 ): TimelineItem[] {
+  const persistedAssistantMessages = (params.messages ?? []).filter(message => message.role === 'assistant');
+  const runlessPersistedAssistantFinalTexts = new Set(
+    persistedAssistantMessages
+      .filter(message => message.run_id === null || message.run_id === undefined)
+      .map(message => normalizeComparableText(extractText(message.content)))
+      .filter(Boolean),
+  );
   const toolItems = correlateToolEvents(normalizedEvents, now);
   const toolItemsById = new Map(toolItems.map(item => [item.id, item]));
   const runsWithPersistedAssistantMessage = new Set(
-    (params.messages ?? [])
-      .filter(message => message.role === 'assistant' && typeof message.run_id === 'string' && message.run_id.trim())
+    persistedAssistantMessages
+      .filter(message => typeof message.run_id === 'string' && message.run_id.trim())
       .map(message => message.run_id as string),
   );
   const items: TimelineItem[] = [];
   const reasoningByKey = new Map<string, ReasoningTimelineItem>();
+  const reasoningLifecycleByKey = new Map<string, ReasoningLifecycleState>();
   normalizedEvents.forEach(({ event, meta, index }) => {
     if (event.type === 'reasoning') {
       const key = getReasoningKey(meta, index);
@@ -726,6 +738,7 @@ function buildEventItems(
       if (!reasoningItem) {
         reasoningItem = createReasoningItem(event, meta, index, now);
         reasoningByKey.set(key, reasoningItem);
+        reasoningLifecycleByKey.set(key, 'opened');
         items.push(reasoningItem);
       }
 
@@ -742,6 +755,9 @@ function buildEventItems(
         return;
       }
       if (phase === 'llm_start') {
+        // lifecycle: opened (non-visual), materialized on first non-empty llm_reasoning,
+        // then closed (or dropped when never materialized) at llm_end.
+        reasoningLifecycleByKey.set(key, 'opened');
         reasoningItem.status = isActiveRun ? 'streaming' : 'complete';
         reasoningItem.isStreaming = isActiveRun;
         reasoningItem.isPartial = false;
@@ -750,12 +766,17 @@ function buildEventItems(
       if (phase === 'llm_reasoning') {
         const reasoningText = extractReasoningText(event.content);
         reasoningItem.content = mergeReasoningText(reasoningItem.content, reasoningText);
+        if (reasoningItem.content.trim().length > 0) {
+          reasoningLifecycleByKey.set(key, 'materialized');
+        }
         reasoningItem.status = isActiveRun ? 'streaming' : 'complete';
         reasoningItem.isStreaming = isActiveRun;
         reasoningItem.isPartial = event.subtype === 'chunk';
         return;
       }
       if (phase === 'llm_end') {
+        const prevLifecycle = reasoningLifecycleByKey.get(key);
+        reasoningLifecycleByKey.set(key, prevLifecycle === 'materialized' ? 'closed' : 'dropped');
         reasoningItem.status = 'complete';
         reasoningItem.isStreaming = false;
         reasoningItem.isPartial = false;
@@ -764,6 +785,9 @@ function buildEventItems(
 
       const reasoningText = extractReasoningText(event.content);
       reasoningItem.content = mergeReasoningText(reasoningItem.content, reasoningText);
+      if (reasoningItem.content.trim().length > 0) {
+        reasoningLifecycleByKey.set(key, 'materialized');
+      }
       const rawStatus = resolveStatus(event.subtype);
       const status: TimelineItemStatus = rawStatus === 'streaming' && !isActiveRun ? 'complete' : rawStatus;
       reasoningItem.status = status;
@@ -786,6 +810,14 @@ function buildEventItems(
       }
       if (meta.runId && runsWithPersistedAssistantMessage.has(meta.runId)) {
         return;
+      }
+      // First-turn transition guard: persisted assistant message may exist before run_id is backfilled.
+      // In that transient window, suppress duplicated message.final event by normalized final text.
+      if (meta.runId && (event.subtype === 'final' || event.subtype === 'end')) {
+        const normalizedEventText = normalizeComparableText(extractText(event.content));
+        if (normalizedEventText && runlessPersistedAssistantFinalTexts.has(normalizedEventText)) {
+          return;
+        }
       }
       items.push(buildAssistantEventItem(event, meta, index, now));
       return;

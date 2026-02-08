@@ -38,9 +38,13 @@ test('dedupes duplicate events by run_id:event_id in unified reducer', async () 
 
   const reasoningItems = items.filter((item: { type: string }) => item.type === 'reasoning') as Array<{
     content: string;
+    segmentId: string;
+    segmentOrder: number;
   }>;
   assert.equal(reasoningItems.length, 1);
   assert.equal(reasoningItems[0].content, 'first');
+  assert.equal(reasoningItems[0].segmentId, 'evt-1');
+  assert.equal(reasoningItems[0].segmentOrder, 0);
 });
 
 test('phase-aware reasoning keeps single row and ignores llm_end/llm_usage content', async () => {
@@ -140,4 +144,47 @@ test('active run reasoning chunks are merged into one streaming row before llm_e
   assert.equal(reasoningItems[0].content, 'draft refined');
   assert.equal(reasoningItems[0].isStreaming, true);
   assert.equal(reasoningItems[0].status, 'streaming');
+});
+
+test('dedupes final message event when persisted assistant message has null run_id', async () => {
+  const { buildTimelineItemsFromEvents } = await import(reducerModuleUrl.href);
+
+  const runId = 'run-first-turn-final';
+  const items = buildTimelineItemsFromEvents({
+    events: [
+      {
+        type: 'message',
+        subtype: 'final',
+        content: { text: 'first final answer' },
+        metadata: { run_id: runId, sequence: 4, event_id: 'evt-first-final' },
+        timestamp: '2026-02-09T00:20:04.000Z',
+      },
+    ],
+    messages: [
+      {
+        id: 'u-first-turn',
+        role: 'user',
+        content: { text: 'hello' },
+        created_at: '2026-02-09T00:20:01.000Z',
+        seq: 1,
+        run_id: runId,
+      },
+      {
+        id: 'a-first-turn',
+        role: 'assistant',
+        content: { text: 'first final answer' },
+        created_at: '2026-02-09T00:20:05.000Z',
+        seq: 2,
+        run_id: null,
+      },
+    ],
+  });
+
+  const assistantItems = items.filter((item: { type: string }) => item.type === 'assistant-message') as Array<{
+    content: string;
+    messageId?: string;
+  }>;
+  assert.equal(assistantItems.length, 1);
+  assert.equal(assistantItems[0].messageId, 'a-first-turn');
+  assert.equal(assistantItems[0].content, 'first final answer');
 });

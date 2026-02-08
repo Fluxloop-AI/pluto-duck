@@ -17,6 +17,9 @@ export interface TimelineItemBase {
 
 export interface ReasoningTimelineItem extends TimelineItemBase {
   type: 'reasoning';
+  // Legacy rows without segmentation metadata should be treated as order 0.
+  segmentId: string;
+  segmentOrder: number;
   content: string;
   phase?: string;
 }

@@ -403,3 +403,60 @@ test('empty streaming reasoning row is suppressed once final assistant exists fo
   const reasoningItems = items.filter((item: { type: string }) => item.type === 'reasoning');
   assert.equal(reasoningItems.length, 0);
 });
+
+test('cross-run timeline ordering follows timestamp to prevent second-turn jump-to-top', async () => {
+  const { buildTimelineItemsFromEvents } = await import(adapterModuleUrl.href);
+
+  const run1 = 'run-cross-order-1';
+  const run2 = 'run-cross-order-2';
+  const items = buildTimelineItemsFromEvents({
+    messages: [
+      {
+        id: 'u-1',
+        role: 'user',
+        content: { text: '안녕!' },
+        created_at: '2026-02-08T21:00:01.000Z',
+        seq: 1,
+        run_id: run1,
+      },
+      {
+        id: 'a-1',
+        role: 'assistant',
+        content: { text: 'Hello! How can I help you today?' },
+        created_at: '2026-02-08T21:00:03.000Z',
+        seq: 2,
+        run_id: run1,
+      },
+      {
+        id: 'u-2',
+        role: 'user',
+        content: { text: '음...' },
+        created_at: '2026-02-08T21:00:05.000Z',
+        seq: 1,
+        run_id: run2,
+      },
+    ],
+    events: [
+      {
+        type: 'reasoning',
+        subtype: 'start',
+        content: { phase: 'llm_start' },
+        metadata: { run_id: run2, sequence: 1, event_id: 'evt-r2-start' },
+        timestamp: '2026-02-08T21:00:05.100Z',
+      },
+    ],
+    activeRunId: run2,
+  });
+
+  const compactOrder = items.map((item: { type: string; messageId?: string; runId?: string | null }) => {
+    if (item.type === 'user-message' || item.type === 'assistant-message') return `${item.type}:${item.messageId}`;
+    return `${item.type}:${item.runId ?? 'orphan'}`;
+  });
+
+  assert.deepEqual(compactOrder, [
+    'user-message:u-1',
+    'assistant-message:a-1',
+    'user-message:u-2',
+    `reasoning:${run2}`,
+  ]);
+});

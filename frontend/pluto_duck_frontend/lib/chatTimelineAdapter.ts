@@ -178,14 +178,23 @@ function resolveStatus(subtype?: string): TimelineItemStatus {
 }
 
 function compareTimelineItems(a: TimelineItem, b: TimelineItem): number {
-  const sequenceA = a.sequence ?? Number.MAX_SAFE_INTEGER;
-  const sequenceB = b.sequence ?? Number.MAX_SAFE_INTEGER;
-  if (sequenceA !== sequenceB) return sequenceA - sequenceB;
+  const sameRun = (a.runId ?? null) === (b.runId ?? null);
+  if (sameRun) {
+    const sequenceA = a.sequence ?? Number.MAX_SAFE_INTEGER;
+    const sequenceB = b.sequence ?? Number.MAX_SAFE_INTEGER;
+    if (sequenceA !== sequenceB) return sequenceA - sequenceB;
+  }
 
   const tsA = Date.parse(a.timestamp);
   const tsB = Date.parse(b.timestamp);
   if (Number.isFinite(tsA) && Number.isFinite(tsB) && tsA !== tsB) {
     return tsA - tsB;
+  }
+
+  if (!sameRun) {
+    const sequenceA = a.sequence ?? Number.MAX_SAFE_INTEGER;
+    const sequenceB = b.sequence ?? Number.MAX_SAFE_INTEGER;
+    if (sequenceA !== sequenceB) return sequenceA - sequenceB;
   }
 
   return a.id.localeCompare(b.id);

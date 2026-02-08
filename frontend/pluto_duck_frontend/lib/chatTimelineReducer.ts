@@ -391,6 +391,11 @@ function buildRunOrderByRun(items: TimelineItem[]): Map<string, number> {
   return order;
 }
 
+// Legacy comparator removal gate (Phase 3):
+// 1) In recent production conversations, missing display_order rate for events/messages stays below target.
+// 2) Legacy comparator path hit-rate stays below target.
+// 3) Rollback plan is prepared before deleting legacy helpers/branches.
+// Until all gates pass, keep buildRunOrderByRun/compareInRunSequence and legacy branches intact.
 function compareTimelineItems(a: TimelineItem, b: TimelineItem, runOrderByRun: Map<string, number>): number {
   const displayOrderA = getDisplayOrder(a);
   const displayOrderB = getDisplayOrder(b);

@@ -67,3 +67,35 @@ def test_log_and_get_events_normalize_canonical_contract_fields(tmp_path) -> Non
     assert second["display_order"] == 2
     assert second["tool_call_id"] == "call-1"
     assert second["metadata"]["tool_call_id"] == "call-1"
+
+
+def test_append_and_get_messages_preserve_display_order_contract(tmp_path) -> None:
+    warehouse = tmp_path / "warehouse.duckdb"
+    repo = ChatRepository(warehouse)
+
+    conversation_id = str(uuid4())
+    run_id = str(uuid4())
+    repo.create_conversation(conversation_id, "hello", {})
+    repo.set_active_run(conversation_id, run_id)
+
+    repo.append_message(
+        conversation_id,
+        "user",
+        {"text": "hello"},
+        run_id=run_id,
+        display_order=41,
+    )
+    repo.append_message(
+        conversation_id,
+        "assistant",
+        {"text": "world"},
+        run_id=run_id,
+    )
+
+    messages = repo.get_conversation_messages(conversation_id)
+
+    assert len(messages) == 2
+    assert messages[0]["display_order"] == 41
+    assert messages[0]["content"]["display_order"] == 41
+    assert messages[1]["display_order"] == 42
+    assert messages[1]["content"]["display_order"] == 42

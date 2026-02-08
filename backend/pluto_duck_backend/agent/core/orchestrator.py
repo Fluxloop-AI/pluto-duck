@@ -179,40 +179,51 @@ class AgentRunManager:
 
         run.broker = ApprovalBroker(emit=emit, run_id=run.run_id)
 
-        messages: list[BaseMessage] = []
-        for msg in repo.get_conversation_messages(run.conversation_id):
-            role = (msg.get("role") or "").lower()
-            content_payload = msg.get("content")
-            text = ""
-            if isinstance(content_payload, dict):
-                text = str(content_payload.get("text") or "")
-            elif content_payload is not None:
-                text = str(content_payload)
-            if role == "user":
-                messages.append(HumanMessage(content=text))
-            elif role == "assistant":
-                messages.append(AIMessage(content=text))
-            elif role == "system":
-                messages.append(SystemMessage(content=text))
-            elif role == "tool":
-                messages.append(ToolMessage(content=text, tool_call_id="tool"))
-
-        if not messages or not isinstance(messages[-1], HumanMessage):
-            messages.append(HumanMessage(content=run.question))
-
-        # Inject context_assets from metadata into the last user message (for LLM only, not stored)
-        context_assets = run.metadata.get("context_assets")
-        if context_assets and isinstance(messages[-1], HumanMessage):
-            original_content = messages[-1].content
-            context_block = f"\n\n<context_assets>\n{context_assets}\n</context_assets>"
-            messages[-1] = HumanMessage(content=f"{original_content}{context_block}")
-            print(f"[Orchestrator] ✅ Context injected from metadata:\n{context_assets}", flush=True)
-        else:
-            print(f"[Orchestrator] ⚠️ No context_assets in metadata", flush=True)
-
         final_state: Dict[str, Any] = {"finished": False}
         try:
             summary = repo.get_conversation_summary(run.conversation_id)
+            active_run_id = str(summary.run_id) if summary and summary.run_id is not None else None
+            if active_run_id and active_run_id != run.run_id:
+                _log(
+                    "run_stale_guard",
+                    run_id=run.run_id,
+                    conversation_id=run.conversation_id,
+                    active_run_id=active_run_id,
+                )
+                final_state = {"stale_run": True, "active_run_id": active_run_id}
+                return
+
+            messages: list[BaseMessage] = []
+            for msg in repo.get_conversation_messages(run.conversation_id):
+                role = (msg.get("role") or "").lower()
+                content_payload = msg.get("content")
+                text = ""
+                if isinstance(content_payload, dict):
+                    text = str(content_payload.get("text") or "")
+                elif content_payload is not None:
+                    text = str(content_payload)
+                if role == "user":
+                    messages.append(HumanMessage(content=text))
+                elif role == "assistant":
+                    messages.append(AIMessage(content=text))
+                elif role == "system":
+                    messages.append(SystemMessage(content=text))
+                elif role == "tool":
+                    messages.append(ToolMessage(content=text, tool_call_id="tool"))
+
+            if not messages or not isinstance(messages[-1], HumanMessage):
+                messages.append(HumanMessage(content=run.question))
+
+            # Inject context_assets from metadata into the last user message (for LLM only, not stored)
+            context_assets = run.metadata.get("context_assets")
+            if context_assets and isinstance(messages[-1], HumanMessage):
+                original_content = messages[-1].content
+                context_block = f"\n\n<context_assets>\n{context_assets}\n</context_assets>"
+                messages[-1] = HumanMessage(content=f"{original_content}{context_block}")
+                print(f"[Orchestrator] ✅ Context injected from metadata:\n{context_assets}", flush=True)
+            else:
+                print(f"[Orchestrator] ⚠️ No context_assets in metadata", flush=True)
+
             project_id = summary.project_id if summary else None
             if project_id is None:
                 _log("project_id_missing", run_id=run.run_id, conversation_id=run.conversation_id)

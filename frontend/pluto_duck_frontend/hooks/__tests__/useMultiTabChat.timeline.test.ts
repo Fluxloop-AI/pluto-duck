@@ -222,28 +222,28 @@ test('streaming -> settling -> persisted transition keeps timeline order stable'
       type: 'reasoning',
       subtype: 'chunk',
       content: { phase: 'llm_reasoning', reason: 'thinking' },
-      metadata: { run_id: runId, sequence: 2, event_id: 'evt-r1', phase: 'llm_reasoning' },
+      metadata: { run_id: runId, sequence: 2, display_order: 2, event_id: 'evt-r1', phase: 'llm_reasoning' },
       timestamp: '2026-02-09T02:20:02.000Z',
     },
     {
       type: 'tool',
       subtype: 'start',
       content: { tool: 'search', input: { q: 'alpha' } },
-      metadata: { run_id: runId, sequence: 3, event_id: 'evt-t1', tool_call_id: 'tc-1' },
+      metadata: { run_id: runId, sequence: 3, display_order: 3, event_id: 'evt-t1', tool_call_id: 'tc-1' },
       timestamp: '2026-02-09T02:20:03.000Z',
     },
     {
       type: 'tool',
       subtype: 'end',
       content: { tool: 'search', output: { rows: 1 } },
-      metadata: { run_id: runId, sequence: 4, event_id: 'evt-t2', tool_call_id: 'tc-1' },
+      metadata: { run_id: runId, sequence: 4, display_order: 4, event_id: 'evt-t2', tool_call_id: 'tc-1' },
       timestamp: '2026-02-09T02:20:04.000Z',
     },
     {
       type: 'message',
       subtype: 'final',
       content: { text: 'final answer' },
-      metadata: { run_id: runId, sequence: 5, event_id: 'evt-m1' },
+      metadata: { run_id: runId, sequence: 5, display_order: 5, event_id: 'evt-m1' },
       timestamp: '2026-02-09T02:20:05.000Z',
     },
   ];
@@ -256,9 +256,10 @@ test('streaming -> settling -> persisted transition keeps timeline order stable'
       {
         id: 'u-phase4-transition',
         role: 'user',
-        content: { text: 'question' },
+        content: { text: 'question', display_order: 1 },
         created_at: '2026-02-09T02:20:01.000Z',
         seq: 1,
+        display_order: 1,
         run_id: runId,
       },
     ],
@@ -313,9 +314,10 @@ test('streaming -> settling -> persisted transition keeps timeline order stable'
         {
           id: 'a-phase4-transition',
           role: 'assistant',
-          content: { text: 'final answer' },
+          content: { text: 'final answer', display_order: 6 },
           created_at: '2026-02-09T02:20:06.000Z',
           seq: 2,
+          display_order: 6,
           run_id: runId,
         },
       ],
@@ -342,6 +344,34 @@ test('streaming -> settling -> persisted transition keeps timeline order stable'
   assert.equal(persistedItems.filter((item: { type: string }) => item.type === 'reasoning').length, 1);
   assert.equal(settlingItems.filter((item: { type: string }) => item.type === 'assistant-message').length, 1);
   assert.equal(persistedItems.filter((item: { type: string }) => item.type === 'assistant-message').length, 1);
+
+  const eventOrderById = (turns: Array<{ events: Array<{ metadata?: { event_id?: string }; display_order?: number }> }>) =>
+    new Map(
+      turns
+        .flatMap(turn => turn.events)
+        .map(event => [event.metadata?.event_id ?? '', event.display_order ?? null] as const)
+        .filter(([eventId]) => eventId),
+    );
+  const streamingEventOrders = eventOrderById(streamingTurns);
+  const settlingEventOrders = eventOrderById(settlingTurns);
+  const persistedEventOrders = eventOrderById(persistedTurns);
+
+  assert.equal(streamingTurns[0].userMessages[0].display_order, 1);
+  assert.equal(settlingTurns[0].userMessages[0].display_order, 1);
+  assert.equal(persistedTurns[0].userMessages[0].display_order, 1);
+  assert.equal(streamingEventOrders.get('evt-r1'), 2);
+  assert.equal(settlingEventOrders.get('evt-r1'), 2);
+  assert.equal(persistedEventOrders.get('evt-r1'), 2);
+  assert.equal(streamingEventOrders.get('evt-t1'), 3);
+  assert.equal(settlingEventOrders.get('evt-t1'), 3);
+  assert.equal(persistedEventOrders.get('evt-t1'), 3);
+  assert.equal(streamingEventOrders.get('evt-t2'), 4);
+  assert.equal(settlingEventOrders.get('evt-t2'), 4);
+  assert.equal(persistedEventOrders.get('evt-t2'), 4);
+  assert.equal(streamingEventOrders.get('evt-m1'), 5);
+  assert.equal(settlingEventOrders.get('evt-m1'), 5);
+  assert.equal(persistedEventOrders.get('evt-m1'), 5);
+  assert.equal(persistedTurns[0].assistantMessages[0].display_order, 6);
 });
 
 test('streaming -> settling -> persisted keeps segmented reasoning span count and order stable', async () => {

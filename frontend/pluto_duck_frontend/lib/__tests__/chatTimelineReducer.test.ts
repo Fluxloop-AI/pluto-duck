@@ -146,6 +146,99 @@ test('active run reasoning chunks are merged into one streaming row before llm_e
   assert.equal(reasoningItems[0].status, 'streaming');
 });
 
+test('llm_start followed by llm_end without reasoning does not materialize thought', async () => {
+  const { buildTimelineItemsFromEvents } = await import(reducerModuleUrl.href);
+
+  const runId = 'run-empty-span';
+  const items = buildTimelineItemsFromEvents({
+    activeRunId: runId,
+    events: [
+      {
+        type: 'reasoning',
+        subtype: 'start',
+        content: { phase: 'llm_start' },
+        metadata: { run_id: runId, sequence: 1, event_id: 'evt-empty-start', phase: 'llm_start' },
+        timestamp: '2026-02-09T00:15:01.000Z',
+      },
+      {
+        type: 'reasoning',
+        subtype: 'end',
+        content: { phase: 'llm_end' },
+        metadata: { run_id: runId, sequence: 2, event_id: 'evt-empty-end', phase: 'llm_end' },
+        timestamp: '2026-02-09T00:15:02.000Z',
+      },
+    ],
+  });
+
+  const reasoningItems = items.filter((item: { type: string }) => item.type === 'reasoning');
+  assert.equal(reasoningItems.length, 0);
+});
+
+test('same run creates segmented reasoning rows across llm_start/llm_end boundaries', async () => {
+  const { buildTimelineItemsFromEvents } = await import(reducerModuleUrl.href);
+
+  const runId = 'run-segmented-reasoning';
+  const items = buildTimelineItemsFromEvents({
+    events: [
+      {
+        type: 'reasoning',
+        subtype: 'start',
+        content: { phase: 'llm_start' },
+        metadata: { run_id: runId, sequence: 1, event_id: 'evt-seg-start-1', phase: 'llm_start' },
+        timestamp: '2026-02-09T00:16:01.000Z',
+      },
+      {
+        type: 'reasoning',
+        subtype: 'chunk',
+        content: { phase: 'llm_reasoning', reason: 'segment-one' },
+        metadata: { run_id: runId, sequence: 2, event_id: 'evt-seg-body-1', phase: 'llm_reasoning' },
+        timestamp: '2026-02-09T00:16:02.000Z',
+      },
+      {
+        type: 'reasoning',
+        subtype: 'end',
+        content: { phase: 'llm_end' },
+        metadata: { run_id: runId, sequence: 3, event_id: 'evt-seg-end-1', phase: 'llm_end' },
+        timestamp: '2026-02-09T00:16:03.000Z',
+      },
+      {
+        type: 'reasoning',
+        subtype: 'start',
+        content: { phase: 'llm_start' },
+        metadata: { run_id: runId, sequence: 4, event_id: 'evt-seg-start-2', phase: 'llm_start' },
+        timestamp: '2026-02-09T00:16:04.000Z',
+      },
+      {
+        type: 'reasoning',
+        subtype: 'chunk',
+        content: { phase: 'llm_reasoning', reason: 'segment-two' },
+        metadata: { run_id: runId, sequence: 5, event_id: 'evt-seg-body-2', phase: 'llm_reasoning' },
+        timestamp: '2026-02-09T00:16:05.000Z',
+      },
+      {
+        type: 'reasoning',
+        subtype: 'end',
+        content: { phase: 'llm_end' },
+        metadata: { run_id: runId, sequence: 6, event_id: 'evt-seg-end-2', phase: 'llm_end' },
+        timestamp: '2026-02-09T00:16:06.000Z',
+      },
+    ],
+  });
+
+  const reasoningItems = items.filter((item: { type: string }) => item.type === 'reasoning') as Array<{
+    content: string;
+    segmentOrder: number;
+  }>;
+  assert.equal(reasoningItems.length, 2);
+  assert.deepEqual(
+    reasoningItems.map(item => [item.content, item.segmentOrder]),
+    [
+      ['segment-one', 0],
+      ['segment-two', 1],
+    ],
+  );
+});
+
 test('dedupes final message event when persisted assistant message has null run_id', async () => {
   const { buildTimelineItemsFromEvents } = await import(reducerModuleUrl.href);
 

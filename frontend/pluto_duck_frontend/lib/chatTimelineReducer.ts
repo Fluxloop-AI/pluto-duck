@@ -512,6 +512,14 @@ function buildMessageItems(
 
 type ReasoningPhase = 'llm_start' | 'llm_reasoning' | 'llm_end' | 'llm_usage' | 'unknown';
 type ReasoningLifecycleState = 'opened' | 'materialized' | 'closed' | 'dropped';
+interface ActiveReasoningSpan {
+  runKey: string;
+  runId: string | null;
+  segmentOrder: number;
+  segmentId: string;
+  lifecycle: ReasoningLifecycleState;
+  item: ReasoningTimelineItem | null;
+}
 
 function resolveReasoningPhase(event: TimelineEventEnvelope, meta: CanonicalEventMeta): ReasoningPhase {
   const content = isRecord(event.content) ? event.content : null;
@@ -524,10 +532,16 @@ function resolveReasoningPhase(event: TimelineEventEnvelope, meta: CanonicalEven
   return 'unknown';
 }
 
-function getReasoningKey(meta: CanonicalEventMeta, index: number): string {
+function getReasoningRunKey(meta: CanonicalEventMeta, index: number): string {
   if (meta.runId) return `run:${meta.runId}`;
   if (meta.eventId) return `event:${meta.eventId}`;
   return `index:${index}`;
+}
+
+function buildReasoningSegmentId(meta: CanonicalEventMeta, runKey: string, index: number, segmentOrder: number): string {
+  if (meta.eventId) return meta.eventId;
+  const normalizedRunKey = runKey.replace(/[^a-zA-Z0-9_-]/g, '-');
+  return `timeline-reasoning-${normalizedRunKey}-${segmentOrder}-${index}`;
 }
 
 function mergeReasoningText(existing: string, incoming: string): string {
@@ -546,12 +560,12 @@ function mergeReasoningText(existing: string, incoming: string): string {
 function createReasoningItem(
   event: TimelineEventEnvelope,
   meta: CanonicalEventMeta,
-  index: number,
+  segmentId: string,
+  segmentOrder: number,
   now: () => string,
 ): ReasoningTimelineItem {
-  const itemId = meta.eventId ?? `timeline-reasoning-${index}`;
   return {
-    id: itemId,
+    id: segmentId,
     type: 'reasoning',
     runId: meta.runId ?? null,
     sequence: meta.sequence ?? null,
@@ -559,8 +573,8 @@ function createReasoningItem(
     status: 'pending',
     isStreaming: false,
     isPartial: false,
-    segmentId: itemId,
-    segmentOrder: 0,
+    segmentId,
+    segmentOrder,
     content: '',
     phase: meta.phase,
     eventId: meta.eventId,
@@ -727,71 +741,109 @@ function buildEventItems(
       .map(message => message.run_id as string),
   );
   const items: TimelineItem[] = [];
-  const reasoningByKey = new Map<string, ReasoningTimelineItem>();
-  const reasoningLifecycleByKey = new Map<string, ReasoningLifecycleState>();
+  const activeSpanByRun = new Map<string, ActiveReasoningSpan>();
+  const nextSegmentOrderByRun = new Map<string, number>();
+
+  function allocateSegmentOrder(runKey: string): number {
+    const next = nextSegmentOrderByRun.get(runKey) ?? 0;
+    nextSegmentOrderByRun.set(runKey, next + 1);
+    return next;
+  }
+
+  function openSpan(meta: CanonicalEventMeta, index: number): ActiveReasoningSpan {
+    const runKey = getReasoningRunKey(meta, index);
+    const segmentOrder = allocateSegmentOrder(runKey);
+    const segmentId = buildReasoningSegmentId(meta, runKey, index, segmentOrder);
+    const span: ActiveReasoningSpan = {
+      runKey,
+      runId: meta.runId ?? null,
+      segmentOrder,
+      segmentId,
+      lifecycle: 'opened',
+      item: null,
+    };
+    activeSpanByRun.set(runKey, span);
+    return span;
+  }
+
+  function closeSpan(runKey: string): void {
+    const span = activeSpanByRun.get(runKey);
+    if (!span) return;
+    if (span.item) {
+      span.lifecycle = 'closed';
+      span.item.status = 'complete';
+      span.item.isStreaming = false;
+      span.item.isPartial = false;
+    } else {
+      span.lifecycle = 'dropped';
+    }
+    activeSpanByRun.delete(runKey);
+  }
+
+  function materializeSpan(
+    span: ActiveReasoningSpan,
+    event: TimelineEventEnvelope,
+    meta: CanonicalEventMeta,
+    now: () => string,
+  ): ReasoningTimelineItem {
+    if (span.item) return span.item;
+    const item = createReasoningItem(event, meta, span.segmentId, span.segmentOrder, now);
+    span.item = item;
+    span.lifecycle = 'materialized';
+    items.push(item);
+    return item;
+  }
+
   normalizedEvents.forEach(({ event, meta, index }) => {
     if (event.type === 'reasoning') {
-      const key = getReasoningKey(meta, index);
+      const runKey = getReasoningRunKey(meta, index);
       const runId = meta.runId ?? null;
       const isActiveRun = Boolean(params.activeRunId && runId && runId === params.activeRunId);
-      let reasoningItem = reasoningByKey.get(key);
-      if (!reasoningItem) {
-        reasoningItem = createReasoningItem(event, meta, index, now);
-        reasoningByKey.set(key, reasoningItem);
-        reasoningLifecycleByKey.set(key, 'opened');
-        items.push(reasoningItem);
-      }
-
-      if (typeof meta.sequence === 'number') {
-        if (reasoningItem.sequence === null || meta.sequence < reasoningItem.sequence) {
-          reasoningItem.sequence = meta.sequence;
-        }
-      }
       const phase = resolveReasoningPhase(event, meta);
-      reasoningItem.phase = phase === 'unknown' ? meta.phase : phase;
-      if (meta.parentEventId) reasoningItem.parentEventId = meta.parentEventId;
-      if (meta.eventId) reasoningItem.eventId = meta.eventId;
       if (phase === 'llm_usage') {
         return;
       }
       if (phase === 'llm_start') {
         // lifecycle: opened (non-visual), materialized on first non-empty llm_reasoning,
         // then closed (or dropped when never materialized) at llm_end.
-        reasoningLifecycleByKey.set(key, 'opened');
-        reasoningItem.status = isActiveRun ? 'streaming' : 'complete';
-        reasoningItem.isStreaming = isActiveRun;
-        reasoningItem.isPartial = false;
-        return;
-      }
-      if (phase === 'llm_reasoning') {
-        const reasoningText = extractReasoningText(event.content);
-        reasoningItem.content = mergeReasoningText(reasoningItem.content, reasoningText);
-        if (reasoningItem.content.trim().length > 0) {
-          reasoningLifecycleByKey.set(key, 'materialized');
-        }
-        reasoningItem.status = isActiveRun ? 'streaming' : 'complete';
-        reasoningItem.isStreaming = isActiveRun;
-        reasoningItem.isPartial = event.subtype === 'chunk';
+        closeSpan(runKey);
+        openSpan(meta, index);
         return;
       }
       if (phase === 'llm_end') {
-        const prevLifecycle = reasoningLifecycleByKey.get(key);
-        reasoningLifecycleByKey.set(key, prevLifecycle === 'materialized' ? 'closed' : 'dropped');
-        reasoningItem.status = 'complete';
-        reasoningItem.isStreaming = false;
-        reasoningItem.isPartial = false;
+        closeSpan(runKey);
         return;
       }
 
-      const reasoningText = extractReasoningText(event.content);
-      reasoningItem.content = mergeReasoningText(reasoningItem.content, reasoningText);
-      if (reasoningItem.content.trim().length > 0) {
-        reasoningLifecycleByKey.set(key, 'materialized');
+      let activeSpan = activeSpanByRun.get(runKey);
+      if (!activeSpan) {
+        activeSpan = openSpan(meta, index);
       }
-      const rawStatus = resolveStatus(event.subtype);
-      const status: TimelineItemStatus = rawStatus === 'streaming' && !isActiveRun ? 'complete' : rawStatus;
-      reasoningItem.status = status;
-      reasoningItem.isStreaming = status === 'streaming';
+
+      const reasoningText = extractReasoningText(event.content);
+      if (!reasoningText) {
+        return;
+      }
+
+      const reasoningItem = materializeSpan(activeSpan, event, meta, now);
+      if (typeof meta.sequence === 'number') {
+        if (reasoningItem.sequence === null || meta.sequence < reasoningItem.sequence) {
+          reasoningItem.sequence = meta.sequence;
+        }
+      }
+      reasoningItem.phase = phase === 'unknown' ? meta.phase : phase;
+      if (meta.parentEventId) reasoningItem.parentEventId = meta.parentEventId;
+      if (meta.eventId) reasoningItem.eventId = meta.eventId;
+      reasoningItem.content = mergeReasoningText(reasoningItem.content, reasoningText);
+
+      if (phase === 'llm_reasoning') {
+        reasoningItem.status = isActiveRun ? 'streaming' : 'complete';
+      } else {
+        const rawStatus = resolveStatus(event.subtype);
+        const status: TimelineItemStatus = rawStatus === 'streaming' && !isActiveRun ? 'complete' : rawStatus;
+        reasoningItem.status = status;
+      }
+      reasoningItem.isStreaming = reasoningItem.status === 'streaming';
       reasoningItem.isPartial = event.subtype === 'chunk';
       return;
     }

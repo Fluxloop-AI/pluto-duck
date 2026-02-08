@@ -152,7 +152,7 @@ test('missing sequence/tool_call_id falls back without rendering failure', async
   assert.equal(toolItem.error, 'failed');
 });
 
-test('inactive run empty reasoning start does not leave ghost thinking rows', async () => {
+test('llm_start is non-visual and does not leave ghost thinking rows', async () => {
   const { buildTimelineItemsFromEvents } = await import(adapterModuleUrl.href);
 
   const oldRunItems = buildTimelineItemsFromEvents({
@@ -181,12 +181,7 @@ test('inactive run empty reasoning start does not leave ghost thinking rows', as
     ],
     activeRunId: 'run-active',
   });
-  const reasoning = activeRunItems.find((item: { type: string }) => item.type === 'reasoning') as
-    | { isStreaming: boolean; status: string }
-    | undefined;
-  assert.equal(Boolean(reasoning), true);
-  assert.equal(reasoning?.isStreaming, true);
-  assert.equal(reasoning?.status, 'streaming');
+  assert.equal(activeRunItems.filter((item: { type: string }) => item.type === 'reasoning').length, 0);
 });
 
 test('persisted assistant message is ordered using event sequence and message events are not duplicated', async () => {
@@ -438,9 +433,9 @@ test('cross-run timeline ordering follows timestamp to prevent second-turn jump-
     events: [
       {
         type: 'reasoning',
-        subtype: 'start',
-        content: { phase: 'llm_start' },
-        metadata: { run_id: run2, sequence: 1, event_id: 'evt-r2-start' },
+        subtype: 'chunk',
+        content: { phase: 'llm_reasoning', reason: 'second run thought' },
+        metadata: { run_id: run2, sequence: 1, event_id: 'evt-r2-body', phase: 'llm_reasoning' },
         timestamp: '2026-02-08T21:00:05.100Z',
       },
     ],
@@ -495,9 +490,9 @@ test('same-run mixed message/event sequence spaces keep user message before late
     events: [
       {
         type: 'reasoning',
-        subtype: 'start',
-        content: { phase: 'llm_start' },
-        metadata: { run_id: run2, sequence: 1, event_id: 'evt-r2-start' },
+        subtype: 'chunk',
+        content: { phase: 'llm_reasoning', reason: 'second run thought' },
+        metadata: { run_id: run2, sequence: 1, event_id: 'evt-r2-body', phase: 'llm_reasoning' },
         timestamp: '2026-02-08T22:00:05.100Z',
       },
     ],
@@ -552,9 +547,9 @@ test('run order remains stable when persisted and live timestamps use different 
     events: [
       {
         type: 'reasoning',
-        subtype: 'start',
-        content: { phase: 'llm_start' },
-        metadata: { run_id: run2, sequence: 1, event_id: 'evt-r2-start' },
+        subtype: 'chunk',
+        content: { phase: 'llm_reasoning', reason: 'second run thought' },
+        metadata: { run_id: run2, sequence: 1, event_id: 'evt-r2-body', phase: 'llm_reasoning' },
         timestamp: '2026-02-08T08:07:23.320Z',
       },
     ],

@@ -213,7 +213,7 @@ export function ChatPanel({
 
   const handleSubmit = useCallback(async (message: PromptInputMessage) => {
     const prompt = message.text?.trim();
-    if (!prompt) return;
+    if (!prompt || isStreaming) return;
 
     // Build context string for active mentions present in the prompt (not appended to message)
     const mentions = Array.from(activeMentionsRef.current.values());
@@ -230,7 +230,7 @@ export function ChatPanel({
     activeMentionsRef.current.clear();
     setInput('');
     await onSubmit({ prompt, contextAssets });
-  }, [onSubmit]);
+  }, [isStreaming, onSubmit]);
 
   const handleOnboardingSelect = useCallback((prompt: string) => {
     setIsOnboardingExiting(true);

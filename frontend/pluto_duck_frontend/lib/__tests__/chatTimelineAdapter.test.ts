@@ -308,3 +308,98 @@ test('llm_end reasoning text duplicated with final assistant is suppressed', asy
   const assistantItems = items.filter((item: { type: string }) => item.type === 'assistant-message');
   assert.equal(assistantItems.length, 1);
 });
+
+test('reasoning text duplicated with final assistant is suppressed even without phase', async () => {
+  const { buildTimelineItemsFromEvents } = await import(adapterModuleUrl.href);
+
+  const runId = 'run-no-phase-dedupe';
+  const finalText = 'Okay — what would you like to try again?';
+  const items = buildTimelineItemsFromEvents({
+    messages: [
+      {
+        id: 'user-2',
+        role: 'user',
+        content: { text: 'retry' },
+        created_at: '2026-02-08T19:00:01.000Z',
+        seq: 1,
+        run_id: runId,
+      },
+      {
+        id: 'assistant-2',
+        role: 'assistant',
+        content: { text: finalText },
+        created_at: '2026-02-08T19:00:04.000Z',
+        seq: 2,
+        run_id: runId,
+      },
+    ],
+    events: [
+      {
+        type: 'reasoning',
+        subtype: 'chunk',
+        content: { reason: finalText },
+        metadata: { run_id: runId, sequence: 6, event_id: 'evt-r-no-phase' },
+        timestamp: '2026-02-08T19:00:03.100Z',
+      },
+      {
+        type: 'message',
+        subtype: 'final',
+        content: { text: finalText },
+        metadata: { run_id: runId, sequence: 7, event_id: 'evt-m-no-phase' },
+        timestamp: '2026-02-08T19:00:03.200Z',
+      },
+    ],
+  });
+
+  const reasoningItems = items.filter((item: { type: string }) => item.type === 'reasoning');
+  assert.equal(reasoningItems.length, 0);
+
+  const assistantItems = items.filter((item: { type: string }) => item.type === 'assistant-message');
+  assert.equal(assistantItems.length, 1);
+});
+
+test('empty streaming reasoning row is suppressed once final assistant exists for the run', async () => {
+  const { buildTimelineItemsFromEvents } = await import(adapterModuleUrl.href);
+
+  const runId = 'run-empty-streaming-suppressed';
+  const items = buildTimelineItemsFromEvents({
+    messages: [
+      {
+        id: 'user-3',
+        role: 'user',
+        content: { text: 'hello' },
+        created_at: '2026-02-08T20:00:01.000Z',
+        seq: 1,
+        run_id: runId,
+      },
+      {
+        id: 'assistant-3',
+        role: 'assistant',
+        content: { text: 'Hello! How can I help you today?' },
+        created_at: '2026-02-08T20:00:04.000Z',
+        seq: 2,
+        run_id: runId,
+      },
+    ],
+    events: [
+      {
+        type: 'reasoning',
+        subtype: 'start',
+        content: { phase: 'llm_start' },
+        metadata: { run_id: runId, sequence: 5, event_id: 'evt-r-empty' },
+        timestamp: '2026-02-08T20:00:03.000Z',
+      },
+      {
+        type: 'message',
+        subtype: 'final',
+        content: { text: 'Hello! How can I help you today?' },
+        metadata: { run_id: runId, sequence: 6, event_id: 'evt-m-final-2' },
+        timestamp: '2026-02-08T20:00:03.200Z',
+      },
+    ],
+    activeRunId: runId,
+  });
+
+  const reasoningItems = items.filter((item: { type: string }) => item.type === 'reasoning');
+  assert.equal(reasoningItems.length, 0);
+});

@@ -508,10 +508,16 @@ function buildEventItems(
     if (event.type === 'reasoning') {
       const reasoningItem = buildReasoningItem(event, meta, index, now, params.activeRunId);
       if (reasoningItem) {
-        if (reasoningItem.phase === 'llm_end' && reasoningItem.runId) {
+        if (reasoningItem.runId) {
           const assistantFinalText = assistantFinalTextByRun.get(reasoningItem.runId);
-          if (assistantFinalText && normalizeComparableText(reasoningItem.content) === assistantFinalText) {
-            return;
+          if (assistantFinalText) {
+            const normalizedReasoningText = normalizeComparableText(reasoningItem.content);
+            if (normalizedReasoningText && normalizedReasoningText === assistantFinalText) {
+              return;
+            }
+            if (!normalizedReasoningText && reasoningItem.isStreaming) {
+              return;
+            }
           }
         }
         items.push(reasoningItem);

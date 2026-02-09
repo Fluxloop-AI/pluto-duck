@@ -91,6 +91,27 @@ test('defensively parses abnormal todo items', () => {
 
   assert.equal(todos.length, 3);
   assert.equal(todos[0]?.title, '123');
-  assert.equal(todos[1]?.title, '[object Object]');
+  assert.equal(todos[1]?.title, 'Untitled task');
   assert.equal(todos[2]?.title, 'raw task');
+});
+
+test('returns empty array when payload has self-cycle via update', () => {
+  const cyclical: Record<string, unknown> = {};
+  cyclical.update = cyclical;
+
+  const todos = parseTodosFromToolPayload(cyclical, null);
+
+  assert.deepEqual(todos, []);
+});
+
+test('returns empty array when payload nesting exceeds unwrap depth', () => {
+  let nested: unknown = [{ content: 'Too deep task', status: 'pending' }];
+
+  for (let i = 0; i < 64; i += 1) {
+    nested = { update: nested };
+  }
+
+  const todos = parseTodosFromToolPayload(nested, null);
+
+  assert.deepEqual(todos, []);
 });

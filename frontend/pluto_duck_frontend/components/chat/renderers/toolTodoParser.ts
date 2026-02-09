@@ -2,6 +2,7 @@ import type { QueueTodo } from '../../ai-elements/queue';
 
 type TodoRecord = Record<string, unknown>;
 type TodoStatus = QueueTodo['status'];
+const MAX_TODO_UNWRAP_DEPTH = 24;
 
 function isRecord(value: unknown): value is TodoRecord {
   return typeof value === 'object' && value !== null;
@@ -133,23 +134,37 @@ function parseStringPayload(value: string): unknown | null {
 function resolveTodoArray(payload: unknown): unknown[] | null {
   if (payload == null) return null;
 
-  let normalized: unknown = payload;
-  if (typeof payload === 'string') {
-    normalized = parseStringPayload(payload);
-    if (normalized === null) return null;
+  let current: unknown = payload;
+  const visited = new Set<object>();
+
+  for (let depth = 0; depth <= MAX_TODO_UNWRAP_DEPTH; depth += 1) {
+    if (typeof current === 'string') {
+      current = parseStringPayload(current);
+      if (current === null) return null;
+      continue;
+    }
+
+    if (Array.isArray(current)) return current;
+    if (!isRecord(current)) return null;
+
+    if (visited.has(current)) return null;
+    visited.add(current);
+
+    if (Array.isArray(current.todos)) return current.todos;
+    if (Array.isArray(current.items)) return current.items;
+
+    if (current.update !== undefined) {
+      current = current.update;
+      continue;
+    }
+    if (current.content !== undefined) {
+      current = current.content;
+      continue;
+    }
+
+    return null;
   }
 
-  if (Array.isArray(normalized)) return normalized;
-
-  if (!isRecord(normalized)) return null;
-  if (normalized.update !== undefined) {
-    return resolveTodoArray(normalized.update);
-  }
-  if (normalized.content !== undefined) {
-    return resolveTodoArray(normalized.content);
-  }
-  if (Array.isArray(normalized.todos)) return normalized.todos;
-  if (Array.isArray(normalized.items)) return normalized.items;
   return null;
 }
 
@@ -173,7 +188,7 @@ function normalizeTodoItem(todo: unknown, index: number): QueueTodo {
     toOptionalString(todo.content) ??
     toOptionalString(todo.title) ??
     toOptionalString(todo.name) ??
-    String(todo);
+    'Untitled task';
 
   return {
     id,

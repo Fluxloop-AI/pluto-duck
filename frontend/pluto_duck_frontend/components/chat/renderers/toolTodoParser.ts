@@ -1,6 +1,7 @@
 import type { QueueTodo } from '../../ai-elements/queue';
 
 type TodoRecord = Record<string, unknown>;
+type TodoStatus = QueueTodo['status'];
 
 function isRecord(value: unknown): value is TodoRecord {
   return typeof value === 'object' && value !== null;
@@ -150,6 +151,12 @@ function resolveTodoArray(payload: unknown): unknown[] | null {
   return null;
 }
 
+function mapTodoStatus(value: unknown): TodoStatus {
+  if (value === 'completed') return 'completed';
+  if (value === 'in_progress') return 'in_progress';
+  return 'pending';
+}
+
 function normalizeTodoItem(todo: unknown, index: number): QueueTodo {
   if (!isRecord(todo)) {
     return {
@@ -170,7 +177,7 @@ function normalizeTodoItem(todo: unknown, index: number): QueueTodo {
     id,
     title,
     description: toOptionalString(todo.description),
-    status: todo.status === 'completed' ? 'completed' : 'pending',
+    status: mapTodoStatus(todo.status),
   };
 }
 

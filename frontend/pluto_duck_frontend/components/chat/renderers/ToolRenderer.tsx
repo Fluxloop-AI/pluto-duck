@@ -168,8 +168,14 @@ export const ToolRenderer = memo(function ToolRenderer({
           <QueueList>
             {todos.map((todo) => (
               <QueueItem key={todo.id} className="flex-row items-start gap-2">
-                <QueueItemIndicator completed={todo.status === 'completed'} />
-                <QueueItemContent completed={todo.status === 'completed'}>
+                <QueueItemIndicator
+                  completed={todo.status === 'completed'}
+                  inProgress={todo.status === 'in_progress'}
+                />
+                <QueueItemContent
+                  completed={todo.status === 'completed'}
+                  inProgress={todo.status === 'in_progress'}
+                >
                   {todo.title}
                 </QueueItemContent>
               </QueueItem>

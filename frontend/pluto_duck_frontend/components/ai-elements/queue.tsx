@@ -28,7 +28,7 @@ export type QueueTodo = {
   id: string;
   title: string;
   description?: string;
-  status?: "pending" | "completed";
+  status?: "pending" | "in_progress" | "completed";
 };
 
 export type QueueItemProps = ComponentProps<"li">;
@@ -45,10 +45,12 @@ export const QueueItem = ({ className, ...props }: QueueItemProps) => (
 
 export type QueueItemIndicatorProps = ComponentProps<"span"> & {
   completed?: boolean;
+  inProgress?: boolean;
 };
 
 export const QueueItemIndicator = ({
   completed = false,
+  inProgress = false,
   className,
   ...props
 }: QueueItemIndicatorProps) => (
@@ -57,7 +59,9 @@ export const QueueItemIndicator = ({
       "mt-0.5 inline-block size-2.5 rounded-full border",
       completed
         ? "border-muted-foreground/20 bg-muted-foreground/10"
-        : "border-muted-foreground/50",
+        : inProgress
+          ? "border-amber-500/70 bg-amber-500/30"
+          : "border-muted-foreground/50",
       className
     )}
     {...props}
@@ -66,10 +70,12 @@ export const QueueItemIndicator = ({
 
 export type QueueItemContentProps = ComponentProps<"span"> & {
   completed?: boolean;
+  inProgress?: boolean;
 };
 
 export const QueueItemContent = ({
   completed = false,
+  inProgress = false,
   className,
   ...props
 }: QueueItemContentProps) => (
@@ -78,7 +84,9 @@ export const QueueItemContent = ({
       "line-clamp-1 grow break-words",
       completed
         ? "text-muted-foreground/50 line-through"
-        : "text-muted-foreground",
+        : inProgress
+          ? "text-foreground"
+          : "text-muted-foreground",
       className
     )}
     {...props}

@@ -165,3 +165,26 @@
 .animate-collapsible-up {
   animation: collapsible-up 150ms ease-out;
 }
+
+@keyframes reasoning-fade-out {
+  from {
+    opacity: 1;
+    max-height: 60px;
+    margin-top: 0;
+    margin-bottom: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+  to {
+    opacity: 0;
+    max-height: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+}
+
+.animate-reasoning-fade-out {
+  animation: reasoning-fade-out 450ms cubic-bezier(0.23, 1, 0.32, 1) forwards;
+}

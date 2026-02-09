@@ -1079,10 +1079,15 @@ function buildEventItems(
     const span = activeSpanByRun.get(runKey);
     if (!span) return;
     if (span.item) {
+      const hasReasoningContent = span.item.content.trim().length > 0;
       span.lifecycle = 'closed';
       span.item.status = 'complete';
       span.item.isStreaming = false;
       span.item.isPartial = false;
+      if (!hasReasoningContent) {
+        // Keep empty non-streaming item; final filter removes it naturally.
+        span.item.status = 'complete';
+      }
     } else {
       span.lifecycle = 'dropped';
     }
@@ -1113,10 +1118,17 @@ function buildEventItems(
         return;
       }
       if (phase === 'llm_start') {
-        // lifecycle: opened (non-visual), materialized on first non-empty llm_reasoning,
-        // then closed (or dropped when never materialized) at llm_end.
         closeSpan(runKey);
-        openSpan(meta, index);
+        const openedSpan = openSpan(meta, index);
+        if (isActiveRun) {
+          const reasoningItem = materializeSpan(openedSpan, event, meta, now);
+          reasoningItem.phase = phase;
+          if (meta.parentEventId) reasoningItem.parentEventId = meta.parentEventId;
+          if (meta.eventId) reasoningItem.eventId = meta.eventId;
+          reasoningItem.status = 'streaming';
+          reasoningItem.isStreaming = true;
+          reasoningItem.isPartial = false;
+        }
         return;
       }
       if (phase === 'llm_end') {

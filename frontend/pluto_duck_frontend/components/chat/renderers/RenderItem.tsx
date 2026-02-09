@@ -10,6 +10,7 @@ import { ApprovalRenderer } from './ApprovalRenderer';
 
 export interface RenderItemProps {
   item: ChatRenderItem;
+  isDismissingReasoning?: boolean;
   isLastAssistant?: boolean;
   feedback?: FeedbackType;
   onEditUserMessage?: (messageId: string, content: string) => void;
@@ -22,6 +23,7 @@ export interface RenderItemProps {
 
 export const RenderItem = memo(function RenderItem({
   item,
+  isDismissingReasoning,
   isLastAssistant,
   feedback,
   onEditUserMessage,
@@ -42,7 +44,12 @@ export const RenderItem = memo(function RenderItem({
       );
 
     case 'reasoning':
-      return <ReasoningRenderer item={item} />;
+      return (
+        <ReasoningRenderer
+          item={item}
+          isDismissing={isDismissingReasoning}
+        />
+      );
 
     case 'tool':
       return <ToolRenderer item={item} />;

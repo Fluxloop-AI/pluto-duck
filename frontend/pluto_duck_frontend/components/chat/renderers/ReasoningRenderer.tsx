@@ -1,6 +1,6 @@
 'use client';
 
-import { memo } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import {
   Reasoning,
   ReasoningTrigger,
@@ -10,22 +10,53 @@ import type { ReasoningItem } from '../../../types/chatRenderItem';
 
 export interface ReasoningRendererProps {
   item: ReasoningItem;
+  isDismissing?: boolean;
 }
 
 export const ReasoningRenderer = memo(function ReasoningRenderer({
   item,
+  isDismissing = false,
 }: ReasoningRendererProps) {
-  const isStreaming = item.phase === 'streaming';
+  const isStreamingPhase = item.phase === 'streaming';
+  const hasContent = item.content.trim().length > 0;
+  const prevIsStreamingPhaseRef = useRef(isStreamingPhase);
+  const [isLocallyDismissing, setIsLocallyDismissing] = useState(false);
+
+  useEffect(() => {
+    const wasStreaming = prevIsStreamingPhaseRef.current;
+    if (!isDismissing && wasStreaming && !isStreamingPhase && !hasContent) {
+      setIsLocallyDismissing(true);
+    }
+    prevIsStreamingPhaseRef.current = isStreamingPhase;
+  }, [hasContent, isDismissing, isStreamingPhase]);
+
+  useEffect(() => {
+    if (isDismissing) {
+      setIsLocallyDismissing(true);
+      return;
+    }
+    if (hasContent || isStreamingPhase) {
+      setIsLocallyDismissing(false);
+    }
+  }, [hasContent, isDismissing, isStreamingPhase]);
+
+  const isRenderingDismissing = isDismissing || isLocallyDismissing;
+  const isStreaming = isStreamingPhase && !isRenderingDismissing;
 
   // Don't render if no content and not streaming
-  if (!item.content && !isStreaming) {
+  if (!hasContent && !isStreaming && !isRenderingDismissing) {
     return null;
   }
 
   return (
-    <Reasoning isStreaming={isStreaming} defaultOpen={false}>
-      <ReasoningTrigger />
-      <ReasoningContent>{item.content || ''}</ReasoningContent>
-    </Reasoning>
+    <div
+      className={isRenderingDismissing ? 'animate-reasoning-fade-out overflow-hidden' : undefined}
+      onAnimationEnd={isRenderingDismissing ? () => setIsLocallyDismissing(false) : undefined}
+    >
+      <Reasoning isStreaming={isStreaming} defaultOpen={false}>
+        <ReasoningTrigger />
+        <ReasoningContent>{item.content || ''}</ReasoningContent>
+      </Reasoning>
+    </div>
   );
 });

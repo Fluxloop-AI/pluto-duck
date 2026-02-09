@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { ArrowUpIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -26,7 +26,7 @@ import { RenderItem, type FeedbackType } from './renderers';
 import { AssetEmbedTestButtons } from './AssetEmbedTestButtons';
 import { type MentionItem } from '../../hooks/useAssetMentions';
 import type { ChatSessionSummary } from '../../lib/chatApi';
-import type { ChatRenderItem, AssistantMessageItem } from '../../types/chatRenderItem';
+import type { ChatRenderItem, AssistantMessageItem, ReasoningItem } from '../../types/chatRenderItem';
 import { ALL_MODEL_OPTIONS } from '../../constants/models';
 import type { AssetEmbedConfig } from '../editor/nodes/AssetEmbedNode';
 import { type ChatLoadingMode } from '../../lib/chatLoadingState';
@@ -35,6 +35,7 @@ import { canSubmitChatPrompt } from './chatSubmitEligibility';
 
 const MODELS = ALL_MODEL_OPTIONS;
 const ENABLE_SESSION_LOADING_SKELETON = false;
+const REASONING_DISMISS_DURATION_MS = 450;
 
 /**
  * Find the last assistant message item for action display
@@ -69,6 +70,18 @@ interface ConversationMessagesProps {
   onApprovalDecision?: (approvalEventId: string, runId: string | null, decision: 'approved' | 'rejected') => void;
 }
 
+interface ExitingReasoningEntry {
+  id: string;
+  anchorId: string | null;
+  item: ReasoningItem;
+}
+
+interface RenderQueueEntry {
+  key: string;
+  item: ChatRenderItem;
+  isDismissingReasoning: boolean;
+}
+
 const ConversationMessages = memo(function ConversationMessages({
   renderItems,
   chatLoadingMode,
@@ -80,6 +93,127 @@ const ConversationMessages = memo(function ConversationMessages({
   onSendToBoard,
   onApprovalDecision,
 }: ConversationMessagesProps) {
+  const previousRenderItemsRef = useRef<ChatRenderItem[]>(renderItems);
+  const [exitingReasoningEntries, setExitingReasoningEntries] = useState<ExitingReasoningEntry[]>([]);
+
+  useEffect(() => {
+    const previousItems = previousRenderItemsRef.current;
+    previousRenderItemsRef.current = renderItems;
+
+    if (previousItems.length === 0) {
+      return;
+    }
+
+    const currentItemIds = new Set(renderItems.map(item => item.id));
+    const discoveredEntries: ExitingReasoningEntry[] = [];
+
+    previousItems.forEach((previousItem, index) => {
+      if (previousItem.type !== 'reasoning') {
+        return;
+      }
+      if (currentItemIds.has(previousItem.id)) {
+        return;
+      }
+      if (previousItem.content.trim().length > 0) {
+        return;
+      }
+      if (!previousItem.isStreaming && previousItem.phase !== 'streaming') {
+        return;
+      }
+
+      const anchorId = previousItems
+        .slice(index + 1)
+        .map(item => item.id)
+        .find(id => currentItemIds.has(id)) ?? null;
+
+      discoveredEntries.push({
+        id: previousItem.id,
+        anchorId,
+        item: {
+          ...previousItem,
+          phase: 'complete',
+          isStreaming: false,
+        },
+      });
+    });
+
+    if (discoveredEntries.length === 0) {
+      return;
+    }
+
+    setExitingReasoningEntries(previousEntries => {
+      const existingIds = new Set(previousEntries.map(entry => entry.id));
+      const mergedEntries = [...previousEntries];
+      discoveredEntries.forEach(entry => {
+        if (!existingIds.has(entry.id)) {
+          mergedEntries.push(entry);
+        }
+      });
+      return mergedEntries;
+    });
+
+    const dismissingIds = new Set(discoveredEntries.map(entry => entry.id));
+    const timer = setTimeout(() => {
+      setExitingReasoningEntries(previousEntries =>
+        previousEntries.filter(entry => !dismissingIds.has(entry.id)),
+      );
+    }, REASONING_DISMISS_DURATION_MS);
+
+    return () => clearTimeout(timer);
+  }, [renderItems]);
+
+  const renderQueue = useMemo<RenderQueueEntry[]>(() => {
+    if (exitingReasoningEntries.length === 0) {
+      return renderItems.map(item => ({
+        key: item.id,
+        item,
+        isDismissingReasoning: false,
+      }));
+    }
+
+    const currentItemIds = new Set(renderItems.map(item => item.id));
+    const anchoredEntriesByItemId = new Map<string, ExitingReasoningEntry[]>();
+    const trailingEntries: ExitingReasoningEntry[] = [];
+
+    exitingReasoningEntries.forEach(entry => {
+      if (entry.anchorId && currentItemIds.has(entry.anchorId)) {
+        const anchoredEntries = anchoredEntriesByItemId.get(entry.anchorId) ?? [];
+        anchoredEntries.push(entry);
+        anchoredEntriesByItemId.set(entry.anchorId, anchoredEntries);
+      } else {
+        trailingEntries.push(entry);
+      }
+    });
+
+    const queue: RenderQueueEntry[] = [];
+
+    renderItems.forEach(item => {
+      const anchoredEntries = anchoredEntriesByItemId.get(item.id) ?? [];
+      anchoredEntries.forEach(entry => {
+        queue.push({
+          key: `reasoning-dismiss-${entry.id}`,
+          item: entry.item,
+          isDismissingReasoning: true,
+        });
+      });
+      queue.push({
+        key: item.id,
+        item,
+        isDismissingReasoning: false,
+      });
+    });
+
+    trailingEntries.forEach(entry => {
+      queue.push({
+        key: `reasoning-dismiss-${entry.id}`,
+        item: entry.item,
+        isDismissingReasoning: true,
+      });
+    });
+
+    return queue;
+  }, [exitingReasoningEntries, renderItems]);
+
   const lastAssistantId = findLastAssistantMessageId(renderItems);
 
   return (
@@ -90,12 +224,13 @@ const ConversationMessages = memo(function ConversationMessages({
         </div>
       )}
 
-      {renderItems.map((item, idx) => {
-        const nextItem = renderItems[idx + 1];
+      {renderQueue.map((queueEntry, idx) => {
+        const { item, isDismissingReasoning, key } = queueEntry;
+        const nextItem = renderQueue[idx + 1]?.item;
         const isLastOfRun = isRunIdChanged(item, nextItem);
-        const isLastAssistant = item.type === 'assistant-message' &&
+        const isLastAssistant = !isDismissingReasoning && item.type === 'assistant-message' &&
           (item as AssistantMessageItem).messageId === lastAssistantId;
-        const feedback = item.type === 'assistant-message'
+        const feedback = !isDismissingReasoning && item.type === 'assistant-message'
           ? feedbackMap?.get((item as AssistantMessageItem).messageId)
           : undefined;
 
@@ -111,7 +246,7 @@ const ConversationMessages = memo(function ConversationMessages({
 
         return (
           <div
-            key={item.id}
+            key={key}
             className={cn(
               'group',
               getPadding()
@@ -119,6 +254,7 @@ const ConversationMessages = memo(function ConversationMessages({
           >
             <RenderItem
               item={item}
+              isDismissingReasoning={isDismissingReasoning}
               isLastAssistant={isLastAssistant}
               feedback={feedback}
               onCopy={onCopy}

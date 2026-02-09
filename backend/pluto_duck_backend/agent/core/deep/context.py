@@ -9,6 +9,7 @@ from typing import Optional
 from pluto_duck_backend.app.core.config import get_settings
 
 from .hitl import ApprovalBroker
+from .prompt_experiment import DEFAULT_PROFILE_ID
 
 
 @dataclass(frozen=True)
@@ -41,7 +42,7 @@ def build_session_context(
     *,
     conversation_id: str,
     project_id: str | None,
-    experiment_profile_id: str = "v3",
+    experiment_profile_id: str = DEFAULT_PROFILE_ID,
 ) -> SessionContext:
     workspace_root = get_workspace_root(conversation_id)
     workspace_root.mkdir(parents=True, exist_ok=True)

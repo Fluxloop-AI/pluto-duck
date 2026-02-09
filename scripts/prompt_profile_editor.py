@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import re
 import shutil
@@ -12,6 +13,8 @@ from typing import Any
 
 import streamlit as st
 import yaml  # type: ignore[import-untyped]
+import pluto_duck_backend.agent.core.deep.prompt_experiment as _prompt_experiment_mod
+
 from pluto_duck_backend.agent.core.deep.prompt_experiment import (  # noqa: PLC2701
     _ALLOWED_PROMPT_BUNDLE_BLOCKS,
     clear_experiment_profile_cache,
@@ -28,6 +31,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 BACKEND_ROOT = REPO_ROOT / "backend"
 PROFILES_ROOT = (
     BACKEND_ROOT / "pluto_duck_backend" / "agent" / "core" / "deep" / "prompts" / "profiles"
+)
+PROMPT_EXPERIMENT_PATH = (
+    BACKEND_ROOT / "pluto_duck_backend" / "agent" / "core" / "deep" / "prompt_experiment.py"
 )
 SAMPLE_MEMORY_GUIDE_VARIABLES: dict[str, str] = {
     "project_id": "sample-project",
@@ -98,6 +104,24 @@ DEFAULT_INDEPENDENT_BUNDLE_TEXT: dict[str, str] = {
         "{project_memory_info}\n"
     ),
 }
+_DEFAULT_PROFILE_ID_PATTERN = re.compile(r'^(DEFAULT_PROFILE_ID\s*=\s*")[^"]*(")', re.MULTILINE)
+
+
+def _get_default_profile_id() -> str:
+    """Read current DEFAULT_PROFILE_ID from the live module."""
+    return _prompt_experiment_mod.DEFAULT_PROFILE_ID
+
+
+def _set_default_profile_id(profile_id: str) -> None:
+    """Update DEFAULT_PROFILE_ID in prompt_experiment.py and reload the module."""
+    source = PROMPT_EXPERIMENT_PATH.read_text(encoding="utf-8")
+    updated, count = _DEFAULT_PROFILE_ID_PATTERN.subn(rf"\g<1>{profile_id}\2", source)
+    if count == 0:
+        raise ValueError("DEFAULT_PROFILE_ID assignment not found in prompt_experiment.py")
+    PROMPT_EXPERIMENT_PATH.write_text(updated, encoding="utf-8")
+    importlib.reload(_prompt_experiment_mod)
+
+
 PROTECTED_PROFILE_IDS = frozenset({"v1", "v2"})
 
 
@@ -1148,6 +1172,25 @@ def main() -> None:
     )
     st.sidebar.caption(f"Detected profiles: {len(profile_ids)}")
 
+    st.sidebar.divider()
+    current_default = _get_default_profile_id()
+    st.sidebar.caption(f"Current default: **{current_default}**")
+    if selected_profile != current_default:
+        if st.sidebar.button(
+            f"Set `{selected_profile}` as default",
+            key="set_default_button",
+        ):
+            try:
+                prev = current_default
+                _set_default_profile_id(selected_profile)
+                st.sidebar.success(f"Default changed: {prev} → {selected_profile}")
+                st.rerun()
+            except Exception as exc:
+                st.sidebar.error(f"Failed: {exc}")
+    else:
+        st.sidebar.info("This profile is already the default")
+
+    st.sidebar.divider()
     edit_mode = st.sidebar.toggle("Edit mode", key="edit_mode", value=False)
 
     if edit_mode:

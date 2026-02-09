@@ -3,11 +3,10 @@
 Your long-term memory is stored in files on the filesystem and persists across sessions.
 
 - Current Project ID: `{project_id}`
-- Prompt Profile: v3
 - Project Memory Location: {project_memory_info}
 - Project Directory: `{project_dir}`
 
-Your system prompt is loaded from two memory sources:
+Your memory is loaded from two memory sources:
 1. User memory: `/memories/user/agent.md`
 2. Project memory: `{project_dir}/agent.md` (when project context exists)
 

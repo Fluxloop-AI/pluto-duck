@@ -292,7 +292,7 @@ test('missing sequence/tool_call_id falls back without rendering failure', async
   assert.equal(toolItem.error, 'failed');
 });
 
-test('llm_start is non-visual and does not leave ghost thinking rows', async () => {
+test('llm_start materializes only for active run and keeps non-active run non-visual', async () => {
   const { buildTimelineItemsFromEvents } = await import(adapterModuleUrl.href);
 
   const oldRunItems = buildTimelineItemsFromEvents({
@@ -321,7 +321,15 @@ test('llm_start is non-visual and does not leave ghost thinking rows', async () 
     ],
     activeRunId: 'run-active',
   });
-  assert.equal(activeRunItems.filter((item: { type: string }) => item.type === 'reasoning').length, 0);
+  const activeRunReasoningItems = activeRunItems.filter((item: { type: string }) => item.type === 'reasoning') as Array<{
+    content: string;
+    isStreaming: boolean;
+    status: string;
+  }>;
+  assert.equal(activeRunReasoningItems.length, 1);
+  assert.equal(activeRunReasoningItems[0]?.content, '');
+  assert.equal(activeRunReasoningItems[0]?.isStreaming, true);
+  assert.equal(activeRunReasoningItems[0]?.status, 'streaming');
 });
 
 test('persisted assistant message is ordered using event sequence and message events are not duplicated', async () => {

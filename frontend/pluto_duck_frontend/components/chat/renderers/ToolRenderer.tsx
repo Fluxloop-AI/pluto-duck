@@ -14,9 +14,9 @@ import {
   QueueItem,
   QueueItemIndicator,
   QueueItemContent,
-  type QueueTodo,
 } from '../../ai-elements/queue';
 import type { ToolItem } from '../../../types/chatRenderItem';
+import { parseTodosFromToolPayload } from './toolTodoParser';
 
 /**
  * Convert snake_case or camelCase to Title Case
@@ -136,32 +136,6 @@ function getFirstMeaningfulItem(output: any): string | null {
 }
 
 /**
- * Parse todos from write_todos tool output
- */
-function parseTodosFromOutput(output: any): QueueTodo[] {
-  if (!output) return [];
-
-  let parsed = output;
-  if (typeof output === 'string') {
-    try {
-      parsed = JSON.parse(output);
-    } catch {
-      return [];
-    }
-  }
-
-  const todos = parsed.todos || parsed.items || parsed;
-  if (!Array.isArray(todos)) return [];
-
-  return todos.map((todo: any, index: number) => ({
-    id: todo.id || String(index),
-    title: todo.content || todo.title || todo.name || String(todo),
-    description: todo.description,
-    status: todo.status === 'completed' ? 'completed' : 'pending',
-  }));
-}
-
-/**
  * Convert ToolItem state to ToolUIState
  */
 function getToolUIState(state: ToolItem['state']): 'input-streaming' | 'output-available' | 'output-error' {
@@ -179,7 +153,7 @@ export const ToolRenderer = memo(function ToolRenderer({
 }: ToolRendererProps) {
   // Special handling for write_todos tool
   if (item.toolName === 'write_todos') {
-    const todos = parseTodosFromOutput(item.output);
+    const todos = parseTodosFromToolPayload(item.input, item.output);
     const completedCount = todos.filter(t => t.status === 'completed').length;
     const isLoading = item.state === 'pending';
 

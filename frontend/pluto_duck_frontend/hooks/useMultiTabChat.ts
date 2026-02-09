@@ -5,14 +5,40 @@ import {
   fetchChatSessions,
   appendMessage,
   deleteConversation,
+  decideApproval,
   type AppendMessageResponse,
   type ChatSessionDetail,
   type ChatSessionSummary,
 } from '../lib/chatApi';
 import { useAgentStream } from './useAgentStream';
-import type { AgentEventAny } from '../types/agent';
 import { flattenTurnsToRenderItems } from '../lib/chatRenderUtils';
-import type { ChatRenderItem } from '../types/chatRenderItem';
+import type { ChatRenderItem, ApprovalItem } from '../types/chatRenderItem';
+import {
+  buildChatTurns,
+  computeStreamUiState,
+  type RunRenderState,
+} from './useMultiTabChat.timeline';
+import {
+  appendOptimisticUserMessage,
+  completeDetailLoading,
+  createEmptyTabState,
+  failDetailLoading,
+  markRunSettling,
+  markRunStreaming,
+  setRunQueued,
+  startDetailLoading,
+  TabRequestTokenGuard,
+  type TabChatState,
+  type TabStateMap,
+} from './useMultiTabChat.tabState';
+import { planRestoredTabs, type SavedChatTabState } from './useMultiTabChat.restore';
+import { planOpenSessionInTab } from './useMultiTabChat.tabLayout';
+import {
+  computeChatLoadingMode,
+  hasMaterializedReasoningSpan,
+  type ChatLoadingMode,
+} from '../lib/chatLoadingState';
+export type { ChatEvent, ChatTurn, DetailMessage, GroupedToolEvent } from './useMultiTabChat.timeline';
 
 const MAX_PREVIEW_LENGTH = 160;
 const MAX_TABS = 10;
@@ -24,53 +50,14 @@ export interface ChatTab {
   createdAt: number;
 }
 
-export interface DetailMessage {
-  id: string;
-  role: string;
-  content: any;
-  created_at: string;
-  seq: number;
-  run_id?: string | null;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object';
 }
 
-export interface ChatEvent {
-  type: string;
-  subtype?: string;
-  content: unknown;
-  metadata?: Record<string, unknown> | null;
-  timestamp?: string;
-}
-
-export interface GroupedToolEvent {
-  toolName: string;
-  state: 'pending' | 'completed' | 'error';
-  input?: unknown;
-  output?: unknown;
-  error?: string;
-  startEvent?: ChatEvent;
-  endEvent?: ChatEvent;
-}
-
-export interface ChatTurn {
-  key: string;
-  runId: string | null;
-  seq: number;
-  userMessages: DetailMessage[];
-  assistantMessages: DetailMessage[];
-  streamingAssistantText?: string | null;
-  streamingAssistantFinal?: boolean;
-  otherMessages: DetailMessage[];
-  events: ChatEvent[];
-  reasoningText: string;
-  toolEvents: ChatEvent[];
-  groupedToolEvents: GroupedToolEvent[];
-  isActive: boolean;
-}
-
-interface TabChatState {
-  detail: ChatSessionDetail | null;
-  loading: boolean;
-  activeRunId: string | null;
+function isAssistantMessageRecord(
+  value: unknown,
+): value is Record<string, unknown> & { role: 'assistant'; content?: unknown } {
+  return isRecord(value) && value.role === 'assistant';
 }
 
 interface ReasoningEventContent {
@@ -84,53 +71,6 @@ interface ToolEventContent {
   output?: unknown;
   error?: unknown;
   message?: unknown;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object';
-}
-
-function getMetadataRunId(metadata: ChatEvent['metadata']): string | null {
-  if (!metadata) return null;
-  const runId = metadata.run_id;
-  return typeof runId === 'string' && runId.trim() ? runId : null;
-}
-
-function toReasoningEventContent(content: unknown): ReasoningEventContent | null {
-  if (!isRecord(content)) return null;
-  return {
-    phase: typeof content.phase === 'string' ? content.phase : undefined,
-    reason: content.reason,
-  };
-}
-
-function toToolEventContent(content: unknown): ToolEventContent | null {
-  if (!isRecord(content)) return null;
-  return {
-    tool: typeof content.tool === 'string' && content.tool.trim() ? content.tool : undefined,
-    input: content.input,
-    output: content.output,
-    error: content.error,
-    message: content.message,
-  };
-}
-
-function toOptionalText(value: unknown): string | undefined {
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    return trimmed ? trimmed : undefined;
-  }
-  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
-    return String(value);
-  }
-  if (isRecord(value) || Array.isArray(value)) {
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return undefined;
-    }
-  }
-  return undefined;
 }
 
 function extractTextFromUnknown(value: unknown): string | null {
@@ -168,11 +108,9 @@ function extractTextFromUnknown(value: unknown): string | null {
       if (contentText) return contentText;
     }
     if (Array.isArray(obj.messages)) {
-      const assistantMessages = obj.messages.filter(
-        item => item && typeof item === 'object' && (item as any).role === 'assistant',
-      );
+      const assistantMessages = obj.messages.filter(isAssistantMessageRecord);
       for (const message of assistantMessages) {
-        const preview = extractTextFromUnknown((message as any).content ?? message);
+        const preview = extractTextFromUnknown(message.content ?? message);
         if (preview) return preview;
       }
       const fallback = extractTextFromUnknown(obj.messages);
@@ -225,21 +163,49 @@ export interface UseMultiTabChatOptions {
 }
 
 export type FeedbackType = 'like' | 'dislike' | null;
+type ApprovalDecision = ApprovalItem['decision'];
 
 export function useMultiTabChat({ selectedModel, selectedDataSource, backendReady, projectId }: UseMultiTabChatOptions) {
   const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
   const [tabs, setTabs] = useState<ChatTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
-  const tabStatesRef = useRef<Map<string, TabChatState>>(new Map());
+  const [tabStates, setTabStates] = useState<TabStateMap>({});
+  const tabStatesSnapshotRef = useRef<TabStateMap>({});
+  const detailRequestGuardRef = useRef(new TabRequestTokenGuard());
   const lastRunIdRef = useRef<string | null>(null);
   const lastCompletedRunRef = useRef<string | null>(null);
-  const [isCreatingConversation, setIsCreatingConversation] = useState(false);
   // Feedback state: messageId -> feedback type (stored locally per session)
   const [feedbackMap, setFeedbackMap] = useState<Map<string, FeedbackType>>(new Map());
+  const [approvalDecisionMap, setApprovalDecisionMap] = useState<Map<string, ApprovalDecision>>(new Map());
+
+  const setTabState = useCallback(
+    (tabId: string, updater: (current: TabChatState | undefined) => TabChatState | undefined) => {
+      setTabStates(prev => {
+        const current = prev[tabId];
+        const next = updater(current);
+        if (!next) {
+          if (!(tabId in prev)) return prev;
+          const { [tabId]: _removed, ...rest } = prev;
+          return rest;
+        }
+        return {
+          ...prev,
+          [tabId]: next,
+        };
+      });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    tabStatesSnapshotRef.current = tabStates;
+  }, [tabStates]);
 
   const activeTab = tabs.find(t => t.id === activeTabId) || null;
-  const activeTabState = activeTabId ? tabStatesRef.current.get(activeTabId) : null;
+  const activeTabState = activeTabId ? tabStates[activeTabId] ?? null : null;
   const activeRunId = activeTabState?.activeRunId || null;
+  const runRenderState: RunRenderState =
+    activeTabState?.runRenderState ?? (activeRunId ? 'streaming' : 'persisted');
 
   const {
     events: streamEvents,
@@ -264,7 +230,6 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
 
   const loadSessions = useCallback(async () => {
     try {
-      console.info('[MultiTabChat] Loading sessions for project', projectId);
       const data = await fetchChatSessions(projectId || undefined);
       const normalizedSessions = data.map(session => ({
         ...session,
@@ -283,9 +248,7 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
   }, [projectId]);
 
   const fetchDetail = useCallback(async (sessionId: string, includeEvents: boolean = true) => {
-    console.info('[MultiTabChat] Fetching session detail', sessionId, { includeEvents });
     const response = await fetchChatSession(sessionId, includeEvents);
-    console.info('[MultiTabChat] Session detail response', response);
     return response;
   }, []);
 
@@ -293,7 +256,9 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
   useEffect(() => {
     setTabs([]);
     setActiveTabId(null);
-    tabStatesRef.current.clear();
+    setTabStates({});
+    setApprovalDecisionMap(new Map());
+    detailRequestGuardRef.current.clearAll();
   }, [projectId]);
 
   useEffect(() => {
@@ -313,43 +278,28 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
     let cancelled = false;
 
     async function loadDetail() {
-      const currentState = tabStatesRef.current.get(currentTabId);
+      const currentState = tabStatesSnapshotRef.current[currentTabId];
       if (currentState?.detail?.id === sessionId && !currentState.loading) {
         // Already loaded
         return;
       }
 
-      try {
-        tabStatesRef.current.set(currentTabId, {
-          detail: currentState?.detail ?? null,
-          loading: true,
-          activeRunId: currentState?.activeRunId ?? null,
-        });
+      const requestToken = detailRequestGuardRef.current.begin(currentTabId, sessionId);
+      setTabState(currentTabId, previous => startDetailLoading(previous));
 
+      try {
         const response = await fetchDetail(sessionId, true);
-        
-        if (!cancelled) {
+        if (!cancelled && detailRequestGuardRef.current.canCommit(requestToken)) {
           const detailPreview = previewFromMessages(response.messages);
           if (detailPreview) {
             updateSessionPreview(sessionId, detailPreview);
           }
-          
-          const nextRunId = response.status === 'active' ? response.run_id ?? null : null;
-          
-          tabStatesRef.current.set(currentTabId, {
-            detail: response,
-            loading: false,
-            activeRunId: nextRunId,
-          });
+          setTabState(currentTabId, previous => completeDetailLoading(previous, response));
         }
       } catch (error) {
         console.error('[MultiTabChat] Failed to load detail', error);
-        if (!cancelled) {
-          tabStatesRef.current.set(currentTabId, {
-            detail: currentState?.detail ?? null,
-            loading: false,
-            activeRunId: currentState?.activeRunId ?? null,
-          });
+        if (!cancelled && detailRequestGuardRef.current.canCommit(requestToken)) {
+          setTabState(currentTabId, previous => failDetailLoading(previous));
         }
       }
     }
@@ -359,235 +309,57 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
     return () => {
       cancelled = true;
     };
-  }, [activeTab?.id, activeTab?.sessionId, fetchDetail, updateSessionPreview]);
+  }, [activeTab?.id, activeTab?.sessionId, fetchDetail, setTabState, updateSessionPreview]);
 
-  const runHasEndedStream = useMemo(
-    () =>
-      streamEvents.some(event =>
-        (event.type === 'run' && event.subtype === 'end') ||
-        (event.type === 'message' && event.subtype === 'final'),
-      ),
-    [streamEvents],
+  const { isStreaming, status } = useMemo(
+    () => computeStreamUiState(streamStatus, streamEvents),
+    [streamStatus, streamEvents],
   );
 
-  const isStreaming = (streamStatus === 'streaming' || streamStatus === 'connecting') && !runHasEndedStream;
-  const status: 'ready' | 'streaming' | 'error' = streamStatus === 'error' ? 'error' : isStreaming ? 'streaming' : 'ready';
-
   // Build turns from messages and events
-  const turns = useMemo<ChatTurn[]>(() => {
-    const detail = activeTabState?.detail;
-    if (!detail) return [];
-
-    const messages = (detail.messages as DetailMessage[]) || [];
-    
-    // Normalize stored events
-    const storedEvents: ChatEvent[] = (detail.events || []).map(evt => ({
-      type: evt.type,
-      subtype: evt.subtype,
-      content: evt.content,
-      metadata: evt.metadata ?? null,
-      timestamp: evt.timestamp,
-    }));
-
-    // Build event map by run_id
-    const eventsByRunId = new Map<string, ChatEvent[]>();
-
-    const addEvent = (event: ChatEvent) => {
-      const runId = getMetadataRunId(event.metadata);
-      if (!runId) return;
-      if (!eventsByRunId.has(runId)) {
-        eventsByRunId.set(runId, []);
-      }
-      eventsByRunId.get(runId)!.push(event);
-    };
-
-    storedEvents.forEach(addEvent);
-
-    // Add live stream events if streaming
-    if (isStreaming) {
-      streamEvents.forEach(event => {
-        const normalized: ChatEvent = {
-          type: event.type,
-          subtype: event.subtype,
-          content: event.content,
-          metadata: event.metadata ?? null,
-          timestamp: event.timestamp,
-        };
-        addEvent(normalized);
-      });
-    }
-
-    // Group messages by run_id
-    const runs = new Map<string, ChatTurn>();
-    const result: ChatTurn[] = [];
-
-    const ensureRunTurn = (runId: string, seq: number) => {
-      let turn = runs.get(runId);
-      if (!turn) {
-        turn = {
-          key: `run-${runId}`,
-          runId,
-          seq,
-          userMessages: [],
-          assistantMessages: [],
-          otherMessages: [],
-          events: [],
-          reasoningText: '',
-          toolEvents: [],
-          groupedToolEvents: [],
-          isActive: false,
-        };
-        runs.set(runId, turn);
-        result.push(turn);
-      } else if (seq < turn.seq) {
-        turn.seq = seq;
-      }
-      return turn;
-    };
-
-    messages.forEach(message => {
-      const seq = typeof message.seq === 'number' ? message.seq : Number.MAX_SAFE_INTEGER;
-      const runId = message.run_id ?? null;
-
-      if (runId) {
-        const turn = ensureRunTurn(runId, seq);
-        if (message.role === 'user') {
-          turn.userMessages.push(message);
-        } else if (message.role === 'assistant') {
-          turn.assistantMessages.push(message);
-        } else {
-          turn.otherMessages.push(message);
-        }
-      } else {
-        // Legacy message without run_id
-        result.push({
-          key: `message-${message.id}`,
-          runId: null,
-          seq,
-          userMessages: message.role === 'user' ? [message] : [],
-          assistantMessages: message.role === 'assistant' ? [message] : [],
-          otherMessages: message.role !== 'user' && message.role !== 'assistant' ? [message] : [],
-          events: [],
-          reasoningText: '',
-          toolEvents: [],
-          groupedToolEvents: [],
-          isActive: false,
-        });
-      }
-    });
-
-    // Add empty turn for active streaming run if not in messages yet
-    if (isStreaming && activeRunId && !runs.has(activeRunId)) {
-      runs.set(activeRunId, {
-        key: `run-${activeRunId}`,
-        runId: activeRunId,
-        seq: Number.MAX_SAFE_INTEGER,
-        userMessages: [],
-        assistantMessages: [],
-        otherMessages: [],
-        events: [],
-        reasoningText: '',
-        toolEvents: [],
-        groupedToolEvents: [],
-        isActive: true,
-      });
-      result.push(runs.get(activeRunId)!);
-    }
-
-    const streamingRunId = chunkRunId ?? activeRunId;
-
-    // Attach events to each run and extract reasoning/tools
-    runs.forEach(turn => {
-      if (turn.runId) {
-        turn.events = [...(eventsByRunId.get(turn.runId) ?? [])];
-        turn.isActive = isStreaming && turn.runId === activeRunId;
-        
-        // Extract reasoning text
-        turn.reasoningText = turn.events
-          .filter(event => {
-            if (event.type !== 'reasoning') return false;
-            const content = toReasoningEventContent(event.content);
-            return content?.phase === 'llm_reasoning';
-          })
-          .map(event => {
-            const content = toReasoningEventContent(event.content);
-            return content?.reason ? String(content.reason) : '';
-          })
-          .filter(Boolean)
-          .join('\n\n');
-        
-        // Extract tool events
-        turn.toolEvents = turn.events.filter(event => event.type === 'tool');
-        
-        // Group tool events by tool name (match start with end)
-        const toolMap = new Map<string, GroupedToolEvent>();
-        const toolOrder: string[] = [];
-        
-        turn.toolEvents.forEach(event => {
-          const content = toToolEventContent(event.content);
-          const toolName = content?.tool ?? 'tool';
-          const subtype = event.subtype;
-          
-          if (subtype === 'start') {
-            const key = `${toolName}-${toolOrder.filter(k => k.startsWith(toolName)).length}`;
-            toolOrder.push(key);
-            toolMap.set(key, {
-              toolName,
-              state: 'pending',
-              input: content?.input,
-              startEvent: event,
-            });
-          } else if (subtype === 'end' || subtype === 'error') {
-            // Find the most recent pending tool with this name
-            const pendingKey = [...toolOrder].reverse().find(key => {
-              const tool = toolMap.get(key);
-              return tool && tool.toolName === toolName && tool.state === 'pending';
-            });
-            
-            if (pendingKey) {
-              const tool = toolMap.get(pendingKey)!;
-              tool.state = subtype === 'error' ? 'error' : 'completed';
-              tool.output = content?.output;
-              tool.error =
-                subtype === 'error'
-                  ? toOptionalText(content?.error) ?? toOptionalText(content?.message)
-                  : undefined;
-              tool.endEvent = event;
-            } else {
-              // No matching start, create standalone entry
-              const key = `${toolName}-orphan-${Date.now()}`;
-              toolOrder.push(key);
-              toolMap.set(key, {
-                toolName,
-                state: subtype === 'error' ? 'error' : 'completed',
-                output: content?.output,
-                error:
-                  subtype === 'error'
-                    ? toOptionalText(content?.error) ?? toOptionalText(content?.message)
-                    : undefined,
-                endEvent: event,
-              });
-            }
-          }
-        });
-        
-        turn.groupedToolEvents = toolOrder.map(key => toolMap.get(key)!);
-
-        if (streamingRunId && turn.runId === streamingRunId && chunkText && turn.assistantMessages.length === 0) {
-          turn.streamingAssistantText = chunkText;
-          turn.streamingAssistantFinal = chunkIsFinal;
-        }
-      }
-    });
-
-    result.sort((a, b) => a.seq - b.seq);
-    return result;
-  }, [activeTabState?.detail, streamEvents, isStreaming, activeRunId, chunkText, chunkIsFinal, chunkRunId]);
+  const turns = useMemo(
+    () =>
+      buildChatTurns({
+        detail: activeTabState?.detail,
+        streamEvents,
+        runRenderState,
+        activeRunId,
+        chunkText,
+        chunkIsFinal,
+        chunkRunId,
+      }),
+    [activeTabState?.detail, streamEvents, runRenderState, activeRunId, chunkText, chunkIsFinal, chunkRunId],
+  );
 
   // Convert turns to flat render items for independent rendering
   const renderItems = useMemo<ChatRenderItem[]>(
-    () => flattenTurnsToRenderItems(turns),
-    [turns]
+    () => {
+      const items = flattenTurnsToRenderItems(turns);
+      if (approvalDecisionMap.size === 0) return items;
+      return items.map(item => {
+        if (item.type !== 'approval') return item;
+        const decision = approvalDecisionMap.get(item.id);
+        if (!decision) return item;
+        return {
+          ...item,
+          decision,
+        };
+      });
+    },
+    [turns, approvalDecisionMap]
+  );
+
+  const loading = activeTabState?.loading || false;
+  const hasReasoningSpan = useMemo(() => hasMaterializedReasoningSpan(renderItems), [renderItems]);
+  const chatLoadingMode = useMemo<ChatLoadingMode>(
+    () =>
+      computeChatLoadingMode({
+        loading,
+        isStreaming,
+        renderItems,
+        hasMaterializedReasoningSpan: hasReasoningSpan,
+      }),
+    [loading, isStreaming, renderItems, hasReasoningSpan],
   );
 
   // Find last assistant message ID
@@ -613,9 +385,12 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
     if (activeRunId !== lastRunIdRef.current) {
       lastRunIdRef.current = activeRunId;
       lastCompletedRunRef.current = null;
+      if (activeTabId) {
+        setTabState(activeTabId, previous => markRunStreaming(previous));
+      }
       resetStream();
     }
-  }, [activeRunId, resetStream]);
+  }, [activeRunId, activeTabId, resetStream, setTabState]);
 
   // Handle run completion
   useEffect(() => {
@@ -631,26 +406,23 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
         return;
       }
       lastCompletedRunRef.current = activeRunId;
-      console.info('[MultiTabChat] Run completed, refreshing session detail');
-      
+      if (activeTabId) {
+        setTabState(activeTabId, previous => markRunSettling(previous));
+      }
       void (async () => {
-        if (!activeTab.sessionId) return;
+        if (!activeTab.sessionId || !activeTabId) return;
+        const requestToken = detailRequestGuardRef.current.begin(activeTabId, activeTab.sessionId);
         
         try {
           const response = await fetchDetail(activeTab.sessionId, true);
+          if (!detailRequestGuardRef.current.canCommit(requestToken)) {
+            return;
+          }
           const detailPreview = previewFromMessages(response.messages);
           if (detailPreview) {
             updateSessionPreview(activeTab.sessionId, detailPreview);
           }
-          const nextRunId = response.status === 'active' ? response.run_id ?? activeRunId : null;
-          
-          if (activeTabId) {
-            tabStatesRef.current.set(activeTabId, {
-              detail: response,
-              loading: false,
-              activeRunId: nextRunId,
-            });
-          }
+          setTabState(activeTabId, previous => completeDetailLoading(previous, response));
           
           void loadSessions();
         } catch (error) {
@@ -658,7 +430,7 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
         }
       })();
     }
-  }, [activeTab, activeTabId, activeRunId, fetchDetail, loadSessions, streamEvents, updateSessionPreview]);
+  }, [activeTab, activeTabId, activeRunId, fetchDetail, loadSessions, setTabState, streamEvents, updateSessionPreview]);
 
   // Tab management
   const addTab = useCallback(() => {
@@ -698,8 +470,9 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
     });
     
     // Clean up tab state
-    tabStatesRef.current.delete(tabId);
-  }, [activeTabId]);
+    setTabState(tabId, () => undefined);
+    detailRequestGuardRef.current.clearTab(tabId);
+  }, [activeTabId, setTabState]);
 
   const switchTab = useCallback((tabId: string) => {
     if (activeTabId === tabId) return;
@@ -709,32 +482,40 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
   }, [activeTabId, resetStream]);
 
   const openSessionInTab = useCallback((session: ChatSessionSummary) => {
-    // Check if session is already open in a tab
-    const existingTab = tabs.find(t => t.sessionId === session.id);
-    if (existingTab) {
-      switchTab(existingTab.id);
-      return;
+    const plan = planOpenSessionInTab({
+      tabs,
+      session,
+      maxTabs: MAX_TABS,
+      idFactory: () => crypto.randomUUID(),
+      now: () => Date.now(),
+    });
+
+    const removedTabIds = tabs
+      .map(tab => tab.id)
+      .filter(tabId => !plan.tabs.some(nextTab => nextTab.id === tabId));
+    if (removedTabIds.length > 0) {
+      setTabStates(prev => {
+        const next: TabStateMap = { ...prev };
+        let changed = false;
+        for (const removedTabId of removedTabIds) {
+          if (removedTabId in next) {
+            delete next[removedTabId];
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+      for (const removedTabId of removedTabIds) {
+        detailRequestGuardRef.current.clearTab(removedTabId);
+      }
     }
 
-    // Check tab limit
-    if (tabs.length >= MAX_TABS) {
-      // Close oldest tab
-      const oldestTab = tabs[0];
-      closeTab(oldestTab.id);
+    setTabs(plan.tabs);
+    if (plan.activeTabId !== activeTabId) {
+      resetStream();
+      setActiveTabId(plan.activeTabId);
     }
-
-    // Create new tab
-    const newTab: ChatTab = {
-      id: crypto.randomUUID(),
-      sessionId: session.id,
-      title: session.title || 'Untitled',
-      createdAt: Date.now(),
-    };
-    
-    setTabs(prev => [...prev, newTab]);
-    setActiveTabId(newTab.id);
-    resetStream();
-  }, [tabs, switchTab, closeTab, resetStream]);
+  }, [activeTabId, resetStream, tabs]);
 
   const handleNewConversation = useCallback(() => {
     addTab();
@@ -756,11 +537,7 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
         currentTab = newTab;
         
         // Initialize tab state for the new tab
-        tabStatesRef.current.set(tabId, {
-          detail: null,
-          loading: false,
-          activeRunId: null,
-        });
+        setTabState(tabId, () => createEmptyTabState());
       } else {
         currentTab = tabs.find(t => t.id === tabId);
       }
@@ -777,9 +554,7 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
 
         if (!currentTab.sessionId) {
           // Create new conversation
-          console.info('[MultiTabChat] Creating conversation for prompt', prompt);
-          
-          const metadata: Record<string, any> = { model: selectedModel };
+          const metadata: Record<string, unknown> = { model: selectedModel };
           if (selectedDataSource && selectedDataSource !== 'all') {
             metadata.data_source = selectedDataSource;
           }
@@ -789,37 +564,22 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
           if (contextAssets) {
             metadata.context_assets = contextAssets;
           }
-          
-          // Show user message immediately in UI
-          const tempUserMessage = {
-            id: `temp-user-${Date.now()}`,
-            role: 'user',
-            content: { text: prompt },
-            created_at: new Date().toISOString(),
-            seq: 1,
-            run_id: null,
-          };
-          
-          tabStatesRef.current.set(tabId, {
-            detail: {
-              id: tabId,
-              status: 'active',
-              messages: [tempUserMessage],
-              events: [],
-            },
-            loading: false,
-            activeRunId: null,
-          });
-          
-          // Start loading indicator
-          setIsCreatingConversation(true);
+          const tempUserMessageId = `temp-user-${Date.now()}`;
+          const createdAt = new Date().toISOString();
+          setTabState(tabId, previous =>
+            appendOptimisticUserMessage(previous, {
+              tabIdForPlaceholder: tabId,
+              tempMessageId: tempUserMessageId,
+              prompt,
+              createdAt,
+            }),
+          );
           
           const response = await createConversation({ 
             question: prompt, 
             model: selectedModel,
             metadata,
           });
-          console.info('[MultiTabChat] Conversation created', response);
           
           const conversationId = response.conversation_id ?? response.id;
           const title = prompt.slice(0, 30);
@@ -832,43 +592,25 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
           ));
           
           // Update tab state - keep optimistic detail until real data arrives
-          const placeholderState = tabStatesRef.current.get(tabId);
-          tabStatesRef.current.set(tabId, {
-            detail: placeholderState?.detail ?? null,
-            loading: true,
-            activeRunId: response.run_id ?? null,
-          });
+          setTabState(tabId, previous => setRunQueued(previous, response.run_id ?? null));
 
-          setIsCreatingConversation(false);
           void loadSessions();
           return;
         }
 
         // Append to existing conversation
-        console.info('[MultiTabChat] Appending message to existing conversation', currentTab.sessionId);
+        const tempUserMessageId = `temp-${Date.now()}`;
+        const createdAt = new Date().toISOString();
+        setTabState(tabId, previous =>
+          appendOptimisticUserMessage(previous, {
+            tabIdForPlaceholder: tabId,
+            tempMessageId: tempUserMessageId,
+            prompt,
+            createdAt,
+          }),
+        );
         
-        // Show user message immediately in UI
-        const currentState = tabStatesRef.current.get(tabId);
-        const tempUserMessage = {
-          id: `temp-${Date.now()}`,
-          role: 'user',
-          content: { text: prompt },
-          created_at: new Date().toISOString(),
-          seq: currentState?.detail?.messages.length ?? 0 + 1,
-          run_id: null,
-        };
-        
-        if (currentState?.detail) {
-          tabStatesRef.current.set(tabId, {
-            ...currentState,
-            detail: {
-              ...currentState.detail,
-              messages: [...currentState.detail.messages, tempUserMessage],
-            },
-          });
-        }
-        
-        const appendMetadata: Record<string, any> = {};
+        const appendMetadata: Record<string, unknown> = {};
         if (contextAssets) {
           appendMetadata.context_assets = contextAssets;
         }
@@ -879,26 +621,14 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
           model: selectedModel,
           metadata: Object.keys(appendMetadata).length > 0 ? appendMetadata : undefined,
         });
-        console.info('[MultiTabChat] Follow-up queued', response);
-        
-        const nextRunId = response.run_id ?? currentState?.activeRunId ?? null;
-        
-        // Update with run_id
-        tabStatesRef.current.set(tabId, {
-          detail: currentState?.detail ? {
-            ...currentState.detail,
-            messages: [...currentState.detail.messages, tempUserMessage],
-          } : null,
-          loading: false,
-          activeRunId: nextRunId,
-        });
+        setTabState(tabId, previous => setRunQueued(previous, response.run_id ?? previous?.activeRunId ?? null));
         
         void loadSessions();
       } catch (error) {
         console.error('Failed to submit message', error);
       }
     },
-    [activeTabId, tabs, selectedModel, selectedDataSource, projectId, loadSessions, resetStream, addTab],
+    [activeTabId, tabs, selectedModel, selectedDataSource, projectId, loadSessions, resetStream, addTab, setTabState],
   );
 
   const handleDeleteSession = useCallback(
@@ -946,57 +676,50 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
     // TODO: Add API call to persist feedback when backend endpoint is available
   }, []);
 
-  const restoreTabs = useCallback(
-    async (savedTabs: Array<{ id: string; order: number }>, savedActiveTabId?: string) => {
-      console.log('[MultiTabChat] Restoring tabs', savedTabs, 'active:', savedActiveTabId);
-      
-      // Clear existing tabs first
-      setTabs([]);
-      setActiveTabId(null);
-      tabStatesRef.current.clear();
-      
-      // Sort by order
-      const sortedTabs = [...savedTabs].sort((a, b) => a.order - b.order);
-      
-      // Restore each tab and collect their IDs
-      const restoredTabIds: string[] = [];
-      
-      for (const savedTab of sortedTabs) {
-        try {
-          const session = sessions.find(s => s.id === savedTab.id);
-          if (session) {
-            await openSessionInTab(session);
-            // openSessionInTab creates a new tab with a unique ID
-            // We need to track which tab corresponds to which session
-            restoredTabIds.push(savedTab.id);
+  const handleApprovalDecision = useCallback(
+    (approvalEventId: string, runId: string | null, decision: 'approved' | 'rejected') => {
+      let previousDecision: ApprovalDecision | undefined;
+      setApprovalDecisionMap(prev => {
+        previousDecision = prev.get(approvalEventId);
+        const next = new Map(prev);
+        next.set(approvalEventId, decision);
+        return next;
+      });
+
+      if (!runId || !approvalEventId) {
+        return;
+      }
+
+      const apiDecision = decision === 'approved' ? 'approve' : 'reject';
+      void decideApproval(runId, approvalEventId, apiDecision).catch(error => {
+        console.error('[MultiTabChat] Failed to decide approval', error);
+        setApprovalDecisionMap(prev => {
+          const next = new Map(prev);
+          if (previousDecision) {
+            next.set(approvalEventId, previousDecision);
+          } else {
+            next.delete(approvalEventId);
           }
-        } catch (error) {
-          console.error(`Failed to restore tab ${savedTab.id}`, error);
-        }
-      }
-      
-      // Restore active tab - need to find the tab that was created for this session
-      if (savedActiveTabId && restoredTabIds.length > 0) {
-        // Give tabs time to be added to state
-        setTimeout(() => {
-          setTabs(currentTabs => {
-            // Find the tab with the matching sessionId
-            const activeTab = currentTabs.find(t => t.sessionId === savedActiveTabId);
-            if (activeTab) {
-              console.log('[MultiTabChat] Setting active tab to', activeTab.id);
-              setActiveTabId(activeTab.id);
-            } else if (currentTabs.length > 0) {
-              // Fallback to first tab if saved active tab not found
-              console.log('[MultiTabChat] Active tab not found, using first tab');
-              setActiveTabId(currentTabs[0].id);
-            }
-            return currentTabs;
-          });
-        }, 50);
-      }
+          return next;
+        });
+      });
     },
-    [sessions, openSessionInTab]
+    [],
   );
+
+  const restoreTabs = useCallback((savedTabs: SavedChatTabState[], savedActiveTabId?: string) => {
+    const restorePlan = planRestoredTabs({
+      savedTabs,
+      savedActiveTabId,
+      sessions,
+      maxTabs: MAX_TABS,
+    });
+
+    setTabStates({});
+    detailRequestGuardRef.current.clearAll();
+    setTabs(restorePlan.tabs);
+    setActiveTabId(restorePlan.activeTabId);
+  }, [sessions]);
 
   return {
     // Sessions
@@ -1011,8 +734,10 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
     turns,
     renderItems,
     lastAssistantMessageId,
-    loading: activeTabState?.loading || false,
+    loading,
     isStreaming,
+    chatLoadingMode,
+    runRenderState,
     status,
     
     // Handlers
@@ -1024,6 +749,7 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
     handleSubmit,
     handleDeleteSession,
     handleFeedback,
+    handleApprovalDecision,
     loadSessions,
     restoreTabs,
 

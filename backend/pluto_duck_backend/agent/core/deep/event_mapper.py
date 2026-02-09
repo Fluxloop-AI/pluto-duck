@@ -1,25 +1,21 @@
-"""Event mapping utilities (Phase 1).
-
-This module provides a LangChain callback handler that converts runtime events
-into Pluto Duck `AgentEvent` objects for SSE streaming.
-
-Phase 1 scope:
-- Define the handler and event shapes.
-- Keep implementation conservative to avoid tight coupling to LangChain internals.
-"""
+"""Event mapping utilities."""
 
 from __future__ import annotations
 
 import json
+import logging
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
+from uuid import uuid4
 
 from langchain_core.callbacks.base import AsyncCallbackHandler
 from langchain_core.messages import BaseMessage, ToolMessage
 
 from pluto_duck_backend.agent.core.events import AgentEvent, EventSubType, EventType
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -40,25 +36,67 @@ class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
         conversation_id: str | None = None,
         experiment_profile: str | None = None,
         prompt_layout: str | None = None,
+        display_order_start: int = 1,
     ) -> None:
         super().__init__()
         self._sink = sink
         self._run_id = run_id
         self._conversation_id = conversation_id
-        # Keep `prompt_layout` as fallback input during migration.
         self._experiment_profile = experiment_profile or prompt_layout
-        self._tool_stack: list[str] = []  # Track active tool names for matching start/end
+        self._tool_stack: list[str] = []
         self._chunk_buffer: list[str] = []
         self._chunk_tokens = 0
         self._chunk_chars = 0
-        # Defaults: 50ms flush, 20 tokens, 4KB buffer cap.
         self._flush_interval_s = 0.05
         self._max_chunk_tokens = 20
         self._max_buffer_chars = 4096
         self._last_flush = time.monotonic() - self._flush_interval_s
+        self._event_sequence = 0
+        self._display_order = max(1, int(display_order_start))
 
     async def _emit(self, event: AgentEvent) -> None:
+        event.metadata = self._canonicalize_event_metadata(event)
         await self._sink.emit(event)
+
+    def _canonicalize_event_metadata(self, event: AgentEvent) -> dict[str, Any]:
+        metadata = dict(event.metadata or {})
+        raw_event_id = metadata.get("event_id")
+        metadata["event_id"] = (
+            raw_event_id.strip()
+            if isinstance(raw_event_id, str) and raw_event_id.strip()
+            else str(uuid4())
+        )
+        sequence = self._coerce_int(metadata.get("sequence")) or 0
+        if sequence <= 0:
+            self._event_sequence += 1
+            metadata["sequence"] = self._event_sequence
+        else:
+            self._event_sequence = max(self._event_sequence, sequence)
+            metadata["sequence"] = sequence
+        display_order = self._coerce_int(metadata.get("display_order")) or 0
+        if display_order <= 0:
+            metadata["display_order"] = self.consume_next_display_order()
+        else:
+            metadata["display_order"] = display_order
+            self._display_order = max(self._display_order, display_order + 1)
+        metadata.setdefault("run_id", self._run_id)
+        if self._conversation_id and "conversation_id" not in metadata:
+            metadata["conversation_id"] = self._conversation_id
+        if self._experiment_profile and "experiment_profile" not in metadata:
+            metadata["experiment_profile"] = self._experiment_profile
+        content = event.content if isinstance(event.content, dict) else {}
+        for field in ("tool_call_id", "parent_event_id", "phase"):
+            value = metadata.get(field, content.get(field))
+            if isinstance(value, str):
+                value = value.strip()
+            if value not in (None, ""):
+                metadata[field] = value
+        return metadata
+
+    def consume_next_display_order(self) -> int:
+        current = self._display_order
+        self._display_order += 1
+        return current
 
     def _ts(self) -> datetime:
         return datetime.now(timezone.utc)
@@ -414,6 +452,7 @@ class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
                 msg = getattr(gens[0][0], "message", None)
                 text, reason = self._extract_llm_text_and_reason(getattr(msg, "content", None))
         except Exception:
+            logger.debug("Failed to parse LLM end payload", exc_info=True)
             text = None
             reason = None
         if reason:

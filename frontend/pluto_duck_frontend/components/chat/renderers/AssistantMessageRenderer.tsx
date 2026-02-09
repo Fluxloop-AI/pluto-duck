@@ -64,7 +64,7 @@ export const AssistantMessageRenderer = memo(function AssistantMessageRenderer({
 
   return (
     <div className="group flex gap-4">
-      <div className="flex-1">
+      <div className="flex-1 min-w-0">
         <div className="prose prose-sm dark:prose-invert max-w-none">
           <Response>{item.content}</Response>
         </div>

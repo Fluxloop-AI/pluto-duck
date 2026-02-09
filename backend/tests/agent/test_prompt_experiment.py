@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 from pluto_duck_backend.agent.core.deep.prompt_experiment import (
+    DEFAULT_PROFILE_ID,
     clear_experiment_profile_cache,
     load_experiment_profile,
     resolve_profile_id,
@@ -74,12 +75,12 @@ def test_resolve_profile_id_uses_env_when_metadata_missing(monkeypatch) -> None:
     assert resolved == "v1"
 
 
-def test_resolve_profile_id_defaults_to_v3(monkeypatch) -> None:
+def test_resolve_profile_id_defaults_to_configured_default(monkeypatch) -> None:
     settings = _settings_with_env(monkeypatch, profile=None)
 
     resolved = resolve_profile_id({}, settings)
 
-    assert resolved == "v3"
+    assert resolved == DEFAULT_PROFILE_ID
 
 
 def test_resolve_profile_id_falls_back_to_default_for_unknown_metadata_profile(
@@ -89,7 +90,7 @@ def test_resolve_profile_id_falls_back_to_default_for_unknown_metadata_profile(
 
     resolved = resolve_profile_id({"_prompt_experiment": "does-not-exist"}, settings)
 
-    assert resolved == "v3"
+    assert resolved == DEFAULT_PROFILE_ID
 
 
 def test_resolve_profile_id_falls_back_to_env_for_unknown_metadata_profile(monkeypatch) -> None:

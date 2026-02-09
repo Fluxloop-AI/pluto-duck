@@ -15,8 +15,23 @@ export interface ChatSessionSummary {
 export interface ChatSessionDetail {
   id: string;
   status: string;
-  messages: Array<{ id: string; role: string; content: any; created_at: string; seq: number; run_id?: string | null }>;
-  events?: Array<{ type: string; subtype: string; content: any; metadata?: any; timestamp?: string }>;
+  messages: Array<{
+    id: string;
+    role: string;
+    content: any;
+    created_at: string;
+    seq: number;
+    display_order?: number;
+    run_id?: string | null;
+  }>;
+  events?: Array<{
+    type: string;
+    subtype: string;
+    content: any;
+    metadata?: any;
+    timestamp?: string;
+    display_order?: number;
+  }>;
   events_url?: string;
   run_id?: string;
 }
@@ -77,6 +92,28 @@ export async function appendMessage(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+  });
+}
+
+export interface DecideApprovalResponse {
+  status: string;
+  approval_id: string;
+  run_id: string;
+}
+
+export async function decideApproval(
+  runId: string,
+  approvalId: string,
+  decision: 'approve' | 'reject' | 'edit',
+  editedArgs?: Record<string, unknown>,
+): Promise<DecideApprovalResponse> {
+  return apiJson<DecideApprovalResponse>(`/api/v1/agent/${runId}/approvals/${approvalId}/decision`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      decision,
+      ...(editedArgs ? { edited_args: editedArgs } : {}),
+    }),
   });
 }
 

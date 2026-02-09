@@ -16,17 +16,15 @@ from typing import Any, Dict, List, Literal, Optional
 import duckdb
 from langchain_core.tools import StructuredTool
 
-from pluto_duck_backend.app.core.config import get_settings
 from pluto_duck_backend.app.services.asset import (
-    AssetService,
-    get_asset_service,
     AssetNotFoundError,
-    FileAssetService,
-    get_file_asset_service,
-    FilePreprocessingService,
-    get_file_preprocessing_service,
     DiagnosisIssueService,
+    FileAssetService,
+    FilePreprocessingService,
+    get_asset_service,
     get_diagnosis_issue_service,
+    get_file_asset_service,
+    get_file_preprocessing_service,
 )
 from pluto_duck_backend.app.services.asset.errors import AssetValidationError
 
@@ -40,7 +38,7 @@ def build_asset_tools(*, warehouse_path: Path, project_id: Optional[str] = None)
         warehouse_path: Path to the DuckDB warehouse
         project_id: Project ID for asset isolation
     """
-    print(f"[build_asset_tools] project_id={project_id}", flush=True)
+    logger.debug("build_asset_tools project_id=%s", project_id)
 
     def _get_connection() -> duckdb.DuckDBPyConnection:
         return duckdb.connect(str(warehouse_path))
@@ -88,9 +86,9 @@ def build_asset_tools(*, warehouse_path: Path, project_id: Optional[str] = None)
                 tags=["sales", "reporting"]
             )
         """
-        print(f"[save_analysis] Called with name={name}, project_id={project_id}", flush=True)
+        logger.debug("save_analysis called name=%s project_id=%s", name, project_id)
         service = get_asset_service(project_id)
-        print(f"[save_analysis] AssetService project_id={service.project_id}", flush=True)
+        logger.debug("save_analysis service_project_id=%s", service.project_id)
 
         try:
             analysis = service.create_analysis(
@@ -100,7 +98,11 @@ def build_asset_tools(*, warehouse_path: Path, project_id: Optional[str] = None)
                 materialization=materialization,
                 tags=tags,
             )
-            print(f"[save_analysis] Created analysis id={analysis.id}, project_id={service.project_id}", flush=True)
+            logger.debug(
+                "save_analysis created analysis_id=%s project_id=%s",
+                analysis.id,
+                service.project_id,
+            )
 
             return {
                 "status": "success",
@@ -112,7 +114,7 @@ def build_asset_tools(*, warehouse_path: Path, project_id: Optional[str] = None)
                 "hint": f"run_analysis('{analysis.id}')로 실행하거나 Registry에서 관리할 수 있어요.",
             }
         except AssetValidationError as e:
-            print(f"[save_analysis] Validation error: {e}", flush=True)
+            logger.debug("save_analysis validation_error=%s", e)
             return {
                 "status": "error",
                 "message": f"❌ 저장 실패: {e}",

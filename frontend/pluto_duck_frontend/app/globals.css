@@ -99,6 +99,18 @@
   font-style: normal !important;
 }
 
+/* Chat prose overflow guard: keep long tokens inside message width */
+[role="log"] .prose :where(p, li, blockquote, td, th) {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Keep long inline code tokens from forcing horizontal overflow */
+[role="log"] .prose code[data-streamdown="inline-code"] {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 /* Thin scrollbar */
 .scrollbar-thin {
   scrollbar-width: thin;

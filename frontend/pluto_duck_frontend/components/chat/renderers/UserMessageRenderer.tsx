@@ -18,7 +18,7 @@ function renderTextWithMentions(text: string): React.ReactNode {
       parts.push(text.slice(lastIndex, match.index));
     }
     parts.push(
-      <span key={key++} className="text-primary-foreground/60 font-medium">
+      <span key={key++} className="text-primary font-medium">
         {match[0]}
       </span>
     );
@@ -42,7 +42,7 @@ export const UserMessageRenderer = memo(function UserMessageRenderer({
   return (
     <div className="flex justify-end">
       <div className="rounded-xl bg-muted px-4 py-2.5 text-foreground max-w-[80%]">
-        <p className="text-sm whitespace-pre-wrap">
+        <p className="text-sm whitespace-pre-wrap break-words">
           {renderTextWithMentions(item.content)}
         </p>
       </div>

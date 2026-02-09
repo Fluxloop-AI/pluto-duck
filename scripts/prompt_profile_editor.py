@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import importlib
+import json
 import re
 import shutil
 import tempfile
@@ -11,6 +13,8 @@ from typing import Any
 
 import streamlit as st
 import yaml  # type: ignore[import-untyped]
+import pluto_duck_backend.agent.core.deep.prompt_experiment as _prompt_experiment_mod
+
 from pluto_duck_backend.agent.core.deep.prompt_experiment import (  # noqa: PLC2701
     _ALLOWED_PROMPT_BUNDLE_BLOCKS,
     clear_experiment_profile_cache,
@@ -27,6 +31,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 BACKEND_ROOT = REPO_ROOT / "backend"
 PROFILES_ROOT = (
     BACKEND_ROOT / "pluto_duck_backend" / "agent" / "core" / "deep" / "prompts" / "profiles"
+)
+PROMPT_EXPERIMENT_PATH = (
+    BACKEND_ROOT / "pluto_duck_backend" / "agent" / "core" / "deep" / "prompt_experiment.py"
 )
 SAMPLE_MEMORY_GUIDE_VARIABLES: dict[str, str] = {
     "project_id": "sample-project",
@@ -97,6 +104,24 @@ DEFAULT_INDEPENDENT_BUNDLE_TEXT: dict[str, str] = {
         "{project_memory_info}\n"
     ),
 }
+_DEFAULT_PROFILE_ID_PATTERN = re.compile(r'^(DEFAULT_PROFILE_ID\s*=\s*")[^"]*(")', re.MULTILINE)
+
+
+def _get_default_profile_id() -> str:
+    """Read current DEFAULT_PROFILE_ID from the live module."""
+    return _prompt_experiment_mod.DEFAULT_PROFILE_ID
+
+
+def _set_default_profile_id(profile_id: str) -> None:
+    """Update DEFAULT_PROFILE_ID in prompt_experiment.py and reload the module."""
+    source = PROMPT_EXPERIMENT_PATH.read_text(encoding="utf-8")
+    updated, count = _DEFAULT_PROFILE_ID_PATTERN.subn(rf"\g<1>{profile_id}\2", source)
+    if count == 0:
+        raise ValueError("DEFAULT_PROFILE_ID assignment not found in prompt_experiment.py")
+    PROMPT_EXPERIMENT_PATH.write_text(updated, encoding="utf-8")
+    importlib.reload(_prompt_experiment_mod)
+
+
 PROTECTED_PROFILE_IDS = frozenset({"v1", "v2"})
 
 
@@ -118,6 +143,51 @@ class BlockEditorSpec:
     rel_path: str
     editable: bool
     source: str
+
+
+def _notes_path(profile_id: str, profiles_root: Path) -> Path:
+    """Return the JSON file path for block notes of a profile."""
+    return profiles_root / f"{profile_id}_notes.json"
+
+
+@dataclass
+class ProfileMemo:
+    """Version-level description + per-block notes."""
+
+    description: str
+    blocks: dict[str, str]
+
+
+def _load_memo(profile_id: str, profiles_root: Path) -> ProfileMemo:
+    """Load profile memo from JSON."""
+    path = _notes_path(profile_id, profiles_root)
+    if not path.exists():
+        return ProfileMemo(description="", blocks={})
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return ProfileMemo(description="", blocks={})
+        # migrate flat format (block notes only) → structured
+        if "blocks" not in data and "description" not in data:
+            return ProfileMemo(description="", blocks={k: str(v) for k, v in data.items()})
+        return ProfileMemo(
+            description=str(data.get("description", "")),
+            blocks={k: str(v) for k, v in data.get("blocks", {}).items()},
+        )
+    except (json.JSONDecodeError, OSError):
+        return ProfileMemo(description="", blocks={})
+
+
+def _save_memo(profile_id: str, profiles_root: Path, memo: ProfileMemo) -> None:
+    """Persist profile memo to JSON. Removes file if entirely empty."""
+    path = _notes_path(profile_id, profiles_root)
+    clean_blocks = {k: v for k, v in memo.blocks.items() if v.strip()}
+    has_content = memo.description.strip() or clean_blocks
+    if has_content:
+        payload = {"description": memo.description.strip(), "blocks": clean_blocks}
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    elif path.exists():
+        path.unlink()
 
 
 def _list_profile_ids(profiles_root: Path) -> list[str]:
@@ -356,6 +426,7 @@ def _build_block_specs(
     *,
     declared_paths: dict[str, str],
     resolved_paths: dict[str, str],
+    compose_order: list[str] | None = None,
 ) -> list[BlockEditorSpec]:
     """Merge declared + resolved blocks into editor specs."""
 
@@ -378,6 +449,11 @@ def _build_block_specs(
             editable=False,
             source="inherited",
         )
+
+    if compose_order:
+        ordered_keys = [key for key in compose_order if key in specs]
+        ordered_keys.extend(key for key in sorted(specs) if key not in ordered_keys)
+        return [specs[key] for key in ordered_keys]
 
     return [specs[key] for key in sorted(specs)]
 
@@ -429,7 +505,7 @@ def _render_memory_guide_feedback(*, profile_id: str, rel_path: str, template: s
     st.text_area(
         "memory_guide rendered preview",
         value=preview,
-        height=220,
+        height=420,
         disabled=True,
         key=f"preview_{profile_id}_{rel_path}",
     )
@@ -441,10 +517,15 @@ def _render_block_editors(
     profiles_root: Path,
     block_specs: list[BlockEditorSpec],
     resolved_text: dict[str, str],
-) -> dict[str, str]:
-    """Render block editors and return declared path -> edited text."""
+    notes: dict[str, str],
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Render block editors with side-column notes.
+
+    Returns (edited_by_rel_path, edited_notes).
+    """
 
     edited_by_rel_path: dict[str, str] = {}
+    edited_notes: dict[str, str] = {}
 
     for spec in block_specs:
         st.markdown(f"#### `{spec.block}`")
@@ -459,34 +540,81 @@ def _render_block_editors(
             except Exception:
                 pass
 
-        block_text = st.text_area(
-            label=f"{spec.block} text",
-            value=default_text,
-            height=260,
-            disabled=not spec.editable,
-            key=_editor_state_key(
-                profile_id=profile_id,
-                block=spec.block,
-                rel_path=spec.rel_path,
-            ),
-        )
+        note_default = notes.get(spec.block, "")
 
-        if spec.editable:
-            edited_by_rel_path[spec.rel_path] = block_text
+        if spec.block == "memory_guide" and spec.editable:
+            col_edit, col_preview, col_note = st.columns([3, 3, 2])
+            with col_edit:
+                st.markdown("**Edit**")
+                block_text = st.text_area(
+                    label=f"{spec.block} text",
+                    value=default_text,
+                    height=520,
+                    disabled=False,
+                    key=_editor_state_key(
+                        profile_id=profile_id,
+                        block=spec.block,
+                        rel_path=spec.rel_path,
+                    ),
+                )
+                edited_by_rel_path[spec.rel_path] = block_text
+            with col_preview:
+                st.markdown("**Preview**")
+                _render_memory_guide_feedback(
+                    profile_id=profile_id,
+                    rel_path=spec.rel_path,
+                    template=block_text,
+                )
+            with col_note:
+                edited_notes[spec.block] = st.text_area(
+                    label="memo",
+                    value=note_default,
+                    height=520,
+                    key=f"note_{profile_id}_{spec.block}",
+                    label_visibility="hidden",
+                    placeholder="메모를 입력하세요...",
+                )
         else:
-            st.info("Inherited block (read-only). Add override in YAML to edit here.")
+            col_edit, col_note = st.columns([3, 2])
+            with col_edit:
+                block_text = st.text_area(
+                    label=f"{spec.block} text",
+                    value=default_text,
+                    height=420,
+                    disabled=not spec.editable,
+                    key=_editor_state_key(
+                        profile_id=profile_id,
+                        block=spec.block,
+                        rel_path=spec.rel_path,
+                    ),
+                )
 
-        if spec.block == "memory_guide":
-            _render_memory_guide_feedback(
-                profile_id=profile_id,
-                rel_path=spec.rel_path,
-                template=block_text,
-            )
+                if spec.editable:
+                    edited_by_rel_path[spec.rel_path] = block_text
+                else:
+                    st.info("Inherited block (read-only). Add override in YAML to edit here.")
+
+                if spec.block == "memory_guide":
+                    _render_memory_guide_feedback(
+                        profile_id=profile_id,
+                        rel_path=spec.rel_path,
+                        template=block_text,
+                    )
+
+            with col_note:
+                edited_notes[spec.block] = st.text_area(
+                    label="memo",
+                    value=note_default,
+                    height=420,
+                    key=f"note_{profile_id}_{spec.block}",
+                    label_visibility="hidden",
+                    placeholder="메모를 입력하세요...",
+                )
 
         if spec.block in {"runtime", "skills_guide"} and spec.editable and not block_text.strip():
             st.warning(f"{spec.block} is empty")
 
-    return edited_by_rel_path
+    return edited_by_rel_path, edited_notes
 
 
 def _write_profile_files(
@@ -757,6 +885,10 @@ def _delete_profile_materials(profile_id: str, profiles_root: Path) -> None:
     if yaml_path.exists():
         yaml_path.unlink()
 
+    notes_file = _notes_path(profile_id, profiles_root)
+    if notes_file.exists():
+        notes_file.unlink()
+
     profile_dir = profiles_root / profile_id
     if profile_dir.exists() and profile_dir.is_dir():
         shutil.rmtree(profile_dir)
@@ -889,7 +1021,7 @@ def _render_loaded_profile(profile_id: str, profiles_root: Path) -> None:
         st.text_area(
             label=f"{block_name} text",
             value=block_text,
-            height=260,
+            height=420,
             disabled=True,
             key=f"view_text_{profile_id}_{block_name}",
         )
@@ -928,7 +1060,7 @@ def _render_editor_mode(*, selected_profile: str, profiles_root: Path) -> None:
     edited_yaml = st.text_area(
         "Profile YAML",
         value=initial_yaml,
-        height=320,
+        height=480,
         key=f"edit_yaml_{selected_profile}",
     )
 
@@ -946,17 +1078,44 @@ def _render_editor_mode(*, selected_profile: str, profiles_root: Path) -> None:
     if resolved_error:
         st.warning(f"Current resolved profile load failed: {resolved_error}")
 
+    edited_compose_order: list[str] | None = None
+    if validation.parsed:
+        raw_order = validation.parsed.get("compose_order")
+        if isinstance(raw_order, list):
+            edited_compose_order = [str(item).strip() for item in raw_order if str(item).strip()]
+
     block_specs = _build_block_specs(
         declared_paths=validation.declared_paths,
         resolved_paths=resolved_paths,
+        compose_order=edited_compose_order,
+    )
+
+    current_memo = _load_memo(selected_profile, profiles_root)
+
+    st.subheader("Version Description")
+    edited_description = st.text_area(
+        label="version description",
+        value=current_memo.description,
+        height=100,
+        key=f"memo_desc_{selected_profile}",
+        label_visibility="collapsed",
+        placeholder="이 버전의 특징이나 목적을 메모하세요...",
     )
 
     st.subheader("Prompt Blocks (edit)")
-    edited_block_text = _render_block_editors(
+    edited_block_text, edited_block_notes = _render_block_editors(
         profile_id=selected_profile,
         profiles_root=profiles_root,
         block_specs=block_specs,
         resolved_text=resolved_text,
+        notes=current_memo.blocks,
+    )
+
+    # auto-save memos on every rerun (independent of Save button)
+    _save_memo(
+        selected_profile,
+        profiles_root,
+        ProfileMemo(description=edited_description, blocks=edited_block_notes),
     )
 
     save_disabled = bool(validation.errors)
@@ -1013,6 +1172,25 @@ def main() -> None:
     )
     st.sidebar.caption(f"Detected profiles: {len(profile_ids)}")
 
+    st.sidebar.divider()
+    current_default = _get_default_profile_id()
+    st.sidebar.caption(f"Current default: **{current_default}**")
+    if selected_profile != current_default:
+        if st.sidebar.button(
+            f"Set `{selected_profile}` as default",
+            key="set_default_button",
+        ):
+            try:
+                prev = current_default
+                _set_default_profile_id(selected_profile)
+                st.sidebar.success(f"Default changed: {prev} → {selected_profile}")
+                st.rerun()
+            except Exception as exc:
+                st.sidebar.error(f"Failed: {exc}")
+    else:
+        st.sidebar.info("This profile is already the default")
+
+    st.sidebar.divider()
     edit_mode = st.sidebar.toggle("Edit mode", key="edit_mode", value=False)
 
     if edit_mode:

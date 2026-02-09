@@ -1,10 +1,16 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState } from 'react';
 import { PlusIcon, XIcon, History } from 'lucide-react';
-import { cn } from '../../lib/utils';
+import { cn, formatRelativeTime } from '../../lib/utils';
 import type { ChatTab } from '../../hooks/useMultiTabChat';
 import type { ChatSessionSummary } from '../../lib/chatApi';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 interface TabBarProps {
   tabs: ChatTab[];
@@ -26,26 +32,6 @@ export function TabBar({
   onLoadSession,
 }: TabBarProps) {
   const [showSessionPopup, setShowSessionPopup] = useState(false);
-  const popupRef = useRef<HTMLDivElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        popupRef.current && 
-        !popupRef.current.contains(event.target as Node) &&
-        buttonRef.current &&
-        !buttonRef.current.contains(event.target as Node)
-      ) {
-        setShowSessionPopup(false);
-      }
-    };
-
-    if (showSessionPopup) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [showSessionPopup]);
 
   const handleSessionSelect = (session: ChatSessionSummary) => {
     onLoadSession?.(session);
@@ -106,20 +92,21 @@ export function TabBar({
         </button>
 
         {onLoadSession && (
-          <div className="relative">
-            <button
-              ref={buttonRef}
-              onClick={() => setShowSessionPopup(!showSessionPopup)}
-              className="p-1 hover:bg-accent rounded-md transition-colors"
-              title="Load conversation"
-            >
-              <History className="h-4 w-4" />
-            </button>
-
-            {showSessionPopup && (
-            <div
-              ref={popupRef}
-              className="absolute top-full left-0 mt-1 w-80 max-h-96 overflow-y-auto bg-popover border border-border rounded-md shadow-lg z-50"
+          <DropdownMenu open={showSessionPopup} onOpenChange={setShowSessionPopup}>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="p-1 hover:bg-accent rounded-md transition-colors"
+                title="Load conversation"
+              >
+                <History className="h-4 w-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              side="bottom"
+              align="end"
+              sideOffset={6}
+              collisionPadding={8}
+              className="w-64 max-h-96 p-0 overflow-y-auto"
             >
               {sessions.length === 0 ? (
                 <div className="px-4 py-6 text-center text-sm text-muted-foreground">
@@ -128,32 +115,27 @@ export function TabBar({
               ) : (
                 <div className="py-1">
                   {sessions.map((session) => (
-                    <button
+                    <DropdownMenuItem
                       key={session.id}
-                      onClick={() => handleSessionSelect(session)}
-                      className="w-full px-3 py-2 text-left hover:bg-accent transition-colors"
+                      onSelect={() => handleSessionSelect(session)}
+                      className="w-full px-3 py-2 cursor-pointer transition-colors"
                     >
-                      <div className="text-xs font-medium truncate">
-                        {session.title || 'Untitled conversation'}
-                      </div>
-                      {session.last_message_preview && (
-                        <div className="text-xs text-muted-foreground truncate mt-0.5">
-                          {session.last_message_preview}
+                      <div className="w-full flex items-center gap-2 min-w-0">
+                        <div className="text-xs font-medium truncate min-w-0 flex-1">
+                          {session.title || 'Untitled conversation'}
                         </div>
-                      )}
-                      <div className="text-xs text-muted-foreground mt-0.5">
-                        {new Date(session.updated_at).toLocaleDateString()}
+                        <div className="text-xs text-muted-foreground shrink-0">
+                          {formatRelativeTime(session.updated_at)}
+                        </div>
                       </div>
-                    </button>
+                    </DropdownMenuItem>
                   ))}
                 </div>
               )}
-            </div>
-          )}
-          </div>
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
       </div>
     </div>
   );
 }
-

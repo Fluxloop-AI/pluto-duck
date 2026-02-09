@@ -7,8 +7,8 @@ import {
   HoverCardTrigger,
 } from "@/components/ui/hover-card";
 import { Progress } from "@/components/ui/progress";
+import type { LanguageModelUsage } from "@/types/aiPrimitives";
 import { cn } from "@/lib/utils";
-import type { LanguageModelUsage } from "ai";
 import { type ComponentProps, createContext, useContext } from "react";
 import { getUsage } from "tokenlens";
 

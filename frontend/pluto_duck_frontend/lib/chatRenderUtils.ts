@@ -10,15 +10,25 @@ import type {
   ReasoningItem,
   ToolItem,
   AssistantMessageItem,
+  ApprovalItem,
 } from '../types/chatRenderItem';
+import type { TimelineItem } from '../types/chatTimelineItem';
+import {
+  buildTimelineItemsFromTurns,
+  type TimelineTurnEnvelope,
+} from './chatTimelineReducer';
 
 /**
  * 다양한 형태의 content에서 텍스트 추출
  */
-export function extractText(content: any): string {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object';
+}
+
+export function extractText(content: unknown): string {
   if (typeof content === 'string') return content;
-  if (content?.text) return content.text;
-  if (content?.content) return extractText(content.content);
+  if (isRecord(content) && typeof content.text === 'string') return content.text;
+  if (isRecord(content) && content.content !== undefined) return extractText(content.content);
   return JSON.stringify(content);
 }
 
@@ -35,11 +45,105 @@ export function extractMentions(text: string): string[] {
   return mentions;
 }
 
-/**
- * ChatTurn 배열을 flat한 ChatRenderItem 배열로 변환
- * API 의존성(runId) 유지하면서 UI만 독립적으로 렌더링
- */
-export function flattenTurnsToRenderItems(turns: ChatTurn[]): ChatRenderItem[] {
+function toTimelineTurns(turns: ChatTurn[]): TimelineTurnEnvelope[] {
+  return turns.map(turn => ({
+    runId: turn.runId,
+    userMessages: turn.userMessages,
+    assistantMessages: turn.assistantMessages,
+    events: turn.events,
+    isActive: turn.isActive,
+    streamingAssistantText: turn.streamingAssistantText,
+    streamingAssistantFinal: turn.streamingAssistantFinal,
+  }));
+}
+
+function toApprovalDecision(value: unknown): ApprovalItem['decision'] {
+  if (value === 'approved' || value === 'approve') return 'approved';
+  if (value === 'rejected' || value === 'reject') return 'rejected';
+  return 'pending';
+}
+
+function toRenderItemsFromTimeline(timelineItems: TimelineItem[]): ChatRenderItem[] {
+  const renderItems: ChatRenderItem[] = [];
+  timelineItems.forEach((item, index) => {
+    if (item.type === 'user-message') {
+      const userItem: UserMessageItem = {
+        id: item.id,
+        type: 'user-message',
+        runId: item.runId,
+        seq: index,
+        timestamp: item.timestamp,
+        content: item.content,
+        mentions: item.mentions && item.mentions.length > 0 ? item.mentions : undefined,
+        messageId: item.messageId,
+        isStreaming: item.isStreaming,
+      };
+      renderItems.push(userItem);
+      return;
+    }
+    if (item.type === 'reasoning') {
+      const reasoningItem: ReasoningItem = {
+        id: item.id,
+        type: 'reasoning',
+        runId: item.runId,
+        seq: index,
+        timestamp: item.timestamp,
+        content: item.content,
+        phase: item.status === 'complete' ? 'complete' : 'streaming',
+        isStreaming: item.isStreaming,
+      };
+      renderItems.push(reasoningItem);
+      return;
+    }
+    if (item.type === 'tool') {
+      const toolItem: ToolItem = {
+        id: item.id,
+        type: 'tool',
+        runId: item.runId,
+        seq: index,
+        timestamp: item.timestamp,
+        toolName: item.toolName,
+        state: item.state,
+        input: item.input,
+        output: item.output,
+        error: item.error,
+        isStreaming: item.isStreaming,
+      };
+      renderItems.push(toolItem);
+      return;
+    }
+    if (item.type === 'assistant-message') {
+      const assistantItem: AssistantMessageItem = {
+        id: item.id,
+        type: 'assistant-message',
+        runId: item.runId,
+        seq: index,
+        timestamp: item.timestamp,
+        content: item.content,
+        messageId: item.messageId ?? item.id,
+        isStreaming: item.isStreaming,
+      };
+      renderItems.push(assistantItem);
+      return;
+    }
+    if (item.type === 'approval') {
+      const approvalItem: ApprovalItem = {
+        id: item.id,
+        type: 'approval',
+        runId: item.runId,
+        seq: index,
+        timestamp: item.timestamp,
+        content: item.content,
+        decision: toApprovalDecision(item.decision),
+        isStreaming: item.isStreaming,
+      };
+      renderItems.push(approvalItem);
+    }
+  });
+  return renderItems;
+}
+
+function flattenTurnsToRenderItemsLegacy(turns: ChatTurn[]): ChatRenderItem[] {
   const items: ChatRenderItem[] = [];
   let globalSeq = 0;
 
@@ -47,7 +151,6 @@ export function flattenTurnsToRenderItems(turns: ChatTurn[]): ChatRenderItem[] {
     const baseRunId = turn.runId;
     const isActive = turn.isActive;
 
-    // 1. User Messages
     turn.userMessages.forEach(msg => {
       const content = extractText(msg.content);
       const mentions = extractMentions(content);
@@ -61,12 +164,11 @@ export function flattenTurnsToRenderItems(turns: ChatTurn[]): ChatRenderItem[] {
         content,
         mentions: mentions.length > 0 ? mentions : undefined,
         messageId: msg.id,
-        isStreaming: false, // 유저 메시지는 스트리밍 없음
+        isStreaming: false,
       };
       items.push(item);
     });
 
-    // 2. Reasoning (존재하거나 스트리밍 중이면)
     if (turn.reasoningText || isActive) {
       const item: ReasoningItem = {
         id: `reasoning-${baseRunId || turn.key}`,
@@ -81,7 +183,6 @@ export function flattenTurnsToRenderItems(turns: ChatTurn[]): ChatRenderItem[] {
       items.push(item);
     }
 
-    // 3. Tools (개별적으로)
     turn.groupedToolEvents.forEach((tool, idx) => {
       const item: ToolItem = {
         id: `tool-${baseRunId || turn.key}-${idx}`,
@@ -99,7 +200,6 @@ export function flattenTurnsToRenderItems(turns: ChatTurn[]): ChatRenderItem[] {
       items.push(item);
     });
 
-    // 4. Assistant Messages (streaming fallback first)
     if (!turn.assistantMessages.length && turn.streamingAssistantText) {
       const item: AssistantMessageItem = {
         id: `assistant-stream-${baseRunId || turn.key}`,
@@ -130,6 +230,27 @@ export function flattenTurnsToRenderItems(turns: ChatTurn[]): ChatRenderItem[] {
   });
 
   return items;
+}
+
+/**
+ * ChatTurn 배열을 flat한 ChatRenderItem 배열로 변환
+ * API 의존성(runId) 유지하면서 UI만 독립적으로 렌더링
+ */
+export function flattenTurnsToRenderItems(turns: ChatTurn[]): ChatRenderItem[] {
+  try {
+    const timelineItems = buildTimelineItemsFromTurns({
+      turns: toTimelineTurns(turns),
+      includeMessageEvents: true,
+    });
+    const renderItems = toRenderItemsFromTimeline(timelineItems);
+    if (renderItems.length > 0 || turns.length === 0) {
+      return renderItems;
+    }
+  } catch (error) {
+    // Preserve legacy path during migration.
+    console.warn('[chatRenderUtils] Timeline reducer fallback to legacy render path', error);
+  }
+  return flattenTurnsToRenderItemsLegacy(turns);
 }
 
 /**

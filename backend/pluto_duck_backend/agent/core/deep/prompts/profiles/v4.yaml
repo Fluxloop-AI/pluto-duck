@@ -1,0 +1,18 @@
+id: v4
+description: '250208'
+compose_order:
+- runtime
+- base_agent_prompt
+- skills_guide
+- skills_list
+- memory_guide
+- user_profile
+- memory_context
+- memory_section
+- dataset
+base: v3
+prompt_bundle_overrides:
+  base_agent_prompt: v4/base_agent_prompt.md
+  memory_guide: v4/memory_guide.md
+  runtime: v4/runtime.md
+  skills_guide: v4/skills_guide.md

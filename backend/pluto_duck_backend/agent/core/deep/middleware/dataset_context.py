@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import NotRequired, TypedDict
 
 from langchain.agents.middleware.types import AgentMiddleware, AgentState
@@ -13,12 +14,13 @@ from pluto_duck_backend.app.services.asset import (
     get_file_preprocessing_service,
 )
 
-
 DATASET_READINESS_INSTRUCTION = """
 **IMPORTANT**: If `not_ready` > 0 and the user requests analysis, diagnosis, metrics, or modeling:
 1. Read the `dataset-readiness` skill at `/skills/user/skills/dataset-readiness/SKILL.md`
 2. Follow the skill's workflow before proceeding with analysis
 """.strip()
+
+logger = logging.getLogger(__name__)
 
 
 class DatasetContextState(AgentState):
@@ -75,11 +77,16 @@ class DatasetContextMiddleware(AgentMiddleware):
                 not_ready_count=0,
             )
             elapsed_ms = (time.perf_counter() - start) * 1000
-            print(f"[TIMING] DatasetContextMiddleware.before_agent: {elapsed_ms:.3f}ms (no project)", flush=True)
+            logger.debug(
+                "DatasetContextMiddleware.before_agent elapsed_ms=%.3f no_project=true",
+                elapsed_ms,
+            )
             return DatasetContextStateUpdate(dataset_readiness_summary=readiness_summary)
 
         file_service: FileAssetService = get_file_asset_service(self._project_id)
-        preprocessing_service: FilePreprocessingService = get_file_preprocessing_service(self._project_id)
+        preprocessing_service: FilePreprocessingService = get_file_preprocessing_service(
+            self._project_id
+        )
         assets = file_service.list_files()
 
         total = len(assets)
@@ -103,5 +110,9 @@ class DatasetContextMiddleware(AgentMiddleware):
         )
 
         elapsed_ms = (time.perf_counter() - start) * 1000
-        print(f"[TIMING] DatasetContextMiddleware.before_agent: {elapsed_ms:.3f}ms ({total} assets)", flush=True)
+        logger.debug(
+            "DatasetContextMiddleware.before_agent elapsed_ms=%.3f assets=%s",
+            elapsed_ms,
+            total,
+        )
         return DatasetContextStateUpdate(dataset_readiness_summary=readiness_summary)

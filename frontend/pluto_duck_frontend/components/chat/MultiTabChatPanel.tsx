@@ -1,10 +1,10 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { PlusIcon } from 'lucide-react';
 import { TabBar } from './TabBar';
 import { ChatPanel } from './ChatPanel';
 import { useMultiTabChat, type ChatTab } from '../../hooks/useMultiTabChat';
+import { buildRestoreFingerprint } from '../../hooks/useMultiTabChat.restore';
 import type { AssetEmbedConfig } from '../editor/nodes/AssetEmbedNode';
 
 interface MultiTabChatPanelProps {
@@ -41,6 +41,7 @@ export function MultiTabChatPanel({
     renderItems,
     loading,
     isStreaming,
+    chatLoadingMode,
     status,
     sessions,
     addTab,
@@ -49,6 +50,7 @@ export function MultiTabChatPanel({
     openSessionInTab,
     handleSubmit,
     handleFeedback,
+    handleApprovalDecision,
     feedbackMap,
     restoreTabs,
   } = useMultiTabChat({
@@ -59,6 +61,16 @@ export function MultiTabChatPanel({
   });
 
   const lastRestoreKeyRef = useRef<string | null>(null);
+  const activeSessionSummary = activeTab?.sessionId
+    ? {
+        id: activeTab.sessionId,
+        title: activeTab.title,
+        status: 'active',
+        created_at: new Date(activeTab.createdAt).toISOString(),
+        updated_at: new Date(activeTab.createdAt).toISOString(),
+        last_message_preview: null,
+      }
+    : null;
 
   // Notify parent when tabs change
   useEffect(() => {
@@ -69,17 +81,11 @@ export function MultiTabChatPanel({
 
   // Restore tabs when project changes and sessions are loaded
   useEffect(() => {
-    const savedTabsKey = savedTabs ? JSON.stringify(savedTabs) : '[]';
-    const restoreKey = `${projectId ?? ''}|${savedTabsKey}|${savedActiveTabId ?? ''}|${sessions.length}`;
-
-    console.log('[MultiTabChatPanel] Restore useEffect triggered', {
+    const restoreKey = buildRestoreFingerprint({
       projectId,
       savedTabs,
       savedActiveTabId,
-      sessionsCount: sessions.length,
-      tabsCount: tabs.length,
-      restoreKey,
-      lastRestoreKey: lastRestoreKeyRef.current,
+      sessions,
     });
     
     if (!projectId) {
@@ -105,19 +111,9 @@ export function MultiTabChatPanel({
       return;
     }
     
-    // Restore tabs after sessions are loaded
-    console.log('[MultiTabChatPanel] Starting restore with', savedTabs.length, 'tabs');
     lastRestoreKeyRef.current = restoreKey;
-    
-    const timer = setTimeout(() => {
-      console.log('[MultiTabChatPanel] Calling restoreTabs with', savedTabs, savedActiveTabId);
-      void restoreTabs(savedTabs, savedActiveTabId);
-    }, 300);
-    
-    return () => {
-      clearTimeout(timer);
-    };
-  }, [projectId, sessions.length, tabs.length, savedTabs, savedActiveTabId]);
+    restoreTabs(savedTabs, savedActiveTabId);
+  }, [projectId, sessions, tabs.length, savedTabs, savedActiveTabId, restoreTabs]);
 
   return (
     <div className="flex flex-col h-full w-full border-l border-border bg-background">
@@ -139,53 +135,42 @@ export function MultiTabChatPanel({
               renderItems={[]}
               loading={false}
               isStreaming={false}
+              chatLoadingMode="idle"
               status="ready"
               selectedModel={selectedModel}
               onModelChange={onModelChange}
               onSubmit={handleSubmit}
               projectId={projectId || undefined}
               onSendToBoard={onSendToBoard}
+              onApprovalDecision={handleApprovalDecision}
               onEmbedAssetToBoard={onEmbedAssetToBoard}
             />
           </div>
         ) : (
-          tabs.map(tab => (
-            <div
-              key={tab.id}
-              style={{ 
-                display: tab.id === activeTabId ? 'flex' : 'none',
-                flexDirection: 'column',
-                height: '100%',
-              }}
-              className="absolute inset-0"
-            >
-              <ChatPanel
-                activeSession={tab.sessionId ? {
-                  id: tab.sessionId,
-                  title: tab.title,
-                  status: 'active',
-                  created_at: new Date(tab.createdAt).toISOString(),
-                  updated_at: new Date(tab.createdAt).toISOString(),
-                  last_message_preview: null,
-                } : null}
-                renderItems={renderItems}
-                loading={loading}
-                isStreaming={isStreaming}
-                status={status}
-                selectedModel={selectedModel}
-                onModelChange={onModelChange}
-                onSubmit={handleSubmit}
-                onFeedback={handleFeedback}
-                feedbackMap={feedbackMap}
-                projectId={projectId || undefined}
-                onSendToBoard={onSendToBoard}
-                onEmbedAssetToBoard={onEmbedAssetToBoard}
-              />
-            </div>
-          ))
+          <div
+            key={activeTabId ?? 'active-tab'}
+            className="absolute inset-0 flex flex-col"
+          >
+            <ChatPanel
+              activeSession={activeSessionSummary}
+              renderItems={renderItems}
+              loading={loading}
+              isStreaming={isStreaming}
+              chatLoadingMode={chatLoadingMode}
+              status={status}
+              selectedModel={selectedModel}
+              onModelChange={onModelChange}
+              onSubmit={handleSubmit}
+              onFeedback={handleFeedback}
+              feedbackMap={feedbackMap}
+              projectId={projectId || undefined}
+              onSendToBoard={onSendToBoard}
+              onApprovalDecision={handleApprovalDecision}
+              onEmbedAssetToBoard={onEmbedAssetToBoard}
+            />
+          </div>
         )}
       </div>
     </div>
   );
 }
-

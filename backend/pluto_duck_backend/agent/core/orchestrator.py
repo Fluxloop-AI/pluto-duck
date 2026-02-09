@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 import logging
+import re
 import traceback
 from dataclasses import asdict, is_dataclass
-from json import dumps
-from typing import Any, AsyncIterator, Dict, Iterable, List, Optional, Sequence
-
 from datetime import datetime
 from enum import Enum
+from json import dumps
+from typing import Any, AsyncIterator, Dict, Iterable, List, Optional
 from uuid import uuid4
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
@@ -118,7 +117,6 @@ class AgentRunManager:
         prepared = _prepare_question_and_metadata(question, metadata)
         sanitized_question = prepared["question"]
         metadata = prepared["metadata"]
-        extracted_tables = prepared["extracted_tables"]
         public_metadata = {k: v for k, v in metadata.items() if not str(k).startswith("_")}
         summary = repo.get_conversation_summary(conversation_id)
 
@@ -160,7 +158,18 @@ class AgentRunManager:
         repo = get_chat_repository()
         _log("run_execute_start", run_id=run.run_id, conversation_id=run.conversation_id)
 
+        callback_ref: list[PlutoDuckEventCallbackHandler | None] = [None]
+
         async def emit(event: AgentEvent) -> None:
+            # Central gate: assign display_order if missing
+            metadata = event.metadata if event.metadata is not None else {}
+            existing_order = metadata.get("display_order")
+            if existing_order is None or (isinstance(existing_order, int) and existing_order <= 0):
+                cb = callback_ref[0]
+                if cb is not None:
+                    metadata["display_order"] = cb.consume_next_display_order()
+                # else: skip — DB fallback will assign via get_next_display_order()
+            event.metadata = metadata
             payload = event.to_dict()
             await run.queue.put(payload)
             if _should_persist_event(event):
@@ -168,40 +177,60 @@ class AgentRunManager:
 
         run.broker = ApprovalBroker(emit=emit, run_id=run.run_id)
 
-        messages: list[BaseMessage] = []
-        for msg in repo.get_conversation_messages(run.conversation_id):
-            role = (msg.get("role") or "").lower()
-            content_payload = msg.get("content")
-            text = ""
-            if isinstance(content_payload, dict):
-                text = str(content_payload.get("text") or "")
-            elif content_payload is not None:
-                text = str(content_payload)
-            if role == "user":
-                messages.append(HumanMessage(content=text))
-            elif role == "assistant":
-                messages.append(AIMessage(content=text))
-            elif role == "system":
-                messages.append(SystemMessage(content=text))
-            elif role == "tool":
-                messages.append(ToolMessage(content=text, tool_call_id="tool"))
-
-        if not messages or not isinstance(messages[-1], HumanMessage):
-            messages.append(HumanMessage(content=run.question))
-
-        # Inject context_assets from metadata into the last user message (for LLM only, not stored)
-        context_assets = run.metadata.get("context_assets")
-        if context_assets and isinstance(messages[-1], HumanMessage):
-            original_content = messages[-1].content
-            context_block = f"\n\n<context_assets>\n{context_assets}\n</context_assets>"
-            messages[-1] = HumanMessage(content=f"{original_content}{context_block}")
-            print(f"[Orchestrator] ✅ Context injected from metadata:\n{context_assets}", flush=True)
-        else:
-            print(f"[Orchestrator] ⚠️ No context_assets in metadata", flush=True)
-
         final_state: Dict[str, Any] = {"finished": False}
         try:
             summary = repo.get_conversation_summary(run.conversation_id)
+            active_run_id = str(summary.run_id) if summary and summary.run_id is not None else None
+            if active_run_id and active_run_id != run.run_id:
+                _log(
+                    "run_stale_guard",
+                    run_id=run.run_id,
+                    conversation_id=run.conversation_id,
+                    active_run_id=active_run_id,
+                )
+                final_state = {"stale_run": True, "active_run_id": active_run_id}
+                return
+
+            messages: list[BaseMessage] = []
+            for msg in repo.get_conversation_messages(run.conversation_id):
+                role = (msg.get("role") or "").lower()
+                content_payload = msg.get("content")
+                text = ""
+                if isinstance(content_payload, dict):
+                    text = str(content_payload.get("text") or "")
+                elif content_payload is not None:
+                    text = str(content_payload)
+                if role == "user":
+                    messages.append(HumanMessage(content=text))
+                elif role == "assistant":
+                    messages.append(AIMessage(content=text))
+                elif role == "system":
+                    messages.append(SystemMessage(content=text))
+                elif role == "tool":
+                    messages.append(ToolMessage(content=text, tool_call_id="tool"))
+
+            if not messages or not isinstance(messages[-1], HumanMessage):
+                messages.append(HumanMessage(content=run.question))
+
+            # Inject context_assets from metadata into the last user message (for LLM only, not stored)
+            context_assets = run.metadata.get("context_assets")
+            if context_assets and isinstance(messages[-1], HumanMessage):
+                original_content = messages[-1].content
+                context_block = f"\n\n<context_assets>\n{context_assets}\n</context_assets>"
+                messages[-1] = HumanMessage(content=f"{original_content}{context_block}")
+                _log(
+                    "context_assets_injected",
+                    run_id=run.run_id,
+                    conversation_id=run.conversation_id,
+                    context_assets_chars=len(str(context_assets)),
+                )
+            else:
+                _log(
+                    "context_assets_missing",
+                    run_id=run.run_id,
+                    conversation_id=run.conversation_id,
+                )
+
             project_id = summary.project_id if summary else None
             if project_id is None:
                 _log("project_id_missing", run_id=run.run_id, conversation_id=run.conversation_id)
@@ -234,7 +263,9 @@ class AgentRunManager:
                 run_id=run.run_id,
                 conversation_id=run.conversation_id,
                 experiment_profile=session_ctx.experiment_profile_id,
+                display_order_start=repo.get_next_display_order(run.conversation_id),
             )
+            callback_ref[0] = callback
 
             _log("run_invoke_start", run_id=run.run_id, conversation_id=run.conversation_id)
             result = await agent.ainvoke({"messages": messages}, config={"callbacks": [callback]})
@@ -258,18 +289,18 @@ class AgentRunManager:
                 run.conversation_id,
                 "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
             )
-            event = AgentEvent(
+            error_event = AgentEvent(
                 type=EventType.RUN,
                 subtype=EventSubType.ERROR,
                 content={"error": err_text or err_repr, "error_type": err_type},
                 metadata={"run_id": run.run_id},
             )
-            await run.queue.put(event.to_dict())
+            await emit(error_event)
             final_state = {"error": err_text or err_repr, "error_type": err_type}
-            repo.log_event(run.conversation_id, event.to_dict())
             _log("run_failed", run_id=run.run_id, conversation_id=run.conversation_id, error=err_text or err_repr)
         finally:
             run.result = final_state
+            is_stale_run = bool(final_state.get("stale_run"))
             final_preview = run.flags.get("final_preview") or self._final_preview(final_state)
             if "answer" in final_state and isinstance(final_state.get("answer"), str):
                 final_answer = final_state["answer"]
@@ -282,8 +313,7 @@ class AgentRunManager:
                     content={"text": final_answer},
                     metadata={"run_id": run.run_id},
                 )
-                await run.queue.put(msg_event.to_dict())
-                repo.log_event(run.conversation_id, msg_event.to_dict())
+                await emit(msg_event)
 
             end_event = AgentEvent(
                 type=EventType.RUN,
@@ -291,13 +321,13 @@ class AgentRunManager:
                 content=_serialize(final_state),
                 metadata={"run_id": run.run_id},
             )
-            await run.queue.put(end_event.to_dict())
-            repo.log_event(run.conversation_id, end_event.to_dict())
-            repo.mark_run_completed(
-                run.conversation_id,
-                status="failed" if "error" in final_state else "completed",
-                final_preview=final_preview,
-            )
+            await emit(end_event)
+            if not is_stale_run:
+                repo.mark_run_completed(
+                    run.conversation_id,
+                    status="failed" if "error" in final_state else "completed",
+                    final_preview=final_preview,
+                )
             await run.queue.put(None)
             run.done.set()
             _log(

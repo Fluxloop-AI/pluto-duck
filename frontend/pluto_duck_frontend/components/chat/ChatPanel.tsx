@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useCallback, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { ArrowUpIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -29,8 +29,12 @@ import type { ChatSessionSummary } from '../../lib/chatApi';
 import type { ChatRenderItem, AssistantMessageItem } from '../../types/chatRenderItem';
 import { ALL_MODEL_OPTIONS } from '../../constants/models';
 import type { AssetEmbedConfig } from '../editor/nodes/AssetEmbedNode';
+import { type ChatLoadingMode } from '../../lib/chatLoadingState';
+import { SessionSkeleton } from './SessionSkeleton';
+import { canSubmitChatPrompt } from './chatSubmitEligibility';
 
 const MODELS = ALL_MODEL_OPTIONS;
+const ENABLE_SESSION_LOADING_SKELETON = false;
 
 /**
  * Find the last assistant message item for action display
@@ -55,36 +59,34 @@ function isRunIdChanged(current: ChatRenderItem, next: ChatRenderItem | undefine
 // Memoized conversation messages using renderItems
 interface ConversationMessagesProps {
   renderItems: ChatRenderItem[];
-  loading: boolean;
-  isStreaming: boolean;
+  chatLoadingMode: ChatLoadingMode;
   feedbackMap?: Map<string, FeedbackType>;
   onCopy: (text: string) => void;
   onRegenerate?: (messageId: string) => void;
   onEditUserMessage?: (messageId: string, content: string) => void;
   onFeedback?: (messageId: string, type: 'like' | 'dislike') => void;
   onSendToBoard?: (messageId: string, content: string) => void;
+  onApprovalDecision?: (approvalEventId: string, runId: string | null, decision: 'approved' | 'rejected') => void;
 }
 
 const ConversationMessages = memo(function ConversationMessages({
   renderItems,
-  loading,
-  isStreaming,
+  chatLoadingMode,
   feedbackMap,
   onCopy,
   onRegenerate,
   onEditUserMessage,
   onFeedback,
   onSendToBoard,
+  onApprovalDecision,
 }: ConversationMessagesProps) {
   const lastAssistantId = findLastAssistantMessageId(renderItems);
 
   return (
     <>
-      {loading && (
+      {chatLoadingMode === 'session-loading' && ENABLE_SESSION_LOADING_SKELETON && (
         <div className="px-4 py-6">
-          <div className="mx-auto">
-            <ActivityLoader />
-          </div>
+          <SessionSkeleton />
         </div>
       )}
 
@@ -103,6 +105,7 @@ const ConversationMessages = memo(function ConversationMessages({
           if (item.type === 'tool') return 'pl-1 pr-1 pt-0 pb-0';                  // 좌 4px, 하 0px
           if (item.type === 'reasoning') return 'px-1 py-0';                       // 좌우 4px, 상하 0px
           if (item.type === 'assistant-message') return 'pl-2 pr-2 pt-3 pb-6';    // 상 12px, 좌우 8px, 하 24px
+          if (item.type === 'approval') return 'pl-2 pr-2 pt-2 pb-4';
           return `pl-[14px] pr-1 pt-0 ${isLastOfRun ? 'pb-6' : 'pb-2'}`;           // 기존 로직
         };
 
@@ -123,13 +126,13 @@ const ConversationMessages = memo(function ConversationMessages({
               onEditUserMessage={onEditUserMessage}
               onFeedback={onFeedback}
               onSendToBoard={onSendToBoard}
+              onApprovalDecision={onApprovalDecision}
             />
           </div>
         );
       })}
 
-      {/* Loading indicator during streaming */}
-      {isStreaming && renderItems.length > 0 && (
+      {chatLoadingMode === 'agent-streaming-fallback' && (
         <div className="px-2.5 py-2.5">
           <ActivityLoader />
         </div>
@@ -148,6 +151,7 @@ interface ChatPanelProps {
   renderItems: ChatRenderItem[];
   loading: boolean;
   isStreaming: boolean;
+  chatLoadingMode: ChatLoadingMode;
   status: 'ready' | 'streaming' | 'error';
   selectedModel: string;
   onModelChange: (model: string) => void;
@@ -158,6 +162,7 @@ interface ChatPanelProps {
   onEditUserMessage?: (messageId: string, content: string) => void;
   onFeedback?: (messageId: string, type: 'like' | 'dislike') => void;
   onSendToBoard?: (messageId: string, content: string) => void;
+  onApprovalDecision?: (approvalEventId: string, runId: string | null, decision: 'approved' | 'rejected') => void;
   onEmbedAssetToBoard?: (analysisId: string, config: AssetEmbedConfig) => void;
   feedbackMap?: Map<string, FeedbackType>;
 }
@@ -167,6 +172,7 @@ export function ChatPanel({
   renderItems,
   loading,
   isStreaming,
+  chatLoadingMode,
   status,
   selectedModel,
   onModelChange,
@@ -176,6 +182,7 @@ export function ChatPanel({
   onEditUserMessage,
   onFeedback,
   onSendToBoard,
+  onApprovalDecision,
   onEmbedAssetToBoard,
   feedbackMap,
 }: ChatPanelProps) {
@@ -183,7 +190,17 @@ export function ChatPanel({
   const [mentionOpen, setMentionOpen] = useState(false);
   const [isOnboardingExiting, setIsOnboardingExiting] = useState(false);
   const activeMentionsRef = useRef<Map<string, MentionItem>>(new Map());
+  const onboardingSubmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    return () => {
+      if (onboardingSubmitTimerRef.current) {
+        clearTimeout(onboardingSubmitTimerRef.current);
+        onboardingSubmitTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const handleMentionSelect = useCallback((item: MentionItem) => {
     const currentInput = input;
@@ -206,8 +223,8 @@ export function ChatPanel({
   }, []);
 
   const handleSubmit = useCallback(async (message: PromptInputMessage) => {
-    const prompt = message.text?.trim();
-    if (!prompt) return;
+    const prompt = message.text?.trim() ?? '';
+    if (!canSubmitChatPrompt({ prompt, isStreaming })) return;
 
     // Build context string for active mentions present in the prompt (not appended to message)
     const mentions = Array.from(activeMentionsRef.current.values());
@@ -224,17 +241,22 @@ export function ChatPanel({
     activeMentionsRef.current.clear();
     setInput('');
     await onSubmit({ prompt, contextAssets });
-  }, [onSubmit]);
+  }, [isStreaming, onSubmit]);
 
   const handleOnboardingSelect = useCallback((prompt: string) => {
     setIsOnboardingExiting(true);
     // Delay submission to allow fade-out animation to complete
-    setTimeout(() => {
+    if (onboardingSubmitTimerRef.current) {
+      clearTimeout(onboardingSubmitTimerRef.current);
+    }
+    onboardingSubmitTimerRef.current = setTimeout(() => {
+      onboardingSubmitTimerRef.current = null;
       void onSubmit({ prompt });
     }, 200);
   }, [onSubmit]);
 
-  const showOnboarding = renderItems.length === 0 && !loading && !isStreaming && !isOnboardingExiting;
+  const showOnboarding = renderItems.length === 0 && chatLoadingMode === 'idle' && !isOnboardingExiting;
+  const isSubmitDisabled = !input.trim() || isStreaming;
 
   return (
     <div className="flex h-full w-full flex-col bg-background">
@@ -256,14 +278,14 @@ export function ChatPanel({
               <ConversationContent>
                 <ConversationMessages
                   renderItems={renderItems}
-                  loading={loading}
-                  isStreaming={isStreaming}
+                  chatLoadingMode={chatLoadingMode}
                   feedbackMap={feedbackMap}
                   onCopy={handleCopy}
                   onRegenerate={onRegenerate}
                   onEditUserMessage={onEditUserMessage}
                   onFeedback={onFeedback}
                   onSendToBoard={onSendToBoard}
+                  onApprovalDecision={onApprovalDecision}
                 />
               </ConversationContent>
               <ConversationScrollButton />
@@ -320,7 +342,7 @@ export function ChatPanel({
 
               {/* Submit button - 원 안에 화살표 */}
               <PromptInputSubmit
-                disabled={!input.trim() || isStreaming}
+                disabled={isSubmitDisabled}
                 status={status}
                 variant="default"
                 className="h-6 w-6 rounded-full bg-foreground text-background hover:bg-foreground/90 disabled:bg-muted-foreground/40 disabled:text-background/70 [&>svg]:size-3"

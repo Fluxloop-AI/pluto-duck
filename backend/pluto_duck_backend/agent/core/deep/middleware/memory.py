@@ -13,6 +13,7 @@ using virtual paths exposed by filesystem backend routes:
 from __future__ import annotations
 
 import contextlib
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import NotRequired, TypedDict
@@ -20,6 +21,8 @@ from typing import NotRequired, TypedDict
 from langchain.agents.middleware.types import AgentMiddleware, AgentState
 
 from pluto_duck_backend.app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 class AgentMemoryState(AgentState):
@@ -358,5 +361,5 @@ class AgentMemoryMiddleware(AgentMiddleware):
                 update["project_memory"] = paths.project_agent_md.read_text(encoding="utf-8")
 
         elapsed_ms = (time.perf_counter() - start) * 1000
-        print(f"[TIMING] AgentMemoryMiddleware.before_agent: {elapsed_ms:.3f}ms", flush=True)
+        logger.debug("AgentMemoryMiddleware.before_agent elapsed_ms=%.3f", elapsed_ms)
         return update

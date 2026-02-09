@@ -21,6 +21,7 @@ from pluto_duck_backend.app.core.config import get_settings
 @dataclass
 class _Conversation:
     project_id: str | None
+    run_id: str | None
     messages: list[dict[str, Any]]
     events: list[dict[str, Any]]
 
@@ -28,12 +29,13 @@ class _Conversation:
 class _FakeChatRepo:
     def __init__(self) -> None:
         self._conversations: dict[str, _Conversation] = {}
+        self.mark_run_completed_calls: list[dict[str, Any]] = []
 
     def get_conversation_summary(self, conversation_id: str):
         conv = self._conversations.get(conversation_id)
         if conv is None:
             return None
-        return SimpleNamespace(project_id=conv.project_id)
+        return SimpleNamespace(project_id=conv.project_id, run_id=conv.run_id)
 
     def create_conversation(
         self,
@@ -43,6 +45,7 @@ class _FakeChatRepo:
     ) -> None:
         self._conversations[conversation_id] = _Conversation(
             project_id=None,
+            run_id=None,
             messages=[],
             events=[],
         )
@@ -54,17 +57,37 @@ class _FakeChatRepo:
         content: dict[str, Any],
         *,
         run_id: str | None = None,
+        display_order: int | None = None,
     ) -> None:
-        _ = run_id
+        resolved_display_order = display_order or self.get_next_display_order(conversation_id)
+        payload = dict(content)
+        payload["display_order"] = resolved_display_order
         self._conversations[conversation_id].messages.append(
-            {"role": role, "content": content}
+            {"role": role, "content": payload}
         )
 
     def get_conversation_messages(self, conversation_id: str) -> list[dict[str, Any]]:
         return list(self._conversations[conversation_id].messages)
 
-    def set_active_run(self, _conversation_id: str, _run_id: str) -> None:
-        return None
+    def set_active_run(self, conversation_id: str, run_id: str) -> None:
+        self._conversations[conversation_id].run_id = run_id
+
+    def get_next_display_order(self, conversation_id: str) -> int:
+        conv = self._conversations[conversation_id]
+        max_order = 0
+        for message in conv.messages:
+            content = message.get("content")
+            if isinstance(content, dict):
+                value = content.get("display_order")
+                if isinstance(value, int):
+                    max_order = max(max_order, value)
+        for event in conv.events:
+            metadata = event.get("metadata")
+            if isinstance(metadata, dict):
+                value = metadata.get("display_order")
+                if isinstance(value, int):
+                    max_order = max(max_order, value)
+        return max_order + 1
 
     def mark_run_started(
         self,
@@ -76,16 +99,28 @@ class _FakeChatRepo:
         return None
 
     def log_event(self, conversation_id: str, payload: dict[str, Any]) -> None:
-        self._conversations[conversation_id].events.append(payload)
+        event_payload = dict(payload)
+        metadata = event_payload.get("metadata") if isinstance(event_payload.get("metadata"), dict) else {}
+        metadata = dict(metadata)
+        if not isinstance(metadata.get("display_order"), int):
+            metadata["display_order"] = self.get_next_display_order(conversation_id)
+        event_payload["metadata"] = metadata
+        self._conversations[conversation_id].events.append(event_payload)
 
     def mark_run_completed(
         self,
-        _conversation_id: str,
+        conversation_id: str,
         *,
         status: str,
         final_preview: str | None = None,
     ) -> None:
-        _ = (status, final_preview)
+        self.mark_run_completed_calls.append(
+            {
+                "conversation_id": conversation_id,
+                "status": status,
+                "final_preview": final_preview,
+            }
+        )
         return None
 
 
@@ -159,13 +194,13 @@ def _patch_agent_builder(
 def _patch_cleanup_task(monkeypatch) -> None:
     real_create_task = orchestrator.asyncio.create_task
 
-    def _create_task(coro):
+    def _create_task(coro, *args, **kwargs):
         if getattr(coro, "cr_code", None) and coro.cr_code.co_name == "cleanup_run":
             task = asyncio.get_running_loop().create_future()
             task.set_result(None)
             coro.close()
             return task
-        return real_create_task(coro)
+        return real_create_task(coro, *args, **kwargs)
 
     monkeypatch.setattr(orchestrator.asyncio, "create_task", _create_task)
 
@@ -425,3 +460,33 @@ async def test_memory_guide_strict_env_flag_propagates_to_composer(
 
     assert captured_profiles == ["v2"]
     assert captured_strict_flags == [expected]
+
+
+@pytest.mark.asyncio
+async def test_execute_run_stale_guard_records_end_event_and_stops(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _set_data_root(tmp_path, monkeypatch, env_profile=None)
+    fake_repo = _FakeChatRepo()
+    monkeypatch.setattr(orchestrator, "get_chat_repository", lambda: fake_repo)
+    _patch_cleanup_task(monkeypatch)
+
+    conversation_id = "conv-stale-guard"
+    fake_repo.create_conversation(conversation_id, "question", {})
+    fake_repo.set_active_run(conversation_id, "run-active")
+
+    manager = orchestrator.AgentRunManager()
+    stale_run = orchestrator.AgentRun("run-stale", conversation_id, "question")
+    manager._runs[stale_run.run_id] = stale_run
+
+    await manager._execute_run(stale_run)
+
+    assert stale_run.done.is_set()
+    assert stale_run.result == {"stale_run": True, "active_run_id": "run-active"}
+    persisted_events = fake_repo._conversations[conversation_id].events
+    assert len(persisted_events) == 1
+    assert persisted_events[0]["type"] == "run"
+    assert persisted_events[0]["subtype"] == "end"
+    assert persisted_events[0]["metadata"]["display_order"] >= 1
+    assert fake_repo.mark_run_completed_calls == []

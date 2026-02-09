@@ -64,7 +64,10 @@ class LLMSettings:
             repo = get_chat_repository()
             db_settings = repo.get_settings()
         except Exception:
-            pass  # DB not available, continue with env/defaults
+            logger.warning(
+                "Failed to load LLM settings from DB; fallback to env/default",
+                exc_info=True,
+            )
 
         # Resolve provider: DB > ENV > default
         provider = (

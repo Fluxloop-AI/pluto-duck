@@ -44,6 +44,19 @@ test('falls back to output when input is malformed', () => {
   assert.equal(todos[0]?.title, 'Fallback task');
 });
 
+test('parses python-literal todos with escaped apostrophes', () => {
+  const output = {
+    type: 'tool',
+    content:
+      "Updated todo list to [{'content': 'It\\'s broken', 'status': 'pending'}]",
+  };
+
+  const todos = parseTodosFromToolPayload(null, output);
+
+  assert.equal(todos.length, 1);
+  assert.equal(todos[0]?.title, "It's broken");
+});
+
 test('returns empty array when both input and output are missing', () => {
   const todos = parseTodosFromToolPayload(null, undefined);
   assert.deepEqual(todos, []);

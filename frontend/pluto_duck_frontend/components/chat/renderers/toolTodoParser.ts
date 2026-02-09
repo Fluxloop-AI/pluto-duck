@@ -105,7 +105,9 @@ function normalizePythonLiteral(value: string): string {
     .replace(/\bTrue\b/g, 'true')
     .replace(/\bFalse\b/g, 'false')
     .replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, (_, captured: string) => {
-      const escaped = captured.replace(/"/g, '\\"');
+      const escaped = captured
+        .replace(/\\'/g, "'")
+        .replace(/"/g, '\\"');
       return `"${escaped}"`;
     });
 }

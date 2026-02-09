@@ -21,10 +21,14 @@ import {
 /**
  * 다양한 형태의 content에서 텍스트 추출
  */
-export function extractText(content: any): string {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object';
+}
+
+export function extractText(content: unknown): string {
   if (typeof content === 'string') return content;
-  if (content?.text) return content.text;
-  if (content?.content) return extractText(content.content);
+  if (isRecord(content) && typeof content.text === 'string') return content.text;
+  if (isRecord(content) && content.content !== undefined) return extractText(content.content);
   return JSON.stringify(content);
 }
 
@@ -242,8 +246,9 @@ export function flattenTurnsToRenderItems(turns: ChatTurn[]): ChatRenderItem[] {
     if (renderItems.length > 0 || turns.length === 0) {
       return renderItems;
     }
-  } catch {
+  } catch (error) {
     // Preserve legacy path during migration.
+    console.warn('[chatRenderUtils] Timeline reducer fallback to legacy render path', error);
   }
   return flattenTurnsToRenderItemsLegacy(turns);
 }

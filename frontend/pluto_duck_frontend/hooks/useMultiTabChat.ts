@@ -54,6 +54,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
 }
 
+function isAssistantMessageRecord(
+  value: unknown,
+): value is Record<string, unknown> & { role: 'assistant'; content?: unknown } {
+  return isRecord(value) && value.role === 'assistant';
+}
+
 function extractTextFromUnknown(value: unknown): string | null {
   if (value == null) return null;
   if (typeof value === 'string') {
@@ -89,11 +95,9 @@ function extractTextFromUnknown(value: unknown): string | null {
       if (contentText) return contentText;
     }
     if (Array.isArray(obj.messages)) {
-      const assistantMessages = obj.messages.filter(
-        item => item && typeof item === 'object' && (item as any).role === 'assistant',
-      );
+      const assistantMessages = obj.messages.filter(isAssistantMessageRecord);
       for (const message of assistantMessages) {
-        const preview = extractTextFromUnknown((message as any).content ?? message);
+        const preview = extractTextFromUnknown(message.content ?? message);
         if (preview) return preview;
       }
       const fallback = extractTextFromUnknown(obj.messages);
@@ -213,7 +217,6 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
 
   const loadSessions = useCallback(async () => {
     try {
-      console.info('[MultiTabChat] Loading sessions for project', projectId);
       const data = await fetchChatSessions(projectId || undefined);
       const normalizedSessions = data.map(session => ({
         ...session,
@@ -232,9 +235,7 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
   }, [projectId]);
 
   const fetchDetail = useCallback(async (sessionId: string, includeEvents: boolean = true) => {
-    console.info('[MultiTabChat] Fetching session detail', sessionId, { includeEvents });
     const response = await fetchChatSession(sessionId, includeEvents);
-    console.info('[MultiTabChat] Session detail response', response);
     return response;
   }, []);
 
@@ -395,8 +396,6 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
       if (activeTabId) {
         setTabState(activeTabId, previous => markRunSettling(previous));
       }
-      console.info('[MultiTabChat] Run completed, refreshing session detail');
-      
       void (async () => {
         if (!activeTab.sessionId || !activeTabId) return;
         const requestToken = detailRequestGuardRef.current.begin(activeTabId, activeTab.sessionId);
@@ -542,9 +541,7 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
 
         if (!currentTab.sessionId) {
           // Create new conversation
-          console.info('[MultiTabChat] Creating conversation for prompt', prompt);
-          
-          const metadata: Record<string, any> = { model: selectedModel };
+          const metadata: Record<string, unknown> = { model: selectedModel };
           if (selectedDataSource && selectedDataSource !== 'all') {
             metadata.data_source = selectedDataSource;
           }
@@ -570,7 +567,6 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
             model: selectedModel,
             metadata,
           });
-          console.info('[MultiTabChat] Conversation created', response);
           
           const conversationId = response.conversation_id ?? response.id;
           const title = prompt.slice(0, 30);
@@ -590,7 +586,6 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
         }
 
         // Append to existing conversation
-        console.info('[MultiTabChat] Appending message to existing conversation', currentTab.sessionId);
         const tempUserMessageId = `temp-${Date.now()}`;
         const createdAt = new Date().toISOString();
         setTabState(tabId, previous =>
@@ -602,7 +597,7 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
           }),
         );
         
-        const appendMetadata: Record<string, any> = {};
+        const appendMetadata: Record<string, unknown> = {};
         if (contextAssets) {
           appendMetadata.context_assets = contextAssets;
         }
@@ -613,7 +608,6 @@ export function useMultiTabChat({ selectedModel, selectedDataSource, backendRead
           model: selectedModel,
           metadata: Object.keys(appendMetadata).length > 0 ? appendMetadata : undefined,
         });
-        console.info('[MultiTabChat] Follow-up queued', response);
         setTabState(tabId, previous => setRunQueued(previous, response.run_id ?? previous?.activeRunId ?? null));
         
         void loadSessions();

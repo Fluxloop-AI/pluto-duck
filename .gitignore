@@ -39,6 +39,7 @@ build-signed.sh
 frontend/pluto_duck_frontend/.next
 frontend/pluto_duck_frontend/node_modules
 frontend/pluto_duck_frontend/.pnpm-store
+.pnpm-store
 
 yoopta_test
 
@@ -57,3 +58,6 @@ docs
 .loop
 .plutoduck_test
 .venv-ci
+
+# Local scratch notes for prompt profile experiments
+backend/pluto_duck_backend/agent/core/deep/prompts/profiles/v4_notes.json

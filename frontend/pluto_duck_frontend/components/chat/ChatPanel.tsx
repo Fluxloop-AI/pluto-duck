@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useCallback, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { ArrowUpIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -190,7 +190,17 @@ export function ChatPanel({
   const [mentionOpen, setMentionOpen] = useState(false);
   const [isOnboardingExiting, setIsOnboardingExiting] = useState(false);
   const activeMentionsRef = useRef<Map<string, MentionItem>>(new Map());
+  const onboardingSubmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    return () => {
+      if (onboardingSubmitTimerRef.current) {
+        clearTimeout(onboardingSubmitTimerRef.current);
+        onboardingSubmitTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const handleMentionSelect = useCallback((item: MentionItem) => {
     const currentInput = input;
@@ -236,7 +246,11 @@ export function ChatPanel({
   const handleOnboardingSelect = useCallback((prompt: string) => {
     setIsOnboardingExiting(true);
     // Delay submission to allow fade-out animation to complete
-    setTimeout(() => {
+    if (onboardingSubmitTimerRef.current) {
+      clearTimeout(onboardingSubmitTimerRef.current);
+    }
+    onboardingSubmitTimerRef.current = setTimeout(() => {
+      onboardingSubmitTimerRef.current = null;
       void onSubmit({ prompt });
     }, 200);
   }, [onSubmit]);

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -13,6 +14,8 @@ from langchain_core.callbacks.base import AsyncCallbackHandler
 from langchain_core.messages import BaseMessage, ToolMessage
 
 from pluto_duck_backend.agent.core.events import AgentEvent, EventSubType, EventType
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -449,6 +452,7 @@ class PlutoDuckEventCallbackHandler(AsyncCallbackHandler):
                 msg = getattr(gens[0][0], "message", None)
                 text, reason = self._extract_llm_text_and_reason(getattr(msg, "content", None))
         except Exception:
+            logger.debug("Failed to parse LLM end payload", exc_info=True)
             text = None
             reason = None
         if reason:

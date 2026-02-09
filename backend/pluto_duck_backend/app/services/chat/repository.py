@@ -1129,7 +1129,7 @@ class ChatRepository:
     def update_settings(self, payload: Dict[str, Any]) -> None:
         """Update global user settings."""
         now = datetime.now(UTC)
-        with self._connect() as con:
+        with self._write_connection() as con:
             for key, value in payload.items():
                 con.execute(
                     "INSERT OR REPLACE INTO user_settings (key, value, updated_at) VALUES (?, ?, ?)",

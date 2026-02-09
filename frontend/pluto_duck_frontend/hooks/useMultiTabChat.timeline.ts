@@ -4,7 +4,7 @@ import type { AgentEventAny } from '../types/agent';
 export interface DetailMessage {
   id: string;
   role: string;
-  content: any;
+  content: unknown;
   created_at: string;
   seq: number;
   display_order?: number;

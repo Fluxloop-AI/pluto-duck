@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 import logging
+import re
 import traceback
 from dataclasses import asdict, is_dataclass
-from json import dumps
-from typing import Any, AsyncIterator, Dict, Iterable, List, Optional, Sequence
-
 from datetime import datetime
 from enum import Enum
+from json import dumps
+from typing import Any, AsyncIterator, Dict, Iterable, List, Optional
 from uuid import uuid4
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
@@ -118,7 +117,6 @@ class AgentRunManager:
         prepared = _prepare_question_and_metadata(question, metadata)
         sanitized_question = prepared["question"]
         metadata = prepared["metadata"]
-        extracted_tables = prepared["extracted_tables"]
         public_metadata = {k: v for k, v in metadata.items() if not str(k).startswith("_")}
         summary = repo.get_conversation_summary(conversation_id)
 
@@ -220,9 +218,18 @@ class AgentRunManager:
                 original_content = messages[-1].content
                 context_block = f"\n\n<context_assets>\n{context_assets}\n</context_assets>"
                 messages[-1] = HumanMessage(content=f"{original_content}{context_block}")
-                print(f"[Orchestrator] ✅ Context injected from metadata:\n{context_assets}", flush=True)
+                _log(
+                    "context_assets_injected",
+                    run_id=run.run_id,
+                    conversation_id=run.conversation_id,
+                    context_assets_chars=len(str(context_assets)),
+                )
             else:
-                print(f"[Orchestrator] ⚠️ No context_assets in metadata", flush=True)
+                _log(
+                    "context_assets_missing",
+                    run_id=run.run_id,
+                    conversation_id=run.conversation_id,
+                )
 
             project_id = summary.project_id if summary else None
             if project_id is None:

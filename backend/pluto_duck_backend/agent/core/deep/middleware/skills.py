@@ -8,6 +8,7 @@ We use progressive disclosure:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import NotRequired, TypedDict
@@ -17,6 +18,8 @@ from langchain.agents.middleware.types import AgentMiddleware, AgentState
 from pluto_duck_backend.app.core.config import get_settings
 
 from ..skills.load import SkillMetadata, list_skills
+
+logger = logging.getLogger(__name__)
 
 
 class SkillsState(AgentState):
@@ -180,5 +183,5 @@ class SkillsMiddleware(AgentMiddleware):
         skills = list_skills(user_skills_dir=paths.user_skills_dir, project_skills_dir=paths.project_skills_dir)
 
         elapsed_ms = (time.perf_counter() - start) * 1000
-        print(f"[TIMING] SkillsMiddleware.before_agent: {elapsed_ms:.3f}ms", flush=True)
+        logger.debug("SkillsMiddleware.before_agent elapsed_ms=%.3f", elapsed_ms)
         return SkillsStateUpdate(skills_metadata=skills)

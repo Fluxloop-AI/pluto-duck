@@ -122,3 +122,35 @@ def test_llm_service_model_override_preserves_reasoning_fields(monkeypatch) -> N
     assert resolved.reasoning_effort == "low"
     assert resolved.text_verbosity == "medium"
     assert resolved.max_output_tokens == 1234
+
+
+def test_llm_settings_from_config_logs_warning_when_db_settings_load_fails(
+    monkeypatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from pluto_duck_backend.app.core import config as config_module
+    from pluto_duck_backend.app.services import chat as chat_module
+
+    agent = SimpleNamespace(
+        provider="openai",
+        model="gpt-5-mini",
+        api_key="sk-agent-key",
+        api_base=None,
+        reasoning_effort="high",
+        text_verbosity="low",
+        max_output_tokens=2048,
+    )
+    settings = SimpleNamespace(agent=agent)
+
+    monkeypatch.setattr(config_module, "get_settings", lambda: settings)
+
+    def _raise_repo_error():
+        raise RuntimeError("db unavailable")
+
+    monkeypatch.setattr(chat_module, "get_chat_repository", _raise_repo_error)
+    caplog.set_level("WARNING")
+
+    resolved = LLMSettings.from_config()
+
+    assert resolved.model == "gpt-5-mini"
+    assert "Failed to load LLM settings from DB; fallback to env/default" in caplog.text

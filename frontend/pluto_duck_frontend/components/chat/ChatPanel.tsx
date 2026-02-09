@@ -32,6 +32,10 @@ import type { AssetEmbedConfig } from '../editor/nodes/AssetEmbedNode';
 import { type ChatLoadingMode } from '../../lib/chatLoadingState';
 import { SessionSkeleton } from './SessionSkeleton';
 import { canSubmitChatPrompt } from './chatSubmitEligibility';
+import {
+  clearReasoningDismissTimers,
+  scheduleReasoningDismissTimers,
+} from './reasoningDismissTimers';
 
 const MODELS = ALL_MODEL_OPTIONS;
 const ENABLE_SESSION_LOADING_SKELETON = false;
@@ -95,6 +99,14 @@ const ConversationMessages = memo(function ConversationMessages({
 }: ConversationMessagesProps) {
   const previousRenderItemsRef = useRef<ChatRenderItem[]>(renderItems);
   const [exitingReasoningEntries, setExitingReasoningEntries] = useState<ExitingReasoningEntry[]>([]);
+  const dismissTimerByIdRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  useEffect(() => {
+    const timersById = dismissTimerByIdRef.current;
+    return () => {
+      clearReasoningDismissTimers(timersById);
+    };
+  }, []);
 
   useEffect(() => {
     const previousItems = previousRenderItemsRef.current;
@@ -151,15 +163,16 @@ const ConversationMessages = memo(function ConversationMessages({
       });
       return mergedEntries;
     });
-
-    const dismissingIds = new Set(discoveredEntries.map(entry => entry.id));
-    const timer = setTimeout(() => {
-      setExitingReasoningEntries(previousEntries =>
-        previousEntries.filter(entry => !dismissingIds.has(entry.id)),
-      );
-    }, REASONING_DISMISS_DURATION_MS);
-
-    return () => clearTimeout(timer);
+    scheduleReasoningDismissTimers({
+      ids: discoveredEntries.map(entry => entry.id),
+      delayMs: REASONING_DISMISS_DURATION_MS,
+      timersById: dismissTimerByIdRef.current,
+      onDismiss: dismissedId => {
+        setExitingReasoningEntries(previousEntries =>
+          previousEntries.filter(entry => entry.id !== dismissedId),
+        );
+      },
+    });
   }, [renderItems]);
 
   const renderQueue = useMemo<RenderQueueEntry[]>(() => {

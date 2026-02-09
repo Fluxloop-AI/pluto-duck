@@ -15,7 +15,7 @@ from pluto_duck_backend.agent.core.deep.prompts.memory_guide_template import (
 )
 from pluto_duck_backend.app.core.config import PlutoDuckSettings, get_settings
 
-DEFAULT_PROFILE_ID = "v3"
+DEFAULT_PROFILE_ID = "v4"
 _METADATA_KEY = "_prompt_experiment"
 _LEGACY_PROFILE_IDS = {"v1", "v2"}
 _PROFILE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")

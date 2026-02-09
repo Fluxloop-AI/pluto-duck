@@ -60,6 +60,66 @@ function isAssistantMessageRecord(
   return isRecord(value) && value.role === 'assistant';
 }
 
+interface ReasoningEventContent {
+  phase?: string;
+  reason?: unknown;
+}
+
+interface ToolEventContent {
+  tool?: string;
+  input?: unknown;
+  output?: unknown;
+  error?: unknown;
+  message?: unknown;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object';
+}
+
+function getMetadataRunId(metadata: ChatEvent['metadata']): string | null {
+  if (!metadata) return null;
+  const runId = metadata.run_id;
+  return typeof runId === 'string' && runId.trim() ? runId : null;
+}
+
+function toReasoningEventContent(content: unknown): ReasoningEventContent | null {
+  if (!isRecord(content)) return null;
+  return {
+    phase: typeof content.phase === 'string' ? content.phase : undefined,
+    reason: content.reason,
+  };
+}
+
+function toToolEventContent(content: unknown): ToolEventContent | null {
+  if (!isRecord(content)) return null;
+  return {
+    tool: typeof content.tool === 'string' && content.tool.trim() ? content.tool : undefined,
+    input: content.input,
+    output: content.output,
+    error: content.error,
+    message: content.message,
+  };
+}
+
+function toOptionalText(value: unknown): string | undefined {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed ? trimmed : undefined;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value);
+  }
+  if (isRecord(value) || Array.isArray(value)) {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
 function extractTextFromUnknown(value: unknown): string | null {
   if (value == null) return null;
   if (typeof value === 'string') {

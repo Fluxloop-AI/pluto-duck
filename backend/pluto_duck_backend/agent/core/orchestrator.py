@@ -263,6 +263,7 @@ class AgentRunManager:
                 run_id=run.run_id,
                 conversation_id=run.conversation_id,
                 experiment_profile=session_ctx.experiment_profile_id,
+                display_order_start=repo.get_next_display_order(run.conversation_id),
             )
             callback_ref[0] = callback
 

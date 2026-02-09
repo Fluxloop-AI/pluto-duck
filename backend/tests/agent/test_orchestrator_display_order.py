@@ -220,3 +220,59 @@ async def test_finally_events_get_display_order() -> None:
     assert collected[0]["subtype"] == "final"
     assert collected[1]["type"] == "run"
     assert collected[1]["subtype"] == "end"
+
+
+@pytest.mark.asyncio
+async def test_subsequent_run_continues_display_order() -> None:
+    """Simulates two consecutive runs: the second run should continue display_order from where the first left off."""
+    collected: List[Dict[str, Any]] = []
+    callback_ref: list[PlutoDuckEventCallbackHandler | None] = [None]
+
+    # --- First run: starts at 1, emits 3 events → uses 1, 2, 3 ---
+    emit = _build_emit(collected=collected, callback_ref=callback_ref)
+    handler1 = PlutoDuckEventCallbackHandler(
+        sink=EventSink(emit=emit),
+        run_id="run-1",
+        display_order_start=1,
+    )
+    callback_ref[0] = handler1
+
+    for i in range(3):
+        await emit(
+            AgentEvent(
+                type=EventType.REASONING,
+                subtype=EventSubType.CHUNK,
+                content={"phase": f"step-{i}"},
+                metadata={"run_id": "run-1"},
+            )
+        )
+
+    first_run_orders = [e["metadata"]["display_order"] for e in collected]
+    assert first_run_orders == [1, 2, 3]
+
+    # --- Second run: starts where first run left off (next = 4) ---
+    next_start = handler1.consume_next_display_order()  # simulates repo.get_next_display_order()
+    collected.clear()
+
+    handler2 = PlutoDuckEventCallbackHandler(
+        sink=EventSink(emit=emit),
+        run_id="run-2",
+        display_order_start=next_start,
+    )
+    callback_ref[0] = handler2
+
+    for i in range(2):
+        await emit(
+            AgentEvent(
+                type=EventType.TOOL,
+                subtype=EventSubType.START,
+                content={"tool": f"tool-{i}"},
+                metadata={"run_id": "run-2"},
+            )
+        )
+
+    second_run_orders = [e["metadata"]["display_order"] for e in collected]
+    # Should continue from 4 (not restart at 1)
+    assert second_run_orders[0] >= 4
+    assert second_run_orders == sorted(second_run_orders)
+    assert len(second_run_orders) == len(set(second_run_orders))

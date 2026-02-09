@@ -146,7 +146,7 @@ test('active run reasoning chunks are merged into one streaming row before llm_e
   assert.equal(reasoningItems[0].status, 'streaming');
 });
 
-test('llm_start followed by llm_end without reasoning does not materialize thought', async () => {
+test('llm_start followed by llm_end without reasoning creates placeholder that is filtered out', async () => {
   const { buildTimelineItemsFromEvents } = await import(reducerModuleUrl.href);
 
   const runId = 'run-empty-span';
@@ -172,6 +172,96 @@ test('llm_start followed by llm_end without reasoning does not materialize thoug
 
   const reasoningItems = items.filter((item: { type: string }) => item.type === 'reasoning');
   assert.equal(reasoningItems.length, 0);
+});
+
+test('active run with llm_start only keeps streaming placeholder', async () => {
+  const { buildTimelineItemsFromEvents } = await import(reducerModuleUrl.href);
+
+  const runId = 'run-active-start-only';
+  const items = buildTimelineItemsFromEvents({
+    activeRunId: runId,
+    events: [
+      {
+        type: 'reasoning',
+        subtype: 'start',
+        content: { phase: 'llm_start' },
+        metadata: { run_id: runId, sequence: 1, event_id: 'evt-active-start-only', phase: 'llm_start' },
+        timestamp: '2026-02-09T00:17:01.000Z',
+      },
+    ],
+  });
+
+  const reasoningItems = items.filter((item: { type: string }) => item.type === 'reasoning') as Array<{
+    content: string;
+    isStreaming: boolean;
+    status: string;
+  }>;
+  assert.equal(reasoningItems.length, 1);
+  assert.equal(reasoningItems[0].content, '');
+  assert.equal(reasoningItems[0].isStreaming, true);
+  assert.equal(reasoningItems[0].status, 'streaming');
+});
+
+test('non-active run with llm_start only does not materialize placeholder', async () => {
+  const { buildTimelineItemsFromEvents } = await import(reducerModuleUrl.href);
+
+  const items = buildTimelineItemsFromEvents({
+    activeRunId: 'run-active-now',
+    events: [
+      {
+        type: 'reasoning',
+        subtype: 'start',
+        content: { phase: 'llm_start' },
+        metadata: { run_id: 'run-past', sequence: 1, event_id: 'evt-past-start-only', phase: 'llm_start' },
+        timestamp: '2026-02-09T00:17:02.000Z',
+      },
+    ],
+  });
+
+  const reasoningItems = items.filter((item: { type: string }) => item.type === 'reasoning');
+  assert.equal(reasoningItems.length, 0);
+});
+
+test('active run llm_start -> llm_reasoning -> llm_end keeps completed reasoning row', async () => {
+  const { buildTimelineItemsFromEvents } = await import(reducerModuleUrl.href);
+
+  const runId = 'run-active-full-cycle';
+  const items = buildTimelineItemsFromEvents({
+    activeRunId: runId,
+    events: [
+      {
+        type: 'reasoning',
+        subtype: 'start',
+        content: { phase: 'llm_start' },
+        metadata: { run_id: runId, sequence: 1, event_id: 'evt-cycle-start', phase: 'llm_start' },
+        timestamp: '2026-02-09T00:17:03.000Z',
+      },
+      {
+        type: 'reasoning',
+        subtype: 'chunk',
+        content: { phase: 'llm_reasoning', reason: 'cycle reasoning text' },
+        metadata: { run_id: runId, sequence: 2, event_id: 'evt-cycle-reason', phase: 'llm_reasoning' },
+        timestamp: '2026-02-09T00:17:04.000Z',
+      },
+      {
+        type: 'reasoning',
+        subtype: 'end',
+        content: { phase: 'llm_end' },
+        metadata: { run_id: runId, sequence: 3, event_id: 'evt-cycle-end', phase: 'llm_end' },
+        timestamp: '2026-02-09T00:17:05.000Z',
+      },
+    ],
+  });
+
+  const reasoningItems = items.filter((item: { type: string }) => item.type === 'reasoning') as Array<{
+    content: string;
+    isStreaming: boolean;
+    status: string;
+  }>;
+  assert.equal(reasoningItems.length, 1);
+  assert.equal(reasoningItems[0].content, 'cycle reasoning text');
+  assert.equal(reasoningItems[0].isStreaming, false);
+  assert.equal(reasoningItems[0].status, 'complete');
 });
 
 test('same run creates segmented reasoning rows across llm_start/llm_end boundaries', async () => {

@@ -29,6 +29,7 @@ class _Conversation:
 class _FakeChatRepo:
     def __init__(self) -> None:
         self._conversations: dict[str, _Conversation] = {}
+        self.mark_run_completed_calls: list[dict[str, Any]] = []
 
     def get_conversation_summary(self, conversation_id: str):
         conv = self._conversations.get(conversation_id)
@@ -108,12 +109,18 @@ class _FakeChatRepo:
 
     def mark_run_completed(
         self,
-        _conversation_id: str,
+        conversation_id: str,
         *,
         status: str,
         final_preview: str | None = None,
     ) -> None:
-        _ = (status, final_preview)
+        self.mark_run_completed_calls.append(
+            {
+                "conversation_id": conversation_id,
+                "status": status,
+                "final_preview": final_preview,
+            }
+        )
         return None
 
 
@@ -482,3 +489,4 @@ async def test_execute_run_stale_guard_records_end_event_and_stops(
     assert persisted_events[0]["type"] == "run"
     assert persisted_events[0]["subtype"] == "end"
     assert persisted_events[0]["metadata"]["display_order"] >= 1
+    assert fake_repo.mark_run_completed_calls == []

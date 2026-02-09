@@ -299,6 +299,7 @@ class AgentRunManager:
             _log("run_failed", run_id=run.run_id, conversation_id=run.conversation_id, error=err_text or err_repr)
         finally:
             run.result = final_state
+            is_stale_run = bool(final_state.get("stale_run"))
             final_preview = run.flags.get("final_preview") or self._final_preview(final_state)
             if "answer" in final_state and isinstance(final_state.get("answer"), str):
                 final_answer = final_state["answer"]
@@ -320,11 +321,12 @@ class AgentRunManager:
                 metadata={"run_id": run.run_id},
             )
             await emit(end_event)
-            repo.mark_run_completed(
-                run.conversation_id,
-                status="failed" if "error" in final_state else "completed",
-                final_preview=final_preview,
-            )
+            if not is_stale_run:
+                repo.mark_run_completed(
+                    run.conversation_id,
+                    status="failed" if "error" in final_state else "completed",
+                    final_preview=final_preview,
+                )
             await run.queue.put(None)
             run.done.set()
             _log(

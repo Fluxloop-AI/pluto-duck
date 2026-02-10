@@ -43,7 +43,7 @@ export const ToolHeader = ({
 }: ToolHeaderProps) => (
   <CollapsibleTrigger
     className={cn(
-      "flex w-full items-center gap-2 py-2.5 px-1",
+      "group/step flex w-full items-center gap-2.5 rounded-[10px] px-2 py-2 pr-3 transition-colors hover:bg-muted/50",
       className
     )}
     {...props}
@@ -56,7 +56,7 @@ export const ToolHeader = ({
     {preview && (
       <span className="text-muted-foreground text-xs truncate">{preview}</span>
     )}
-    <ChevronDownIcon className="size-3 text-muted-foreground transition-transform shrink-0 ml-auto group-data-[state=open]:rotate-180" />
+    <ChevronDownIcon className="size-3 text-muted-foreground opacity-40 transition-opacity transition-transform shrink-0 ml-auto group-hover/step:opacity-70 group-data-[state=open]/step:rotate-180 group-data-[state=open]/step:opacity-70" />
   </CollapsibleTrigger>
 );
 

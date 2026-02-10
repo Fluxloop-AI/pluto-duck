@@ -2,9 +2,42 @@ use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 #[cfg(target_os = "macos")]
 use tauri::TitleBarStyle;
 
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+  let trimmed = url.trim();
+  if !trimmed.starts_with("http://") && !trimmed.starts_with("https://") {
+    return Err("Only http(s) URLs are allowed".to_string());
+  }
+
+  #[cfg(target_os = "macos")]
+  let status = std::process::Command::new("open")
+    .arg(trimmed)
+    .status()
+    .map_err(|err| format!("Failed to launch browser: {err}"))?;
+
+  #[cfg(target_os = "windows")]
+  let status = std::process::Command::new("cmd")
+    .args(["/C", "start", "", trimmed])
+    .status()
+    .map_err(|err| format!("Failed to launch browser: {err}"))?;
+
+  #[cfg(all(unix, not(target_os = "macos")))]
+  let status = std::process::Command::new("xdg-open")
+    .arg(trimmed)
+    .status()
+    .map_err(|err| format!("Failed to launch browser: {err}"))?;
+
+  if status.success() {
+    Ok(())
+  } else {
+    Err(format!("Browser command failed with status: {status}"))
+  }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
+    .plugin(tauri_plugin_deep_link::init())
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_process::init())
     .plugin(tauri_plugin_updater::Builder::new().build())
@@ -81,6 +114,7 @@ pub fn run() {
       
       Ok(())
     })
+    .invoke_handler(tauri::generate_handler![open_external_url])
     .build(tauri::generate_context!())
     .expect("error while building tauri application")
     .run(|app_handle, event| {
@@ -96,6 +130,26 @@ pub fn run() {
             for (_, window) in app_handle.webview_windows() {
               let _ = window.show();
               let _ = window.set_focus();
+            }
+          }
+        }
+        tauri::RunEvent::Opened { urls } => {
+          if urls.is_empty() {
+            return;
+          }
+          log::info!("App opened with URLs: {:?}", urls);
+          if let Some(window) = app_handle.get_webview_window("main") {
+            let _ = window.show();
+            let _ = window.set_focus();
+            for url in urls {
+              let url_string = url.to_string();
+              if let Ok(serialized) = serde_json::to_string(&url_string) {
+                let script = format!(
+                  "window.__plutoAuthCallbackQueue = window.__plutoAuthCallbackQueue || [];window.__plutoAuthCallbackQueue.push({0});window.dispatchEvent(new CustomEvent('pluto-auth-callback', {{ detail: {{ url: {0} }} }}));",
+                  serialized
+                );
+                let _ = window.eval(&script);
+              }
             }
           }
         }

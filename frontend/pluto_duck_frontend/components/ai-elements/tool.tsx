@@ -6,11 +6,15 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
-import { ChevronDownIcon, CircleIcon } from "lucide-react";
+import { ChevronDownIcon } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
 import { isValidElement } from "react";
 import { CodeBlock } from "./code-block";
 import type { ToolUIInput, ToolUIOutput, ToolUIState } from "./tool-types";
+import { mapToolStateToPhase } from "./tool-state-phase-map";
+import { StepDot } from "./step-dot";
+
+export { mapToolStateToPhase };
 
 export type ToolProps = ComponentProps<typeof Collapsible>;
 
@@ -29,20 +33,6 @@ export type ToolHeaderProps = {
   className?: string;
 };
 
-const getStatusDot = (status: ToolUIState) => {
-  const dotStyles: Record<ToolUIState, string> = {
-    "input-streaming": "fill-muted-foreground text-muted-foreground",
-    "input-available": "fill-muted-foreground text-muted-foreground animate-pulse",
-    "approval-requested": "fill-yellow-500 text-yellow-500",
-    "approval-responded": "fill-blue-500 text-blue-500",
-    "output-available": "fill-green-500 text-green-500",
-    "output-error": "fill-red-500 text-red-500",
-    "output-denied": "fill-orange-500 text-orange-500",
-  };
-
-  return <CircleIcon className={cn("size-2 shrink-0", dotStyles[status])} />;
-};
-
 export const ToolHeader = ({
   className,
   toolName,
@@ -58,7 +48,7 @@ export const ToolHeader = ({
     )}
     {...props}
   >
-    {getStatusDot(state)}
+    <StepDot phase={mapToolStateToPhase(state)} />
     <span className="font-medium text-xs shrink-0">{toolName}</span>
     {keyParam && (
       <span className="text-muted-foreground text-xs truncate">{keyParam}</span>

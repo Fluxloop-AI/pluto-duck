@@ -7,11 +7,11 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
-import { BrainIcon, ChevronDownIcon } from "lucide-react";
+import { ChevronDownIcon } from "lucide-react";
 import type { ComponentProps } from "react";
 import { createContext, memo, useContext, useEffect, useState } from "react";
 import { Response } from "./response";
-import { Shimmer } from "./shimmer";
+import { StepDot } from "./step-dot";
 
 type ReasoningContextValue = {
   isStreaming: boolean;
@@ -115,7 +115,7 @@ export type ReasoningTriggerProps = ComponentProps<typeof CollapsibleTrigger>;
 
 const getThinkingMessage = (isStreaming: boolean, duration?: number) => {
   if (isStreaming) {
-    return <Shimmer duration={1}>Thinking...</Shimmer>;
+    return <span className="animate-text-glow text-sm font-medium italic">Thinking</span>;
   }
   if (!duration || duration === 0) {
     return <span>Thought for a few seconds</span>;
@@ -137,14 +137,16 @@ export const ReasoningTrigger = memo(
       >
         {children ?? (
           <>
-            <BrainIcon className="size-4" />
+            <StepDot phase={isStreaming ? "loading" : "complete"} />
             {getThinkingMessage(isStreaming, duration)}
-            <ChevronDownIcon
-              className={cn(
-                "size-4 transition-transform",
-                isOpen ? "rotate-180" : "rotate-0"
-              )}
-            />
+            {!isStreaming ? (
+              <ChevronDownIcon
+                className={cn(
+                  "size-4 transition-transform",
+                  isOpen ? "rotate-180" : "rotate-0"
+                )}
+              />
+            ) : null}
           </>
         )}
       </CollapsibleTrigger>

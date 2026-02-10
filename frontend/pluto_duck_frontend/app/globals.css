@@ -24,6 +24,8 @@
     --destructive-foreground: 0 0% 98%;
     --dot-idle: #b8b8c8;
     --dot-done: #2ecc71;
+    --text-glow-dim: #a0a0b4;
+    --text-glow-bright: #6e6e85;
     --border: 0 0% 89.8%;
     --input: 0 0% 89.8%;
     --ring: 0 0% 3.9%;
@@ -53,6 +55,8 @@
     --destructive-foreground: 0 0% 98%;
     --dot-idle: #8888a0;
     --dot-done: #27ae60;
+    --text-glow-dim: #7a7a90;
+    --text-glow-bright: #a0a0b4;
     --border: 0 0% 20%;
     --input: 0 0% 18%;
     --ring: 0 0% 83.1%;
@@ -221,4 +225,22 @@
   50% {
     opacity: 0;
   }
+}
+
+@keyframes textGlow {
+  0%,
+  100% {
+    color: var(--text-glow-dim);
+    text-shadow: 0 0 0 transparent;
+  }
+  50% {
+    color: var(--text-glow-bright);
+    text-shadow:
+      0 0 20px rgba(160, 160, 180, 0.4),
+      0 0 40px rgba(160, 160, 180, 0.15);
+  }
+}
+
+.animate-text-glow {
+  animation: textGlow 2.2s ease-in-out infinite;
 }

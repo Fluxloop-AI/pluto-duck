@@ -115,12 +115,16 @@ export type ReasoningTriggerProps = ComponentProps<typeof CollapsibleTrigger>;
 
 const getThinkingMessage = (isStreaming: boolean, duration?: number) => {
   if (isStreaming) {
-    return <span className="animate-text-glow text-sm font-medium italic">Thinking</span>;
+    return (
+      <span className="animate-text-glow text-[0.85rem] font-medium italic">
+        Thinking
+      </span>
+    );
   }
   if (!duration || duration === 0) {
-    return <span>Thought for a few seconds</span>;
+    return <span className="text-[0.85rem]">Thought for a few seconds</span>;
   }
-  return <span>Thought for {duration} seconds</span>;
+  return <span className="text-[0.85rem]">Thought for {duration} seconds</span>;
 };
 
 export const ReasoningTrigger = memo(
@@ -164,8 +168,8 @@ export const ReasoningContent = memo(
   ({ className, children, ...props }: ReasoningContentProps) => (
     <CollapsibleContent
       className={cn(
-        "mt-4 text-sm",
-        "data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 text-muted-foreground outline-none data-[state=closed]:animate-out data-[state=open]:animate-in",
+        "mt-0 pl-[38px] text-[0.8rem] leading-[1.75]",
+        "data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 data-[state=open]:mb-1.5 text-muted-foreground outline-none data-[state=closed]:animate-out data-[state=open]:animate-in",
         className
       )}
       {...props}

@@ -15,6 +15,7 @@ import type { AssistantMessageItem } from '../../../types/chatRenderItem';
 import {
   getAssistantActionsClassName,
 } from './assistantActionsPolicy';
+import { getAssistantMessageProseClassName } from './assistantMessageProseClassName';
 import { writeAssistantMessageToClipboard } from './assistantClipboard';
 
 export type FeedbackType = 'like' | 'dislike' | null;
@@ -83,7 +84,7 @@ export const AssistantMessageRenderer = memo(function AssistantMessageRenderer({
   return (
     <div className="group flex gap-4">
       <div className="flex-1 min-w-0">
-        <div className="prose prose-sm dark:prose-invert max-w-none">
+        <div className={getAssistantMessageProseClassName(item.isStreaming)}>
           <Response>{item.content}</Response>
         </div>
 

@@ -119,6 +119,23 @@
   word-break: break-word;
 }
 
+/* Streaming cursor for assistant markdown content */
+[role="log"] .prose.prose-streaming > .size-full > :last-child::after {
+  content: "│";
+  display: inline;
+  margin-left: 1px;
+  color: var(--dot-idle);
+  animation: blink 0.8s step-end infinite;
+  font-weight: 300;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [role="log"] .prose.prose-streaming > .size-full > :last-child::after {
+    animation: none;
+    opacity: 1;
+  }
+}
+
 /* Thin scrollbar */
 .scrollbar-thin {
   scrollbar-width: thin;

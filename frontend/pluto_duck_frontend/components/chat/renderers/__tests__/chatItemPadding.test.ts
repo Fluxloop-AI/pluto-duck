@@ -43,5 +43,5 @@ test('removes extra bottom spacing when next item is not reasoning/tool', () => 
 });
 
 test('keeps approval spacing unchanged', () => {
-  assert.equal(getChatItemPadding(buildItem('approval'), undefined), 'pl-2 pr-2 pt-2 pb-4');
+  assert.equal(getChatItemPadding(buildItem('approval'), undefined), 'pl-2 pr-2 pt-3 pb-4');
 });

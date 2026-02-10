@@ -39,8 +39,13 @@ export const AssistantMessageRenderer = memo(function AssistantMessageRenderer({
   onSendToBoard,
 }: AssistantMessageRendererProps) {
   const [copied, setCopied] = useState(false);
-  const showActions = shouldShowAssistantActions(item.isStreaming);
-  const actionsClassName = getAssistantActionsClassName(item.isStreaming);
+  const policyParams = {
+    id: item.id,
+    messageId: item.messageId,
+    isStreaming: item.isStreaming,
+  };
+  const showActions = shouldShowAssistantActions(policyParams);
+  const actionsClassName = getAssistantActionsClassName(policyParams);
 
   const handleCopy = () => {
     if (onCopy) {

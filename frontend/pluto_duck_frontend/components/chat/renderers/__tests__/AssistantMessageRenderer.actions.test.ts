@@ -6,11 +6,31 @@ import {
 } from '../assistantActionsPolicy.ts';
 
 test('hides actions while assistant message is streaming', () => {
-  assert.equal(shouldShowAssistantActions(true), false);
-  assert.equal(getAssistantActionsClassName(true), null);
+  const params = {
+    id: 'timeline-assistant-1',
+    messageId: 'assistant-1',
+    isStreaming: true,
+  };
+  assert.equal(shouldShowAssistantActions(params), false);
+  assert.equal(getAssistantActionsClassName(params), null);
 });
 
 test('shows actions with entry animation after streaming completes', () => {
-  assert.equal(shouldShowAssistantActions(false), true);
-  assert.equal(getAssistantActionsClassName(false), 'mt-2 animate-step-in');
+  const params = {
+    id: 'timeline-assistant-1',
+    messageId: 'assistant-1',
+    isStreaming: false,
+  };
+  assert.equal(shouldShowAssistantActions(params), true);
+  assert.equal(getAssistantActionsClassName(params), 'mt-2 animate-step-in');
+});
+
+test('hides actions for transient stream-final placeholder rows', () => {
+  const params = {
+    id: 'timeline-streaming-run-1',
+    messageId: 'stream-run-1',
+    isStreaming: false,
+  };
+  assert.equal(shouldShowAssistantActions(params), false);
+  assert.equal(getAssistantActionsClassName(params), null);
 });

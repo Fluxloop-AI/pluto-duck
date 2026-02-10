@@ -34,6 +34,10 @@ Create `.env.local` with:
 
 ```bash
 NEXT_PUBLIC_BACKEND_URL=http://127.0.0.1:8123
+NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<supabase-anon-key>
+# Optional: override default deep-link callback for Tauri
+# NEXT_PUBLIC_TAURI_AUTH_CALLBACK_URL=plutoduck://auth/callback
 ```
 
 ## Project Structure

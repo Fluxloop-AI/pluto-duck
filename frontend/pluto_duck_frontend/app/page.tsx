@@ -30,6 +30,7 @@ import { useProjectState } from '../hooks/useProjectState';
 import type { Board } from '../lib/boardsApi';
 import type { AssetEmbedConfig } from '../components/editor/nodes/AssetEmbedNode';
 import type { ChatTab } from '../hooks/useMultiTabChat';
+import { useAuth } from '../lib/auth';
 import { Loader } from '../components/ai-elements/loader';
 import { fetchSettings } from '../lib/settingsApi';
 import { loadLocalModel, unloadLocalModel } from '../lib/modelsApi';
@@ -72,6 +73,7 @@ function WorkspacePageBody({
   onLanguageChange: (language: Locale) => void;
 }) {
   const t = useTranslations('nav');
+  const { profile: authProfile, isConnected: isGoogleConnected } = useAuth();
   const { isReady: backendReady, isChecking: backendChecking } = useBackendStatus();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [dataSourcesOpen, setDataSourcesOpen] = useState(false);
@@ -155,6 +157,9 @@ function WorkspacePageBody({
   const [chatTabs, setChatTabs] = useState<ChatTab[]>([]);
   const [activeChatTabId, setActiveChatTabId] = useState<string | null>(null);
   const [isResizing, setIsResizing] = useState(false);
+  const displayProfileName =
+    userName && userName.trim().length > 0 ? userName.trim() : authProfile.name;
+  const displayProfileSubtitle = isGoogleConnected ? authProfile.email : null;
 
   const {
     projects,
@@ -860,7 +865,9 @@ function WorkspacePageBody({
             </div>
             <div className="px-3 pb-4 pt-3">
               <ProfileCard
-                name={userName}
+                name={displayProfileName}
+                subtitle={displayProfileSubtitle}
+                avatarUrl={authProfile.avatarUrl}
                 onClick={() => setSettingsOpen(true)}
               />
             </div>

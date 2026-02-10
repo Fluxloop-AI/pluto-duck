@@ -60,6 +60,8 @@ import {
   type LocalModelOption,
 } from '../../constants/models';
 import { useTranslations } from 'next-intl';
+import { useAuth } from '../../lib/auth';
+import { isTauriRuntime } from '../../lib/tauriRuntime';
 
 interface SettingsModalProps {
   open: boolean;
@@ -107,9 +109,18 @@ export function SettingsModal({
   onProjectDeleted,
 }: SettingsModalProps) {
   const t = useTranslations('settings');
+  const {
+    connectWithGoogle,
+    disconnectGoogle,
+    isConnected: googleConnected,
+    profile: authProfile,
+    authError,
+    clearAuthError,
+  } = useAuth();
   const [activeMenu, setActiveMenu] = useState<SettingsMenu>('profile');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [googleActionLoading, setGoogleActionLoading] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
 
   const [apiKey, setApiKey] = useState('');
@@ -164,6 +175,11 @@ export function SettingsModal({
       downloadPollRef.current = {};
     };
   }, [open, initialMenu]);
+
+  useEffect(() => {
+    if (!authError) return;
+    setError(authError);
+  }, [authError]);
 
   useEffect(() => {
     setProjectResetConfirmation('');
@@ -480,8 +496,36 @@ export function SettingsModal({
     }
   };
 
-  const handleGoogleConnect = () => {
-    setError(t('comingSoon'));
+  const handleGoogleConnect = async () => {
+    setError(null);
+    setSuccessMessage(null);
+    clearAuthError();
+    setGoogleActionLoading(true);
+    try {
+      await connectWithGoogle();
+      setSuccessMessage(
+        isTauriRuntime() ? t('profile.completeGoogleInBrowser') : t('profile.redirectingToGoogle')
+      );
+    } catch (error) {
+      setError(error instanceof Error ? error.message : t('profile.connectError'));
+    } finally {
+      setGoogleActionLoading(false);
+    }
+  };
+
+  const handleGoogleDisconnect = async () => {
+    setError(null);
+    setSuccessMessage(null);
+    clearAuthError();
+    setGoogleActionLoading(true);
+    try {
+      await disconnectGoogle();
+      setSuccessMessage(t('profile.disconnected'));
+    } catch (error) {
+      setError(error instanceof Error ? error.message : t('profile.disconnectError'));
+    } finally {
+      setGoogleActionLoading(false);
+    }
   };
 
   const renderSidebar = () => (
@@ -1054,7 +1098,9 @@ export function SettingsModal({
       if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
       return (parts[0][0] + parts[1][0]).toUpperCase();
     };
-    const avatarLetter = userName.trim() ? getInitials(userName) : '?';
+    const profileDisplayName = userName.trim() || authProfile.name || '';
+    const avatarLetter = profileDisplayName ? getInitials(profileDisplayName) : '?';
+    const connectedEmail = authProfile.email || t('profile.unknownEmail');
 
     return (
       <div className="flex flex-col h-full">
@@ -1066,7 +1112,7 @@ export function SettingsModal({
               <AvatarFallback>{avatarLetter}</AvatarFallback>
             </Avatar>
             <span className="text-lg font-medium">
-              {userName.trim() || t('profile.noName')}
+              {profileDisplayName || t('profile.noName')}
             </span>
           </div>
 
@@ -1084,39 +1130,56 @@ export function SettingsModal({
             />
           </div>
 
-          {/* Google Login (UI only) */}
+          {/* Google Login */}
           <div className="grid gap-2">
             <label className="text-sm font-medium">{t('profile.googleAccount')}</label>
-            <Button
-              type="button"
-              onClick={handleGoogleConnect}
-              className="w-1/2 h-auto justify-center gap-3 rounded-full border border-black/10 bg-white py-[12px] text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-black/5"
-            >
-              <svg
-                aria-hidden="true"
-                className="h-5 w-5"
-                viewBox="0 0 48 48"
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                onClick={handleGoogleConnect}
+                disabled={googleActionLoading || loading || saving}
+                className="h-auto justify-center gap-3 rounded-full border border-black/10 bg-white py-[12px] text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-black/5"
               >
-                <path
-                  fill="#EA4335"
-                  d="M24 9.5c3.24 0 6.14 1.1 8.42 2.89l6.24-6.24C35.03 3.02 29.77.5 24 .5 14.7.5 6.84 5.86 3.24 13.64l7.3 5.66C12.32 13.48 17.7 9.5 24 9.5z"
-                />
-                <path
-                  fill="#4285F4"
-                  d="M46.5 24.5c0-1.62-.14-2.78-.44-3.98H24v7.53h12.9c-.26 2.08-1.66 5.22-4.77 7.32l7.33 5.68c4.38-4.04 6.94-9.98 6.94-16.55z"
-                />
-                <path
-                  fill="#FBBC05"
-                  d="M10.54 28.3A14.7 14.7 0 0 1 9.7 24c0-1.5.25-2.96.82-4.3l-7.3-5.66A23.99 23.99 0 0 0 .5 24c0 3.84.92 7.47 2.72 10.64l7.32-5.66z"
-                />
-                <path
-                  fill="#34A853"
-                  d="M24 47.5c5.76 0 10.59-1.9 14.12-5.45l-7.33-5.68c-1.95 1.36-4.58 2.3-6.79 2.3-6.3 0-11.68-3.98-13.46-9.5l-7.3 5.66C6.84 42.14 14.7 47.5 24 47.5z"
-                />
-              </svg>
-              {t('profile.continueWithGoogle')}
-            </Button>
-            <p className="text-xs text-muted-foreground">{t('comingSoon')}</p>
+                <svg
+                  aria-hidden="true"
+                  className="h-5 w-5"
+                  viewBox="0 0 48 48"
+                >
+                  <path
+                    fill="#EA4335"
+                    d="M24 9.5c3.24 0 6.14 1.1 8.42 2.89l6.24-6.24C35.03 3.02 29.77.5 24 .5 14.7.5 6.84 5.86 3.24 13.64l7.3 5.66C12.32 13.48 17.7 9.5 24 9.5z"
+                  />
+                  <path
+                    fill="#4285F4"
+                    d="M46.5 24.5c0-1.62-.14-2.78-.44-3.98H24v7.53h12.9c-.26 2.08-1.66 5.22-4.77 7.32l7.33 5.68c4.38-4.04 6.94-9.98 6.94-16.55z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M10.54 28.3A14.7 14.7 0 0 1 9.7 24c0-1.5.25-2.96.82-4.3l-7.3-5.66A23.99 23.99 0 0 0 .5 24c0 3.84.92 7.47 2.72 10.64l7.32-5.66z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M24 47.5c5.76 0 10.59-1.9 14.12-5.45l-7.33-5.68c-1.95 1.36-4.58 2.3-6.79 2.3-6.3 0-11.68-3.98-13.46-9.5l-7.3 5.66C6.84 42.14 14.7 47.5 24 47.5z"
+                  />
+                </svg>
+                {googleActionLoading ? t('profile.connecting') : t('profile.continueWithGoogle')}
+              </Button>
+              {googleConnected && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={googleActionLoading || loading || saving}
+                  onClick={handleGoogleDisconnect}
+                >
+                  {t('profile.disconnect')}
+                </Button>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {googleConnected
+                ? t('profile.connectedAs', { email: connectedEmail })
+                : t('profile.notConnected')}
+            </p>
           </div>
 
             {/* Error Message */}

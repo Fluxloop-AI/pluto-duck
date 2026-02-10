@@ -46,6 +46,13 @@
     }
   },
   "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "plutoduck"
+        ]
+      }
+    },
     "updater": {
       "endpoints": [
         "https://fluxloop-ai.github.io/pluto-duck-oss/latest.json"

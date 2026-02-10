@@ -56,7 +56,7 @@ export const ToolHeader = ({
     {preview && (
       <span className="text-muted-foreground text-xs truncate">{preview}</span>
     )}
-    <ChevronDownIcon className="size-3 text-muted-foreground opacity-40 transition-opacity transition-transform shrink-0 ml-auto group-hover/step:opacity-70 group-data-[state=open]/step:rotate-180 group-data-[state=open]/step:opacity-70" />
+    <ChevronDownIcon className="size-3 text-muted-foreground opacity-40 transition-[opacity,transform] shrink-0 ml-auto group-hover/step:opacity-70 group-data-[state=open]/step:rotate-180 group-data-[state=open]/step:opacity-70" />
   </CollapsibleTrigger>
 );
 

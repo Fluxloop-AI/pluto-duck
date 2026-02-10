@@ -17,6 +17,10 @@ import {
   buildTimelineItemsFromTurns,
   type TimelineTurnEnvelope,
 } from './chatTimelineReducer';
+import {
+  LEGACY_STREAMING_ASSISTANT_ITEM_ID_PREFIX,
+  STREAMING_ASSISTANT_MESSAGE_ID_PREFIX,
+} from './chatStreamingIds.ts';
 
 /**
  * 다양한 형태의 content에서 텍스트 추출
@@ -202,13 +206,13 @@ function flattenTurnsToRenderItemsLegacy(turns: ChatTurn[]): ChatRenderItem[] {
 
     if (!turn.assistantMessages.length && turn.streamingAssistantText) {
       const item: AssistantMessageItem = {
-        id: `assistant-stream-${baseRunId || turn.key}`,
+        id: `${LEGACY_STREAMING_ASSISTANT_ITEM_ID_PREFIX}${baseRunId || turn.key}`,
         type: 'assistant-message',
         runId: baseRunId,
         seq: globalSeq++,
         timestamp: new Date().toISOString(),
         content: turn.streamingAssistantText,
-        messageId: `stream-${baseRunId || turn.key}`,
+        messageId: `${STREAMING_ASSISTANT_MESSAGE_ID_PREFIX}${baseRunId || turn.key}`,
         isStreaming: isActive && !turn.streamingAssistantFinal,
       };
       items.push(item);

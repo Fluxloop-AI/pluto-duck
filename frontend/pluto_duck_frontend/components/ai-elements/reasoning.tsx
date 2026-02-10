@@ -146,7 +146,7 @@ export const ReasoningTrigger = memo(
             {!isStreaming ? (
               <ChevronDownIcon
                 className={cn(
-                  "size-4 opacity-40 transition-opacity transition-transform group-hover/step:opacity-70",
+                  "size-4 opacity-40 transition-[opacity,transform] group-hover/step:opacity-70",
                   isOpen ? "rotate-180 opacity-70" : "rotate-0"
                 )}
               />

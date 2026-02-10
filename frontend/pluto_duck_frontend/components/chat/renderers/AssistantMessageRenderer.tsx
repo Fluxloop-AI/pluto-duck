@@ -14,8 +14,8 @@ import { Actions, Action } from '../../ai-elements/actions';
 import type { AssistantMessageItem } from '../../../types/chatRenderItem';
 import {
   getAssistantActionsClassName,
-  shouldShowAssistantActions,
 } from './assistantActionsPolicy';
+import { writeAssistantMessageToClipboard } from './assistantClipboard';
 
 export type FeedbackType = 'like' | 'dislike' | null;
 
@@ -44,15 +44,22 @@ export const AssistantMessageRenderer = memo(function AssistantMessageRenderer({
     messageId: item.messageId,
     isStreaming: item.isStreaming,
   };
-  const showActions = shouldShowAssistantActions(policyParams);
   const actionsClassName = getAssistantActionsClassName(policyParams);
+  const showActions = actionsClassName !== null;
 
-  const handleCopy = () => {
+  const handleCopy = async () => {
     if (onCopy) {
       onCopy(item.content);
-    } else {
-      void navigator.clipboard.writeText(item.content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      return;
     }
+
+    const isCopied = await writeAssistantMessageToClipboard(item.content);
+    if (!isCopied) {
+      return;
+    }
+
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };

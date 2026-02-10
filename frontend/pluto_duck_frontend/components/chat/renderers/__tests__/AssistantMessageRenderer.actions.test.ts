@@ -34,3 +34,23 @@ test('hides actions for transient stream-final placeholder rows', () => {
   assert.equal(shouldShowAssistantActions(params), false);
   assert.equal(getAssistantActionsClassName(params), null);
 });
+
+test('hides actions for legacy assistant-stream placeholder id', () => {
+  const params = {
+    id: 'assistant-stream-run-2',
+    messageId: 'assistant-persisted-2',
+    isStreaming: false,
+  };
+  assert.equal(shouldShowAssistantActions(params), false);
+  assert.equal(getAssistantActionsClassName(params), null);
+});
+
+test('hides actions for transient stream messageId without timeline id', () => {
+  const params = {
+    id: 'timeline-assistant-3',
+    messageId: 'stream-run-3',
+    isStreaming: false,
+  };
+  assert.equal(shouldShowAssistantActions(params), false);
+  assert.equal(getAssistantActionsClassName(params), null);
+});

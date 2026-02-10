@@ -1,3 +1,9 @@
+import {
+  LEGACY_STREAMING_ASSISTANT_ITEM_ID_PREFIX,
+  STREAMING_ASSISTANT_MESSAGE_ID_PREFIX,
+  TIMELINE_STREAMING_ASSISTANT_ITEM_ID_PREFIX,
+} from '../../../lib/chatStreamingIds.ts';
+
 type AssistantActionPolicyParams = {
   id: string;
   messageId: string;
@@ -6,9 +12,9 @@ type AssistantActionPolicyParams = {
 
 function isTransientStreamingMessage(params: AssistantActionPolicyParams): boolean {
   return (
-    params.messageId.startsWith('stream-') ||
-    params.id.startsWith('assistant-stream-') ||
-    params.id.startsWith('timeline-streaming-')
+    params.messageId.startsWith(STREAMING_ASSISTANT_MESSAGE_ID_PREFIX) ||
+    params.id.startsWith(LEGACY_STREAMING_ASSISTANT_ITEM_ID_PREFIX) ||
+    params.id.startsWith(TIMELINE_STREAMING_ASSISTANT_ITEM_ID_PREFIX)
   );
 }
 

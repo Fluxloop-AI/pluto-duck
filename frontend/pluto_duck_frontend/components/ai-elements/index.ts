@@ -13,6 +13,7 @@ export * from './edge';
 export * from './image';
 export * from './inline-citation';
 export * from './loader';
+export * from './loading-dots';
 export * from './message';
 export * from './node';
 export * from './open-in-chat';
@@ -24,9 +25,9 @@ export * from './reasoning';
 export * from './response';
 export * from './shimmer';
 export * from './sources';
+export * from './step-dot';
 export * from './suggestion';
 export * from './task';
 export * from './tool';
 export * from './toolbar';
 export * from './web-preview';
-

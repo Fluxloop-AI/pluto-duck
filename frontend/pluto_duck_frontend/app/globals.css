@@ -22,6 +22,8 @@
     --accent-foreground: 0 0% 9%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
+    --dot-idle: #b8b8c8;
+    --dot-done: #2ecc71;
     --border: 0 0% 89.8%;
     --input: 0 0% 89.8%;
     --ring: 0 0% 3.9%;
@@ -49,6 +51,8 @@
     --accent-foreground: 0 0% 98%;
     --destructive: 0 62.8% 50%;
     --destructive-foreground: 0 0% 98%;
+    --dot-idle: #8888a0;
+    --dot-done: #27ae60;
     --border: 0 0% 20%;
     --input: 0 0% 18%;
     --ring: 0 0% 83.1%;
@@ -187,4 +191,34 @@
 
 .animate-reasoning-fade-out {
   animation: reasoning-fade-out 450ms cubic-bezier(0.23, 1, 0.32, 1) forwards;
+}
+
+@keyframes dotRipple {
+  0% {
+    transform: scale(1);
+    opacity: 0.45;
+  }
+  100% {
+    transform: scale(3.2);
+    opacity: 0;
+  }
+}
+
+@keyframes dotWave {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  30% {
+    transform: translateY(-6px);
+    opacity: 1;
+  }
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
 }

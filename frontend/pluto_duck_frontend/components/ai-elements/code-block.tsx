@@ -10,7 +10,6 @@ import {
   type HTMLAttributes,
   useContext,
   useEffect,
-  useRef,
   useState,
 } from "react";
 import { type BundledLanguage, codeToHtml, type ShikiTransformer } from "shiki";
@@ -50,6 +49,19 @@ const lineNumberTransformer: ShikiTransformer = {
   },
 };
 
+function escapeHtml(raw: string): string {
+  return raw
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function createPlainCodeHtml(code: string): string {
+  return `<pre class="shiki"><code>${escapeHtml(code)}</code></pre>`;
+}
+
 export async function highlightCode(
   code: string,
   language: BundledLanguage,
@@ -59,18 +71,25 @@ export async function highlightCode(
     ? [lineNumberTransformer]
     : [];
 
-  return await Promise.all([
-    codeToHtml(code, {
-      lang: language,
-      theme: "one-light",
-      transformers,
-    }),
-    codeToHtml(code, {
-      lang: language,
-      theme: "one-dark-pro",
-      transformers,
-    }),
-  ]);
+  try {
+    return await Promise.all([
+      codeToHtml(code, {
+        lang: language,
+        theme: "one-light",
+        transformers,
+      }),
+      codeToHtml(code, {
+        lang: language,
+        theme: "one-dark-pro",
+        transformers,
+      }),
+    ]);
+  } catch (error) {
+    // Keep chat rendering resilient when Shiki theme chunks fail to load in runtime.
+    console.error("Failed to highlight code block with Shiki:", error);
+    const fallbackHtml = createPlainCodeHtml(code);
+    return [fallbackHtml, fallbackHtml];
+  }
 }
 
 export const CodeBlock = ({
@@ -83,19 +102,19 @@ export const CodeBlock = ({
 }: CodeBlockProps) => {
   const [html, setHtml] = useState<string>("");
   const [darkHtml, setDarkHtml] = useState<string>("");
-  const mounted = useRef(false);
 
   useEffect(() => {
+    let cancelled = false;
+
     highlightCode(code, language, showLineNumbers).then(([light, dark]) => {
-      if (!mounted.current) {
+      if (!cancelled) {
         setHtml(light);
         setDarkHtml(dark);
-        mounted.current = true;
       }
     });
 
     return () => {
-      mounted.current = false;
+      cancelled = true;
     };
   }, [code, language, showLineNumbers]);
 

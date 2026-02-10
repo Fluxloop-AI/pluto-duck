@@ -24,9 +24,9 @@ export const ApprovalRenderer = memo(function ApprovalRenderer({
   const isPending = item.decision === 'pending';
 
   return (
-    <div className="rounded-lg border border-border bg-card px-3 py-2">
+    <div className="animate-card-in rounded-2xl border border-border bg-card px-5 py-4">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="text-sm font-medium">Approval</span>
+        <span className="text-[0.88rem] font-semibold">Approval</span>
         <span
           className={cn(
             'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium',
@@ -40,20 +40,22 @@ export const ApprovalRenderer = memo(function ApprovalRenderer({
         </span>
       </div>
 
-      <p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">{summary}</p>
+      <p className="whitespace-pre-wrap break-words text-[0.8rem] leading-relaxed text-muted-foreground">
+        {summary}
+      </p>
 
       {isPending && (
         <div className="mt-3 flex items-center justify-end gap-2">
           <button
             type="button"
-            className="inline-flex h-8 items-center rounded-md border border-border px-3 text-xs font-medium hover:bg-muted"
+            className="inline-flex items-center rounded-[10px] border border-border px-4 py-2 text-[0.8rem] font-medium hover:bg-muted"
             onClick={() => dispatchApprovalDecision(onDecision, item.id, item.runId, 'rejected')}
           >
             Reject
           </button>
           <button
             type="button"
-            className="inline-flex h-8 items-center rounded-md bg-foreground px-3 text-xs font-medium text-background hover:bg-foreground/90"
+            className="inline-flex items-center rounded-[10px] bg-foreground px-4 py-2 text-[0.8rem] font-medium text-background transition-transform hover:bg-foreground/90 active:scale-[0.97]"
             onClick={() => dispatchApprovalDecision(onDecision, item.id, item.runId, 'approved')}
           >
             Approve

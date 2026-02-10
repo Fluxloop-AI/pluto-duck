@@ -25,7 +25,7 @@ export function getChatItemPadding(
     case 'assistant-message':
       return 'pl-[14px] pr-3 pt-1 pb-3';
     case 'approval':
-      return 'pl-2 pr-2 pt-2 pb-4';
+      return 'pl-2 pr-2 pt-3 pb-4';
     default:
       return assertNever(item);
   }

@@ -274,6 +274,27 @@
   animation: stepIn 0.4s cubic-bezier(0.23, 1, 0.32, 1) forwards;
 }
 
+@keyframes cardIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-card-in {
+  animation: cardIn 0.5s cubic-bezier(0.23, 1, 0.32, 1) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-card-in {
+    animation: none !important;
+  }
+}
+
 .animate-text-glow {
   animation: textGlow 2.2s ease-in-out infinite;
 }

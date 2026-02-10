@@ -19,7 +19,7 @@ import {
   PromptInputModelSelectItem,
   type PromptInputMessage,
 } from '../ai-elements/prompt-input';
-import { ActivityLoader } from '../ai-elements/activity-loader';
+import { LoadingDots } from '../ai-elements/loading-dots';
 import { MentionMenu } from './MentionMenu';
 import { ChatOnboarding } from './ChatOnboarding';
 import { RenderItem, type FeedbackType } from './renderers';
@@ -282,8 +282,9 @@ const ConversationMessages = memo(function ConversationMessages({
       })}
 
       {chatLoadingMode === 'agent-streaming-fallback' && (
-        <div className="px-2.5 py-2.5">
-          <ActivityLoader />
+        <div aria-live="polite" aria-atomic="true">
+          <span className="sr-only">에이전트가 응답을 생성하고 있습니다</span>
+          <LoadingDots className="animate-step-in" />
         </div>
       )}
     </>

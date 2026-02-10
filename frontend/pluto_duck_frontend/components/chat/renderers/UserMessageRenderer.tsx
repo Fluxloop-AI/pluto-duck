@@ -41,8 +41,8 @@ export const UserMessageRenderer = memo(function UserMessageRenderer({
 }: UserMessageRendererProps) {
   return (
     <div className="flex justify-end">
-      <div className="rounded-xl bg-muted px-4 py-2.5 text-foreground max-w-[80%]">
-        <p className="text-sm whitespace-pre-wrap break-words">
+      <div className="rounded-2xl rounded-br-[4px] bg-muted px-[18px] py-[11px] text-foreground max-w-[75%]">
+        <p className="text-[0.88rem] leading-[1.55] whitespace-pre-wrap break-words">
           {renderTextWithMentions(item.content)}
         </p>
       </div>

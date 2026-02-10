@@ -192,3 +192,33 @@
 .animate-reasoning-fade-out {
   animation: reasoning-fade-out 450ms cubic-bezier(0.23, 1, 0.32, 1) forwards;
 }
+
+@keyframes dotRipple {
+  0% {
+    transform: scale(1);
+    opacity: 0.45;
+  }
+  100% {
+    transform: scale(3.2);
+    opacity: 0;
+  }
+}
+
+@keyframes dotWave {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  30% {
+    transform: translateY(-6px);
+    opacity: 1;
+  }
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}

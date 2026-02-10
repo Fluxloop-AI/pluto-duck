@@ -33,5 +33,6 @@ export function shouldShowAssistantActions(
 export function getAssistantActionsClassName(
   params: AssistantActionPolicyParams
 ): string | null {
+  // Keep mt-2 + animate-step-in stable until phase-5 visual integration review.
   return shouldShowAssistantActions(params) ? "mt-2 animate-step-in" : null;
 }

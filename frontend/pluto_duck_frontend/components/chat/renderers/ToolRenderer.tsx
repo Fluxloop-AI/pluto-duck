@@ -1,6 +1,7 @@
 'use client';
 
 import { memo } from 'react';
+import { ChevronDownIcon } from 'lucide-react';
 import {
   Tool,
   ToolHeader,
@@ -8,15 +9,20 @@ import {
   ToolInput,
   ToolOutput,
 } from '../../ai-elements/tool';
+import { StepDot } from '../../ai-elements/step-dot';
+import { TodoCheckbox } from '../../ai-elements/todo-checkbox';
 import {
-  Queue,
-  QueueList,
-  QueueItem,
-  QueueItemIndicator,
-  QueueItemContent,
-} from '../../ai-elements/queue';
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '../../ui/collapsible';
 import type { ToolItem } from '../../../types/chatRenderItem';
 import { parseTodosFromToolPayload } from './toolTodoParser';
+import {
+  getToolTodoStepPhase,
+  getToolTodoTextClass,
+  shouldShowToolTodoChevron,
+} from './toolTodoViewModel';
 
 /**
  * Convert snake_case or camelCase to Title Case
@@ -154,38 +160,46 @@ export const ToolRenderer = memo(function ToolRenderer({
   // Special handling for write_todos tool
   if (item.toolName === 'write_todos') {
     const todos = parseTodosFromToolPayload(item.input, item.output);
-    const completedCount = todos.filter(t => t.status === 'completed').length;
-    const isLoading = item.state === 'pending';
+    const showChevron = shouldShowToolTodoChevron(item.state);
 
     return (
-      <Queue>
-        <div className="flex items-center justify-between text-sm text-muted-foreground px-1">
-          <span className="font-medium">
-            {isLoading ? 'Updating todos...' : `Tasks (${completedCount}/${todos.length})`}
+      <Collapsible className="not-prose text-xs group" defaultOpen={true}>
+        <CollapsibleTrigger
+          className="group/step flex w-full items-center gap-2.5 rounded-[10px] px-2 py-2 pr-3 transition-colors hover:bg-muted/50 disabled:cursor-default"
+          disabled={!showChevron}
+        >
+          <StepDot phase={getToolTodoStepPhase(item.state)} />
+          <span className="font-semibold text-[0.85rem] shrink-0">
+            Update Todos
           </span>
-        </div>
+          {showChevron ? (
+            <ChevronDownIcon className="size-3 text-muted-foreground opacity-40 transition-[opacity,transform] shrink-0 ml-auto group-hover/step:opacity-70 group-data-[state=open]/step:rotate-180 group-data-[state=open]/step:opacity-70" />
+          ) : (
+            <span className="ml-auto" />
+          )}
+        </CollapsibleTrigger>
         {todos.length > 0 && (
-          <QueueList>
-            {todos.map((todo) => (
-              <QueueItem key={todo.id} className="flex-row items-start gap-2">
-                <QueueItemIndicator
-                  completed={todo.status === 'completed'}
-                  inProgress={todo.status === 'in_progress'}
-                />
-                <QueueItemContent
-                  completed={todo.status === 'completed'}
-                  inProgress={todo.status === 'in_progress'}
-                >
-                  {todo.title}
-                </QueueItemContent>
-              </QueueItem>
-            ))}
-          </QueueList>
+          <CollapsibleContent className="overflow-hidden text-popover-foreground outline-none data-[state=open]:animate-collapsible-down data-[state=closed]:animate-collapsible-up">
+            <div className="pl-[38px] pr-2 pb-2">
+              {todos.map((todo) => (
+                <div key={todo.id} className="flex items-start gap-2 py-1">
+                  <TodoCheckbox status={todo.status} />
+                  <span
+                    className={`text-[0.8rem] break-words ${getToolTodoTextClass(todo.status)}`}
+                  >
+                    {todo.title}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </CollapsibleContent>
         )}
         {item.error && (
-          <div className="text-xs text-destructive px-1">{item.error}</div>
+          <div className="pl-[38px] pr-2 pb-2 text-xs text-destructive">
+            {item.error}
+          </div>
         )}
-      </Queue>
+      </Collapsible>
     );
   }
 

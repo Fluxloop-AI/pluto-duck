@@ -1,7 +1,13 @@
-import type { QueueTodo } from '../../ai-elements/queue';
+import type { TodoCheckboxStatus } from '../../ai-elements/todoCheckboxModel';
 
 type TodoRecord = Record<string, unknown>;
-type TodoStatus = QueueTodo['status'];
+type TodoStatus = TodoCheckboxStatus;
+export type ToolTodo = {
+  id: string;
+  title: string;
+  description?: string;
+  status?: TodoCheckboxStatus;
+};
 const MAX_TODO_UNWRAP_DEPTH = 24;
 
 function isRecord(value: unknown): value is TodoRecord {
@@ -174,7 +180,7 @@ function mapTodoStatus(value: unknown): TodoStatus {
   return 'pending';
 }
 
-function normalizeTodoItem(todo: unknown, index: number): QueueTodo {
+function normalizeTodoItem(todo: unknown, index: number): ToolTodo {
   if (!isRecord(todo)) {
     return {
       id: String(index),
@@ -198,13 +204,13 @@ function normalizeTodoItem(todo: unknown, index: number): QueueTodo {
   };
 }
 
-function parseTodos(payload: unknown): QueueTodo[] | null {
+function parseTodos(payload: unknown): ToolTodo[] | null {
   const todoArray = resolveTodoArray(payload);
   if (todoArray === null) return null;
   return todoArray.map((todo, index) => normalizeTodoItem(todo, index));
 }
 
-export function parseTodosFromToolPayload(input: unknown, output: unknown): QueueTodo[] {
+export function parseTodosFromToolPayload(input: unknown, output: unknown): ToolTodo[] {
   const fromInput = parseTodos(input);
   if (fromInput !== null) return fromInput;
 

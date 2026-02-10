@@ -100,11 +100,14 @@ function shortenParam(value: string, fieldType: string): string {
 /**
  * Extract actual content from ToolMessage wrapper
  */
-function extractContent(output: any): any {
-  if (!output) return null;
+function extractContent(output: unknown): unknown {
+  if (output == null) return null;
   // Handle ToolMessage wrapper: { type: "tool", content: "...", tool_call_id: "..." }
-  if (typeof output === 'object' && output.content !== undefined) {
-    return output.content;
+  if (typeof output === 'object') {
+    const toolMessage = output as { content?: unknown };
+    if (toolMessage.content !== undefined) {
+      return toolMessage.content;
+    }
   }
   return output;
 }
@@ -112,11 +115,16 @@ function extractContent(output: any): any {
 /**
  * Get first meaningful item from tool output for preview
  */
-function getFirstMeaningfulItem(output: any): string | null {
+function getFirstMeaningfulItem(output: unknown): string | null {
   const content = extractContent(output);
-  if (!content) return null;
+  if (content == null) return null;
 
-  const str = typeof content === 'string' ? content : JSON.stringify(content);
+  const serializedContent =
+    typeof content === 'string' ? content : JSON.stringify(content);
+  if (typeof serializedContent !== 'string' || !serializedContent.trim()) {
+    return null;
+  }
+  const str = serializedContent;
 
   // Array format: try to parse and get first element
   if (str.startsWith('[')) {
@@ -174,9 +182,7 @@ export const ToolRenderer = memo(function ToolRenderer({
           </span>
           {showChevron ? (
             <ChevronDownIcon className="size-3 text-muted-foreground opacity-40 transition-[opacity,transform] shrink-0 ml-auto group-hover/step:opacity-70 group-data-[state=open]/step:rotate-180 group-data-[state=open]/step:opacity-70" />
-          ) : (
-            <span className="ml-auto" />
-          )}
+          ) : null}
         </CollapsibleTrigger>
         {todos.length > 0 && (
           <CollapsibleContent className="overflow-hidden text-popover-foreground outline-none data-[state=open]:animate-collapsible-down data-[state=closed]:animate-collapsible-up">
@@ -209,6 +215,9 @@ export const ToolRenderer = memo(function ToolRenderer({
   const keyParam = extractKeyParam(item.input);
   const preview = item.state !== 'pending' ? getFirstMeaningfulItem(item.output) : null;
   const actualOutput = extractContent(item.output);
+  const hasInput = item.input !== null && item.input !== undefined;
+  const hasOutput = actualOutput !== null && actualOutput !== undefined;
+  const hasError = Boolean(item.error);
 
   return (
     <Tool defaultOpen={false}>
@@ -219,10 +228,10 @@ export const ToolRenderer = memo(function ToolRenderer({
         preview={preview}
       />
       <ToolContent>
-        {item.input && <ToolInput input={item.input} />}
-        {(actualOutput || item.error) && (
+        {hasInput && <ToolInput input={item.input} />}
+        {(hasOutput || hasError) && (
           <ToolOutput
-            output={actualOutput ? JSON.stringify(actualOutput, null, 2) : undefined}
+            output={hasOutput ? JSON.stringify(actualOutput, null, 2) : undefined}
             errorText={item.error}
           />
         )}

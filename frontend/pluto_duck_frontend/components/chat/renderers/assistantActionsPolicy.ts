@@ -33,6 +33,6 @@ export function shouldShowAssistantActions(
 export function getAssistantActionsClassName(
   params: AssistantActionPolicyParams
 ): string | null {
-  // Keep mt-2 + animate-step-in stable until phase-5 visual integration review.
+  // Remove this class tuple only when actions entry motion/spacing is redesigned and tests are updated.
   return shouldShowAssistantActions(params) ? "mt-2 animate-step-in" : null;
 }

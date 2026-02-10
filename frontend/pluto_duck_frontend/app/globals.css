@@ -120,17 +120,18 @@
 }
 
 /* Streaming cursor for assistant markdown content */
-[role="log"] .prose.prose-streaming > .size-full > :last-child::after {
+/* Contract: cursor assumes Streamdown root renders markdown blocks as direct children. */
+[role="log"] .prose.prose-streaming > .streamdown-root > :last-child::after {
   content: "│";
   display: inline;
   margin-left: 1px;
   color: var(--dot-idle);
-  animation: blink 0.8s step-end infinite;
+  animation: cursor-blink 0.8s step-end infinite;
   font-weight: 300;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  [role="log"] .prose.prose-streaming > .size-full > :last-child::after {
+  [role="log"] .prose.prose-streaming > .streamdown-root > :last-child::after {
     animation: none;
     opacity: 1;
   }
@@ -238,7 +239,7 @@
   }
 }
 
-@keyframes blink {
+@keyframes cursor-blink {
   50% {
     opacity: 0;
   }

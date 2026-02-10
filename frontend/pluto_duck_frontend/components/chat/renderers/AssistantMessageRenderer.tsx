@@ -12,6 +12,10 @@ import {
 import { Response } from '../../ai-elements/response';
 import { Actions, Action } from '../../ai-elements/actions';
 import type { AssistantMessageItem } from '../../../types/chatRenderItem';
+import {
+  getAssistantActionsClassName,
+} from './assistantActionsPolicy';
+import { writeAssistantMessageToClipboard } from './assistantClipboard';
 
 export type FeedbackType = 'like' | 'dislike' | null;
 
@@ -35,13 +39,27 @@ export const AssistantMessageRenderer = memo(function AssistantMessageRenderer({
   onSendToBoard,
 }: AssistantMessageRendererProps) {
   const [copied, setCopied] = useState(false);
+  const policyParams = {
+    id: item.id,
+    messageId: item.messageId,
+    isStreaming: item.isStreaming,
+  };
+  const actionsClassName = getAssistantActionsClassName(policyParams);
+  const showActions = actionsClassName !== null;
 
-  const handleCopy = () => {
+  const handleCopy = async () => {
     if (onCopy) {
       onCopy(item.content);
-    } else {
-      void navigator.clipboard.writeText(item.content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      return;
     }
+
+    const isCopied = await writeAssistantMessageToClipboard(item.content);
+    if (!isCopied) {
+      return;
+    }
+
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -69,46 +87,48 @@ export const AssistantMessageRenderer = memo(function AssistantMessageRenderer({
           <Response>{item.content}</Response>
         </div>
 
-        <Actions className="mt-2">
-          {/* Regenerate - only show on last message */}
-          {isLast && onRegenerate && (
-            <Action onClick={handleRegenerate} tooltip="Regenerate response">
-              <RefreshCcwIcon className="size-3" />
+        {showActions && (
+          <Actions className={actionsClassName ?? undefined}>
+            {/* Regenerate - only show on last message */}
+            {isLast && onRegenerate && (
+              <Action onClick={handleRegenerate} tooltip="Regenerate response">
+                <RefreshCcwIcon className="size-3" />
+              </Action>
+            )}
+
+            {/* Copy */}
+            <Action onClick={handleCopy} tooltip={copied ? 'Copied!' : 'Copy'}>
+              {copied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
             </Action>
-          )}
 
-          {/* Copy */}
-          <Action onClick={handleCopy} tooltip={copied ? 'Copied!' : 'Copy'}>
-            {copied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
-          </Action>
+            {/* Like */}
+            {onFeedback && (
+              <Action
+                onClick={handleLike}
+                tooltip="Good response"
+                className={feedback === 'like' ? 'text-green-600' : undefined}
+              >
+                <ThumbsUpIcon className="size-3" />
+              </Action>
+            )}
 
-          {/* Like */}
-          {onFeedback && (
-            <Action
-              onClick={handleLike}
-              tooltip="Good response"
-              className={feedback === 'like' ? 'text-green-600' : undefined}
-            >
-              <ThumbsUpIcon className="size-3" />
+            {/* Dislike */}
+            {onFeedback && (
+              <Action
+                onClick={handleDislike}
+                tooltip="Poor response"
+                className={feedback === 'dislike' ? 'text-red-600' : undefined}
+              >
+                <ThumbsDownIcon className="size-3" />
+              </Action>
+            )}
+
+            {/* Send to Board */}
+            <Action onClick={handleSendToBoard} tooltip="Send to board">
+              <ClipboardPlusIcon className="size-3" />
             </Action>
-          )}
-
-          {/* Dislike */}
-          {onFeedback && (
-            <Action
-              onClick={handleDislike}
-              tooltip="Poor response"
-              className={feedback === 'dislike' ? 'text-red-600' : undefined}
-            >
-              <ThumbsDownIcon className="size-3" />
-            </Action>
-          )}
-
-          {/* Send to Board */}
-          <Action onClick={handleSendToBoard} tooltip="Send to board">
-            <ClipboardPlusIcon className="size-3" />
-          </Action>
-        </Actions>
+          </Actions>
+        )}
       </div>
     </div>
   );

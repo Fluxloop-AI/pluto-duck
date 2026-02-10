@@ -99,7 +99,7 @@ export const Reasoning = memo(
         value={{ isStreaming, isOpen, setIsOpen, duration }}
       >
         <Collapsible
-          className={cn("not-prose mb-4 px-1 py-0", className)}
+          className={cn("not-prose mb-0 py-0", className)}
           onOpenChange={handleOpenChange}
           open={isOpen}
           {...props}
@@ -115,12 +115,16 @@ export type ReasoningTriggerProps = ComponentProps<typeof CollapsibleTrigger>;
 
 const getThinkingMessage = (isStreaming: boolean, duration?: number) => {
   if (isStreaming) {
-    return <span className="animate-text-glow text-sm font-medium italic">Thinking</span>;
+    return (
+      <span className="animate-text-glow text-[0.85rem] font-medium italic">
+        Thinking
+      </span>
+    );
   }
   if (!duration || duration === 0) {
-    return <span>Thought for a few seconds</span>;
+    return <span className="text-[0.85rem]">Thought for a few seconds</span>;
   }
-  return <span>Thought for {duration} seconds</span>;
+  return <span className="text-[0.85rem]">Thought for {duration} seconds</span>;
 };
 
 export const ReasoningTrigger = memo(
@@ -130,7 +134,7 @@ export const ReasoningTrigger = memo(
     return (
       <CollapsibleTrigger
         className={cn(
-          "flex w-full items-center gap-2 text-muted-foreground text-sm transition-colors hover:text-foreground",
+          "group/step flex w-full items-center gap-2.5 rounded-[10px] px-2 py-2 pr-3 text-muted-foreground text-sm transition-colors hover:bg-muted/50",
           className
         )}
         {...props}
@@ -142,8 +146,8 @@ export const ReasoningTrigger = memo(
             {!isStreaming ? (
               <ChevronDownIcon
                 className={cn(
-                  "size-4 transition-transform",
-                  isOpen ? "rotate-180" : "rotate-0"
+                  "size-4 opacity-40 transition-[opacity,transform] group-hover/step:opacity-70",
+                  isOpen ? "rotate-180 opacity-70" : "rotate-0"
                 )}
               />
             ) : null}
@@ -164,8 +168,8 @@ export const ReasoningContent = memo(
   ({ className, children, ...props }: ReasoningContentProps) => (
     <CollapsibleContent
       className={cn(
-        "mt-4 text-sm",
-        "data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 text-muted-foreground outline-none data-[state=closed]:animate-out data-[state=open]:animate-in",
+        "mt-0 pl-[38px] text-[0.8rem] leading-[1.75]",
+        "data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:slide-in-from-top-2 data-[state=open]:mb-1.5 text-muted-foreground outline-none data-[state=closed]:animate-out data-[state=open]:animate-in",
         className
       )}
       {...props}

@@ -36,6 +36,7 @@ import {
   clearReasoningDismissTimers,
   scheduleReasoningDismissTimers,
 } from './reasoningDismissTimers';
+import { getChatItemPadding } from './renderers/chatItemPadding';
 
 const MODELS = ALL_MODEL_OPTIONS;
 const ENABLE_SESSION_LOADING_SKELETON = false;
@@ -51,14 +52,6 @@ function findLastAssistantMessageId(items: ChatRenderItem[]): string | null {
     }
   }
   return null;
-}
-
-/**
- * Check if runId changes between current and next item (for visual grouping)
- */
-function isRunIdChanged(current: ChatRenderItem, next: ChatRenderItem | undefined): boolean {
-  if (!next) return true;
-  return current.runId !== next.runId;
 }
 
 // Memoized conversation messages using renderItems
@@ -240,29 +233,18 @@ const ConversationMessages = memo(function ConversationMessages({
       {renderQueue.map((queueEntry, idx) => {
         const { item, isDismissingReasoning, key } = queueEntry;
         const nextItem = renderQueue[idx + 1]?.item;
-        const isLastOfRun = isRunIdChanged(item, nextItem);
         const isLastAssistant = !isDismissingReasoning && item.type === 'assistant-message' &&
           (item as AssistantMessageItem).messageId === lastAssistantId;
         const feedback = !isDismissingReasoning && item.type === 'assistant-message'
           ? feedbackMap?.get((item as AssistantMessageItem).messageId)
           : undefined;
 
-        // 아이템 타입별 여백
-        const getPadding = () => {
-          if (item.type === 'user-message') return 'pl-[14px] pr-1 pt-0 pb-6';     // 좌 14px, 하 24px
-          if (item.type === 'tool') return 'pl-1 pr-1 pt-0 pb-0';                  // 좌 4px, 하 0px
-          if (item.type === 'reasoning') return 'px-1 py-0';                       // 좌우 4px, 상하 0px
-          if (item.type === 'assistant-message') return 'pl-2 pr-2 pt-3 pb-6';    // 상 12px, 좌우 8px, 하 24px
-          if (item.type === 'approval') return 'pl-2 pr-2 pt-2 pb-4';
-          return `pl-[14px] pr-1 pt-0 ${isLastOfRun ? 'pb-6' : 'pb-2'}`;           // 기존 로직
-        };
-
         return (
           <div
             key={key}
             className={cn(
               'group',
-              getPadding()
+              getChatItemPadding(item, nextItem)
             )}
           >
             <RenderItem

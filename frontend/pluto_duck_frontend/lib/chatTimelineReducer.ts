@@ -14,6 +14,7 @@ import type {
   ToolTimelineItem,
   UserMessageTimelineItem,
 } from '../types/chatTimelineItem';
+import { TIMELINE_STREAMING_ASSISTANT_ITEM_ID_PREFIX } from './chatStreamingIds.ts';
 
 type AgentEventType = AgentEventAny['type'];
 type AgentEventSubtype = AgentEventAny['subtype'];
@@ -1251,7 +1252,7 @@ function buildStreamingItem(
     return null;
   }
   return {
-    id: `timeline-streaming-${params.activeRunId ?? 'orphan'}`,
+    id: `${TIMELINE_STREAMING_ASSISTANT_ITEM_ID_PREFIX}${params.activeRunId ?? 'orphan'}`,
     type: 'assistant-message',
     intent: 'message',
     lane: 'assistant',

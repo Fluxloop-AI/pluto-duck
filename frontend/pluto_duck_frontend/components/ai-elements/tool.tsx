@@ -43,20 +43,20 @@ export const ToolHeader = ({
 }: ToolHeaderProps) => (
   <CollapsibleTrigger
     className={cn(
-      "flex w-full items-center gap-2 py-2.5 px-1",
+      "group/step flex w-full items-center gap-2.5 rounded-[10px] px-2 py-2 pr-3 transition-colors hover:bg-muted/50",
       className
     )}
     {...props}
   >
     <StepDot phase={mapToolStateToPhase(state)} />
-    <span className="font-medium text-xs shrink-0">{toolName}</span>
+    <span className="font-medium text-[0.85rem] shrink-0">{toolName}</span>
     {keyParam && (
       <span className="text-muted-foreground text-xs truncate">{keyParam}</span>
     )}
     {preview && (
       <span className="text-muted-foreground text-xs truncate">{preview}</span>
     )}
-    <ChevronDownIcon className="size-3 text-muted-foreground transition-transform shrink-0 ml-auto group-data-[state=open]:rotate-180" />
+    <ChevronDownIcon className="size-3 text-muted-foreground opacity-40 transition-[opacity,transform] shrink-0 ml-auto group-hover/step:opacity-70 group-data-[state=open]/step:rotate-180 group-data-[state=open]/step:opacity-70" />
   </CollapsibleTrigger>
 );
 
@@ -77,7 +77,7 @@ export type ToolInputProps = ComponentProps<"div"> & {
 };
 
 export const ToolInput = ({ className, input, ...props }: ToolInputProps) => (
-  <div className={cn("space-y-1 pl-5 pr-2 pb-2", className)} {...props}>
+  <div className={cn("space-y-1 pl-[38px] pr-2 pb-2", className)} {...props}>
     <h4 className="font-medium text-muted-foreground text-[10px] uppercase tracking-wide">
       Parameters
     </h4>
@@ -113,7 +113,7 @@ export const ToolOutput = ({
   }
 
   return (
-    <div className={cn("space-y-1 pl-5 pr-2 pb-2", className)} {...props}>
+    <div className={cn("space-y-1 pl-[38px] pr-2 pb-2", className)} {...props}>
       <h4 className="font-medium text-muted-foreground text-[10px] uppercase tracking-wide">
         {errorText ? "Error" : "Result"}
       </h4>

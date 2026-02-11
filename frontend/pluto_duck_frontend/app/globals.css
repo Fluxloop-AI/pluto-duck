@@ -142,6 +142,7 @@
   font-size: 1.05rem;
   font-weight: 700;
   line-height: 1.4;
+  padding-top: 8px;
   margin: 12px 0 6px;
 }
 
@@ -269,20 +270,21 @@
 
 [role="log"] .prose :where(li) {
   font-size: 0.86rem;
-  line-height: 1.65;
-  margin: 2px 0;
+  line-height: 1.45;
+  padding-top: 2px;
+  margin: 4px 0;
 }
 
 [role="log"] .prose :where([data-streamdown="list-item"]) {
-  margin: 2px 0;
-  padding-top: 0;
+  margin: 4px 0;
+  padding-top: 2px;
   padding-bottom: 0;
 }
 
 [role="log"] .prose :where([data-streamdown="list-item"] > p) {
   margin: 0;
   font-size: 0.86rem;
-  line-height: 1.65;
+  line-height: 1.45;
 }
 
 /* Hard override: force prose-sm default spacing to compact values */

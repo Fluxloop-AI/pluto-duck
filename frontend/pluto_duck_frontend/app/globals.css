@@ -137,6 +137,171 @@
   }
 }
 
+/* Chat prose typography: compact heading and paragraph overrides */
+[role="log"] .prose :where(h1) {
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.4;
+  margin: 12px 0 6px;
+}
+
+[role="log"] .prose :where(h2) {
+  font-size: 0.92rem;
+  font-weight: 600;
+  line-height: 1.4;
+  margin: 12px 0 4px;
+}
+
+[role="log"] .prose :where(h3) {
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.4;
+  margin: 12px 0 3px;
+}
+
+[role="log"] .prose :where(h4) {
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.4;
+  margin: 12px 0 2px;
+}
+
+[role="log"] .prose :where(p) {
+  font-size: 0.88rem;
+  font-weight: 400;
+  line-height: 1.45;
+  margin: 2px 0;
+}
+
+[role="log"] .prose :where(h1, h2, h3, h4) + :where(p) {
+  margin-top: 12px;
+}
+
+/* Preserve streamdown first/last margin reset contract for chat messages */
+[role="log"] .prose .streamdown-root > :first-child {
+  margin-top: 0;
+}
+
+[role="log"] .prose .streamdown-root > :is(h1, h2, h3, h4) {
+  margin-top: 16px !important;
+}
+
+[role="log"] .prose .streamdown-root > :is(h1, h2, h3, h4):first-child {
+  margin-top: 0 !important;
+}
+
+[role="log"] .prose .streamdown-root > :last-child {
+  margin-bottom: 0;
+}
+
+/* Chat prose typography: table overrides */
+[role="log"] .prose :where([data-streamdown="table-wrapper"]) {
+  margin: 8px 0;
+  overflow: visible;
+}
+
+[role="log"] .prose :where(table) {
+  font-size: 0.8rem;
+  max-width: 100%;
+}
+
+[role="log"] .prose :where([data-streamdown="table"]) {
+  border: none;
+}
+
+[role="log"] .prose :where(thead th) {
+  font-weight: 600;
+  padding: 8px 12px;
+  background: hsl(var(--muted));
+  white-space: nowrap;
+  border-bottom: 2px solid hsl(var(--border));
+}
+
+[role="log"] .prose :where([data-streamdown="table-body"]) {
+  background: transparent;
+}
+
+[role="log"] .prose :where([data-streamdown="table-row"]) {
+  border-bottom: none;
+}
+
+[role="log"] .prose :where(tbody td) {
+  padding: 7px 12px;
+  color: hsl(var(--muted-foreground));
+  white-space: nowrap;
+  background: hsl(var(--background));
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+[role="log"] .prose :where(tbody tr:last-child td) {
+  border-bottom: none;
+}
+
+[role="log"] .prose :where(tbody tr:hover td) {
+  background: hsl(var(--accent));
+}
+
+/* Chat prose typography: remaining element overrides */
+[role="log"] .prose :where(hr) {
+  margin-top: 24px !important;
+  margin-bottom: 0;
+  padding-bottom: 12px;
+}
+
+/* Keep divider spacing independent from streamdown-root space-y utilities */
+[role="log"] .prose .streamdown-root > :where(hr) {
+  margin-top: 24px !important;
+}
+
+[role="log"] .prose :where(ul, ol) {
+  margin: 8px 0;
+}
+
+[role="log"] .prose :where([data-streamdown="unordered-list"], [data-streamdown="ordered-list"]) {
+  margin: 8px 0;
+  margin-left: 0;
+  padding-inline-start: 1.1rem;
+}
+
+[role="log"] .prose :where(ul) {
+  --tw-prose-bullets: hsl(var(--muted-foreground));
+}
+
+[role="log"] .prose :where(li) {
+  font-size: 0.86rem;
+  line-height: 1.65;
+  margin: 2px 0;
+}
+
+[role="log"] .prose :where([data-streamdown="list-item"]) {
+  margin: 2px 0;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+[role="log"] .prose :where([data-streamdown="list-item"] > p) {
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.65;
+}
+
+/* Hard override: force prose-sm default spacing to compact values */
+[role="log"] .prose.prose-sm :where(p):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  margin-top: 8px !important;
+}
+
+[role="log"] .prose.prose-sm :where(ul, ol):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+  margin-top: 8px !important;
+}
+
+[role="log"] .prose :where(strong) {
+  font-weight: 700;
+}
+
+[role="log"] .prose :where(blockquote) {
+  margin: 8px 0;
+}
+
 /* Thin scrollbar */
 .scrollbar-thin {
   scrollbar-width: thin;

@@ -44,11 +44,14 @@ test('keeps message-level spacing for user and assistant blocks', () => {
 test('applies 2px bottom spacing between consecutive step items', () => {
   assert.equal(getChatItemPadding(buildItem('reasoning'), buildItem('tool')), 'px-0 pt-0 pb-0.5');
   assert.equal(getChatItemPadding(buildItem('tool'), buildItem('reasoning')), 'pl-0 pr-0 pt-0 pb-0.5');
+  assert.equal(getChatItemPadding(buildItem('tool-group'), buildItem('reasoning')), 'pl-0 pr-0 pt-0 pb-0.5');
+  assert.equal(getChatItemPadding(buildItem('reasoning'), buildItem('tool-group')), 'px-0 pt-0 pb-0.5');
 });
 
 test('removes extra bottom spacing when next item is not reasoning/tool', () => {
   assert.equal(getChatItemPadding(buildItem('reasoning'), buildItem('assistant-message')), 'px-0 pt-0 pb-0');
   assert.equal(getChatItemPadding(buildItem('tool'), undefined), 'pl-0 pr-0 pt-0 pb-0');
+  assert.equal(getChatItemPadding(buildItem('tool-group'), buildItem('assistant-message')), 'pl-0 pr-0 pt-0 pb-0');
 });
 
 test('keeps approval spacing unchanged', () => {

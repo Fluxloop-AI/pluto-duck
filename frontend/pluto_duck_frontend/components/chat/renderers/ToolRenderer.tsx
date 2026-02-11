@@ -28,7 +28,7 @@ import {
  * Convert snake_case or camelCase to Title Case
  * e.g., read_file → Read File, executeCommand → Execute Command
  */
-function formatToolName(name: string): string {
+export function formatToolName(name: string): string {
   if (!name) return 'Tool';
 
   // Handle snake_case and camelCase

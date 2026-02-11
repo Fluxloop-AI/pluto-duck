@@ -5,6 +5,7 @@ import type { ChatRenderItem } from '../../../types/chatRenderItem';
 import { UserMessageRenderer } from './UserMessageRenderer';
 import { ReasoningRenderer } from './ReasoningRenderer';
 import { ToolRenderer } from './ToolRenderer';
+import { ToolGroupRenderer } from './ToolGroupRenderer';
 import { AssistantMessageRenderer, type FeedbackType } from './AssistantMessageRenderer';
 import { ApprovalRenderer } from './ApprovalRenderer';
 
@@ -55,16 +56,7 @@ export const RenderItem = memo(function RenderItem({
       return <ToolRenderer item={item} />;
 
     case 'tool-group':
-      return (
-        <div className="space-y-1">
-          {item.children.map(child => (
-            <ToolRenderer
-              key={child.id}
-              item={child}
-            />
-          ))}
-        </div>
-      );
+      return <ToolGroupRenderer item={item} />;
 
     case 'assistant-message':
       return (

@@ -205,6 +205,20 @@ test('deriveGroupState prioritizes error over pending and pending over completed
   );
 });
 
+test('groupConsecutiveTools propagates isStreaming when any child is streaming', async () => {
+  const { groupConsecutiveTools } = await import(chatRenderUtilsModuleUrl.href);
+  const first = toolItem('t1', 1, 'run_sql');
+  const second = { ...toolItem('t2', 2, 'run_sql'), isStreaming: true };
+  const grouped = groupConsecutiveTools([first, second]);
+
+  assert.equal(grouped.length, 1);
+  assert.equal(grouped[0].type, 'tool-group');
+  if (grouped[0].type !== 'tool-group') {
+    return;
+  }
+  assert.equal(grouped[0].isStreaming, true);
+});
+
 test('flattenTurnsToRenderItems applies grouping on timeline path', async () => {
   const { flattenTurnsToRenderItems } = await import(chatRenderUtilsModuleUrl.href);
   const runId = 'run-timeline-group';
@@ -264,6 +278,64 @@ test('flattenTurnsToRenderItems applies grouping on timeline path', async () => 
   }
   assert.equal(groupedTools[0].children.length, 2);
   assert.equal(groupedTools[0].toolName, 'run_sql');
+});
+
+test('flattenTurnsToRenderItems keeps grouped tool pending state during streaming run', async () => {
+  const { flattenTurnsToRenderItems } = await import(chatRenderUtilsModuleUrl.href);
+  const runId = 'run-timeline-streaming-group';
+  const turns: ChatTurn[] = [
+    buildBaseTurn({
+      key: 'turn-streaming',
+      runId,
+      isActive: true,
+      userMessages: [
+        {
+          id: 'u-streaming',
+          role: 'user',
+          content: { text: 'q' },
+          created_at: '2026-02-10T01:00:01.000Z',
+          seq: 1,
+          run_id: runId,
+        },
+      ],
+      events: [
+        {
+          type: 'tool',
+          subtype: 'start',
+          content: { tool: 'run_sql', input: { q: 'a' } },
+          metadata: { run_id: runId, sequence: 2, event_id: 'evt-stream-1-start', tool_call_id: 'tc-stream-1' },
+          timestamp: '2026-02-10T01:00:02.000Z',
+        },
+        {
+          type: 'tool',
+          subtype: 'end',
+          content: { tool: 'run_sql', output: { rows: 1 } },
+          metadata: { run_id: runId, sequence: 3, event_id: 'evt-stream-1-end', tool_call_id: 'tc-stream-1' },
+          timestamp: '2026-02-10T01:00:03.000Z',
+        },
+        {
+          type: 'tool',
+          subtype: 'start',
+          content: { tool: 'run_sql', input: { q: 'b' } },
+          metadata: { run_id: runId, sequence: 4, event_id: 'evt-stream-2-start', tool_call_id: 'tc-stream-2' },
+          timestamp: '2026-02-10T01:00:04.000Z',
+        },
+      ],
+    }),
+  ];
+
+  const items = flattenTurnsToRenderItems(turns);
+  const groupedTools = items.filter((item: ChatRenderItem) => item.type === 'tool-group');
+  assert.equal(groupedTools.length, 1);
+  assert.equal(groupedTools[0].type, 'tool-group');
+  if (groupedTools[0].type !== 'tool-group') {
+    return;
+  }
+  assert.equal(groupedTools[0].state, 'pending');
+  assert.equal(groupedTools[0].isStreaming, true);
+  assert.equal(groupedTools[0].children.length, 2);
+  assert.equal(groupedTools[0].children[0].state, 'completed');
+  assert.equal(groupedTools[0].children[1].state, 'pending');
 });
 
 test('flattenTurnsToRenderItems applies grouping on legacy fallback path', async () => {

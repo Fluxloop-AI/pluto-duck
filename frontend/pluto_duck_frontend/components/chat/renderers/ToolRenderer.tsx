@@ -10,6 +10,7 @@ import {
   ToolOutput,
 } from '../../ai-elements/tool';
 import { StepDot } from '../../ai-elements/step-dot';
+import { mapToolStateToPhase } from '../../ai-elements/tool-state-phase-map';
 import { TodoCheckbox } from '../../ai-elements/todo-checkbox';
 import {
   Collapsible,
@@ -160,11 +161,55 @@ function getToolUIState(state: ToolItem['state']): 'input-streaming' | 'output-a
 
 export interface ToolRendererProps {
   item: ToolItem;
+  variant?: 'default' | 'inline';
 }
 
 export const ToolRenderer = memo(function ToolRenderer({
   item,
+  variant = 'default',
 }: ToolRendererProps) {
+  // 1) inline write_todos
+  if (variant === 'inline' && item.toolName === 'write_todos') {
+    const todos = parseTodosFromToolPayload(item.input, item.output);
+    const todoCountLabel = `Update Todos — ${todos.length} items`;
+
+    return (
+      <div className="flex items-center gap-2 px-2 py-1 min-w-0 text-xs">
+        <StepDot phase={getToolTodoStepPhase(item.state)} className="scale-[0.7]" />
+        <span className="truncate min-w-0 text-[0.8rem]">{todoCountLabel}</span>
+        {item.error ? (
+          <span className="truncate min-w-0 text-[0.8rem] text-destructive">
+            {item.error}
+          </span>
+        ) : null}
+      </div>
+    );
+  }
+
+  // 2) inline generic tool
+  if (variant === 'inline') {
+    const toolState = getToolUIState(item.state);
+    const phase = mapToolStateToPhase(toolState);
+    const keyParam = extractKeyParam(item.input);
+    const preview = item.state === 'completed' ? getFirstMeaningfulItem(item.output) : null;
+    const fallback = formatToolName(item.toolName);
+    const inlineText = keyParam ?? preview ?? fallback;
+
+    return (
+      <div className="flex items-center gap-2 px-2 py-1 min-w-0 text-xs">
+        <StepDot phase={phase} className="scale-[0.7]" />
+        {item.error ? (
+          <span className="truncate min-w-0 text-[0.8rem] text-destructive">
+            {item.error}
+          </span>
+        ) : (
+          <span className="truncate min-w-0 text-[0.8rem]">{inlineText}</span>
+        )}
+      </div>
+    );
+  }
+
+  // 3) default rendering
   // Special handling for write_todos tool
   if (item.toolName === 'write_todos') {
     const todos = parseTodosFromToolPayload(item.input, item.output);

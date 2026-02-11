@@ -6,7 +6,6 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { getReasoningResponseClassName } from "@/lib/reasoningContentMode";
 import { cn } from "@/lib/utils";
 import { ChevronDownIcon } from "lucide-react";
 import type { ComponentProps } from "react";
@@ -175,9 +174,7 @@ export const ReasoningContent = memo(
       )}
       {...props}
     >
-      <Response className={getReasoningResponseClassName(children)}>
-        {children}
-      </Response>
+      <Response className="grid gap-2">{children}</Response>
     </CollapsibleContent>
   )
 );

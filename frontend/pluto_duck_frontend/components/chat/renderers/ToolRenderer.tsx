@@ -10,6 +10,7 @@ import {
   ToolOutput,
 } from '../../ai-elements/tool';
 import { StepDot } from '../../ai-elements/step-dot';
+import { mapToolStateToPhase } from '../../ai-elements/tool-state-phase-map';
 import { TodoCheckbox } from '../../ai-elements/todo-checkbox';
 import {
   Collapsible,
@@ -19,19 +20,26 @@ import {
 import type { ToolItem } from '../../../types/chatRenderItem';
 import { parseTodosFromToolPayload } from './toolTodoParser';
 import {
-  formatToolName,
-  getInlineErrorText,
-  getInlineTodosSummaryLabel,
-  getInlineToolDisplayText,
-  getInlineToolPhase,
-} from './toolInlineViewModel';
-import {
   getToolTodoStepPhase,
   getToolTodoTextClass,
   shouldShowToolTodoChevron,
 } from './toolTodoViewModel';
 
-export { formatToolName } from './toolInlineViewModel';
+/**
+ * Convert snake_case or camelCase to Title Case
+ * e.g., read_file → Read File, executeCommand → Execute Command
+ */
+export function formatToolName(name: string): string {
+  if (!name) return 'Tool';
+
+  // Handle snake_case and camelCase
+  return name
+    .replace(/_/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
 
 /**
  * Extract key parameter from tool input for display
@@ -163,16 +171,15 @@ export const ToolRenderer = memo(function ToolRenderer({
   // 1) inline write_todos
   if (variant === 'inline' && item.toolName === 'write_todos') {
     const todos = parseTodosFromToolPayload(item.input, item.output);
-    const todoCountLabel = getInlineTodosSummaryLabel(todos.length);
-    const inlineErrorText = getInlineErrorText(item.error);
+    const todoCountLabel = `Update Todos — ${todos.length} items`;
 
     return (
       <div className="flex items-center gap-2 px-2 py-1 min-w-0 text-xs">
         <StepDot phase={getToolTodoStepPhase(item.state)} className="scale-[0.7]" />
         <span className="truncate min-w-0 text-[0.8rem]">{todoCountLabel}</span>
-        {inlineErrorText ? (
+        {item.error ? (
           <span className="truncate min-w-0 text-[0.8rem] text-destructive">
-            {inlineErrorText}
+            {item.error}
           </span>
         ) : null}
       </div>
@@ -181,22 +188,19 @@ export const ToolRenderer = memo(function ToolRenderer({
 
   // 2) inline generic tool
   if (variant === 'inline') {
-    const phase = getInlineToolPhase(item.state);
+    const toolState = getToolUIState(item.state);
+    const phase = mapToolStateToPhase(toolState);
     const keyParam = extractKeyParam(item.input);
     const preview = item.state === 'completed' ? getFirstMeaningfulItem(item.output) : null;
-    const inlineText = getInlineToolDisplayText({
-      keyParam,
-      preview,
-      toolName: item.toolName,
-    });
-    const inlineErrorText = getInlineErrorText(item.error);
+    const fallback = formatToolName(item.toolName);
+    const inlineText = keyParam ?? preview ?? fallback;
 
     return (
       <div className="flex items-center gap-2 px-2 py-1 min-w-0 text-xs">
         <StepDot phase={phase} className="scale-[0.7]" />
-        {inlineErrorText ? (
+        {item.error ? (
           <span className="truncate min-w-0 text-[0.8rem] text-destructive">
-            {inlineErrorText}
+            {item.error}
           </span>
         ) : (
           <span className="truncate min-w-0 text-[0.8rem]">{inlineText}</span>

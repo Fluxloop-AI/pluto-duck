@@ -46,7 +46,6 @@ export const ToolGroupRenderer = memo(function ToolGroupRenderer({
             <ToolRenderer
               key={child.id}
               item={child}
-              variant="inline"
             />
           ))}
         </div>

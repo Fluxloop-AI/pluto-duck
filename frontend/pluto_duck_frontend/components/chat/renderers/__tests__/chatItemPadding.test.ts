@@ -21,6 +21,15 @@ function buildItem(type: ChatRenderItem['type']): ChatRenderItem {
   if (type === 'tool') {
     return { ...base, type, toolName: 'search', state: 'completed' };
   }
+  if (type === 'tool-group') {
+    return {
+      ...base,
+      type,
+      toolName: 'search',
+      state: 'completed',
+      children: [{ ...base, id: 'tool-child-1', type: 'tool', toolName: 'search', state: 'completed' }],
+    };
+  }
   if (type === 'assistant-message') {
     return { ...base, type, content: 'hello', messageId: 'm-assistant' };
   }

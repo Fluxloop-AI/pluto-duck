@@ -54,6 +54,18 @@ export const RenderItem = memo(function RenderItem({
     case 'tool':
       return <ToolRenderer item={item} />;
 
+    case 'tool-group':
+      return (
+        <div className="space-y-1">
+          {item.children.map(child => (
+            <ToolRenderer
+              key={child.id}
+              item={child}
+            />
+          ))}
+        </div>
+      );
+
     case 'assistant-message':
       return (
         <AssistantMessageRenderer

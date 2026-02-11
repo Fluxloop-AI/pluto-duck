@@ -9,6 +9,7 @@ import type {
   UserMessageItem,
   ReasoningItem,
   ToolItem,
+  ToolGroupItem,
   AssistantMessageItem,
   ApprovalItem,
 } from '../types/chatRenderItem';
@@ -16,7 +17,7 @@ import type { TimelineItem } from '../types/chatTimelineItem';
 import {
   buildTimelineItemsFromTurns,
   type TimelineTurnEnvelope,
-} from './chatTimelineReducer';
+} from './chatTimelineReducer.ts';
 import {
   LEGACY_STREAMING_ASSISTANT_ITEM_ID_PREFIX,
   STREAMING_ASSISTANT_MESSAGE_ID_PREFIX,
@@ -147,6 +148,67 @@ function toRenderItemsFromTimeline(timelineItems: TimelineItem[]): ChatRenderIte
   return renderItems;
 }
 
+export function deriveGroupState(children: ToolItem[]): ToolGroupItem['state'] {
+  if (children.some(child => child.state === 'error')) {
+    return 'error';
+  }
+  if (children.some(child => child.state === 'pending')) {
+    return 'pending';
+  }
+  return 'completed';
+}
+
+export function groupConsecutiveTools(items: ChatRenderItem[]): ChatRenderItem[] {
+  const groupedItems: ChatRenderItem[] = [];
+  let index = 0;
+
+  while (index < items.length) {
+    const current = items[index];
+    if (current.type !== 'tool') {
+      groupedItems.push(current);
+      index += 1;
+      continue;
+    }
+
+    const children: ToolItem[] = [current];
+    let cursor = index + 1;
+
+    while (cursor < items.length) {
+      const candidate = items[cursor];
+      if (candidate.type !== 'tool') {
+        break;
+      }
+      if (candidate.runId !== current.runId || candidate.toolName !== current.toolName) {
+        break;
+      }
+      children.push(candidate);
+      cursor += 1;
+    }
+
+    if (children.length === 1) {
+      groupedItems.push(current);
+    } else {
+      const firstChild = children[0];
+      const groupedItem: ToolGroupItem = {
+        id: `tool-group-${firstChild.id}`,
+        type: 'tool-group',
+        runId: firstChild.runId,
+        seq: firstChild.seq,
+        timestamp: firstChild.timestamp,
+        isStreaming: children.some(child => child.isStreaming),
+        toolName: firstChild.toolName,
+        children,
+        state: deriveGroupState(children),
+      };
+      groupedItems.push(groupedItem);
+    }
+
+    index = cursor;
+  }
+
+  return groupedItems;
+}
+
 function flattenTurnsToRenderItemsLegacy(turns: ChatTurn[]): ChatRenderItem[] {
   const items: ChatRenderItem[] = [];
   let globalSeq = 0;
@@ -246,7 +308,7 @@ export function flattenTurnsToRenderItems(turns: ChatTurn[]): ChatRenderItem[] {
       turns: toTimelineTurns(turns),
       includeMessageEvents: true,
     });
-    const renderItems = toRenderItemsFromTimeline(timelineItems);
+    const renderItems = groupConsecutiveTools(toRenderItemsFromTimeline(timelineItems));
     if (renderItems.length > 0 || turns.length === 0) {
       return renderItems;
     }
@@ -254,7 +316,7 @@ export function flattenTurnsToRenderItems(turns: ChatTurn[]): ChatRenderItem[] {
     // Preserve legacy path during migration.
     console.warn('[chatRenderUtils] Timeline reducer fallback to legacy render path', error);
   }
-  return flattenTurnsToRenderItemsLegacy(turns);
+  return groupConsecutiveTools(flattenTurnsToRenderItemsLegacy(turns));
 }
 
 /**

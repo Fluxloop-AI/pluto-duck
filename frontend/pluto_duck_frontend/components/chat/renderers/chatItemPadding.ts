@@ -4,7 +4,7 @@ function isCompactStepItem(item: ChatRenderItem | undefined): boolean {
   if (!item) {
     return false;
   }
-  return item.type === 'reasoning' || item.type === 'tool';
+  return item.type === 'reasoning' || item.type === 'tool' || item.type === 'tool-group';
 }
 
 function assertNever(value: never): never {
@@ -19,6 +19,7 @@ export function getChatItemPadding(
     case 'user-message':
       return 'pl-[14px] pr-3 pt-0 pb-3';
     case 'tool':
+    case 'tool-group':
       return `pl-0 pr-0 pt-0 ${isCompactStepItem(nextItem) ? 'pb-0.5' : 'pb-0'}`;
     case 'reasoning':
       return `px-0 pt-0 ${isCompactStepItem(nextItem) ? 'pb-0.5' : 'pb-0'}`;

@@ -97,7 +97,7 @@ export const ToolDetailRow = ({
 }: ToolDetailRowProps) => (
   <div
     className={cn(
-      "p-[10px_14px] font-mono text-[0.76rem] leading-[1.6] whitespace-pre-wrap break-all",
+      "p-[10px_14px] font-mono text-[0.7rem] leading-[1.4] whitespace-pre-wrap break-all",
       variant === "error" ? "text-destructive" : "text-muted-foreground",
       className
     )}

@@ -13,11 +13,15 @@ import {
   useState,
 } from "react";
 import { type BundledLanguage, codeToHtml, type ShikiTransformer } from "shiki";
+import { normalizeWhiteTokenColors } from "./codeBlockColorNormalization";
 
 type CodeBlockProps = HTMLAttributes<HTMLDivElement> & {
   code: string;
   language: BundledLanguage;
   showLineNumbers?: boolean;
+  forceLightTheme?: boolean;
+  wrapLongLines?: boolean;
+  normalizeWhiteTokens?: boolean;
 };
 
 type CodeBlockContextType = {
@@ -96,6 +100,9 @@ export const CodeBlock = ({
   code,
   language,
   showLineNumbers = false,
+  forceLightTheme = false,
+  wrapLongLines = false,
+  normalizeWhiteTokens = false,
   className,
   children,
   ...props
@@ -108,8 +115,13 @@ export const CodeBlock = ({
 
     highlightCode(code, language, showLineNumbers).then(([light, dark]) => {
       if (!cancelled) {
-        setHtml(light);
-        setDarkHtml(dark);
+        if (normalizeWhiteTokens) {
+          setHtml(normalizeWhiteTokenColors(light));
+          setDarkHtml(normalizeWhiteTokenColors(dark));
+        } else {
+          setHtml(light);
+          setDarkHtml(dark);
+        }
       }
     });
 
@@ -129,12 +141,22 @@ export const CodeBlock = ({
       >
         <div className="relative">
           <div
-            className="overflow-x-auto dark:hidden [&>pre]:m-0 [&>pre]:bg-transparent! [&>pre]:p-2 [&>pre]:text-foreground! [&>pre]:text-[11px] [&_code]:font-mono [&_code]:text-[11px]"
+            className={cn(
+              "overflow-x-auto [&>pre]:m-0 [&>pre]:bg-transparent! [&>pre]:p-2 [&>pre]:text-foreground! [&>pre]:text-[11px] [&_code]:font-mono [&_code]:text-[11px]",
+              wrapLongLines &&
+                "[&>pre]:whitespace-pre-wrap [&>pre]:break-words [&>pre]:[overflow-wrap:anywhere] [&>pre>code]:whitespace-pre-wrap [&>pre>code]:break-words [&>pre>code]:[overflow-wrap:anywhere] [&_.line]:whitespace-pre-wrap [&_.line]:break-words [&_.line]:[overflow-wrap:anywhere]",
+              forceLightTheme ? "block" : "dark:hidden"
+            )}
             // biome-ignore lint/security/noDangerouslySetInnerHtml: "this is needed."
             dangerouslySetInnerHTML={{ __html: html }}
           />
           <div
-            className="hidden overflow-x-auto dark:block [&>pre]:m-0 [&>pre]:bg-transparent! [&>pre]:p-2 [&>pre]:text-foreground! [&>pre]:text-[11px] [&_code]:font-mono [&_code]:text-[11px]"
+            className={cn(
+              "hidden overflow-x-auto [&>pre]:m-0 [&>pre]:bg-transparent! [&>pre]:p-2 [&>pre]:text-foreground! [&>pre]:text-[11px] [&_code]:font-mono [&_code]:text-[11px]",
+              wrapLongLines &&
+                "[&>pre]:whitespace-pre-wrap [&>pre]:break-words [&>pre]:[overflow-wrap:anywhere] [&>pre>code]:whitespace-pre-wrap [&>pre>code]:break-words [&>pre>code]:[overflow-wrap:anywhere] [&_.line]:whitespace-pre-wrap [&_.line]:break-words [&_.line]:[overflow-wrap:anywhere]",
+              forceLightTheme ? "hidden" : "dark:block"
+            )}
             // biome-ignore lint/security/noDangerouslySetInnerHtml: "this is needed."
             dangerouslySetInnerHTML={{ __html: darkHtml }}
           />

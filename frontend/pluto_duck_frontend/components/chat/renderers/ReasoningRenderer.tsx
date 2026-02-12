@@ -8,6 +8,18 @@ import {
 } from '../../ai-elements/reasoning';
 import type { ReasoningItem } from '../../../types/chatRenderItem';
 
+/**
+ * Convert bold-only lines to h3 headings and collapse the blank line after them.
+ * Regular paragraph spacing (double newlines) is preserved.
+ */
+function formatReasoningContent(text: string): string {
+  // Step 1: bold-only lines → h3
+  let result = text.replace(/^\*\*(.+?)\*\*$/gm, '### $1');
+  // Step 2: remove the extra blank line right after a heading
+  result = result.replace(/^(### .+)\n\n/gm, '$1\n');
+  return result;
+}
+
 export interface ReasoningRendererProps {
   item: ReasoningItem;
   isDismissing?: boolean;
@@ -55,7 +67,7 @@ export const ReasoningRenderer = memo(function ReasoningRenderer({
     >
       <Reasoning isStreaming={isStreaming} defaultOpen={false}>
         <ReasoningTrigger />
-        <ReasoningContent>{item.content || ''}</ReasoningContent>
+        <ReasoningContent>{formatReasoningContent(item.content || '')}</ReasoningContent>
       </Reasoning>
     </div>
   );

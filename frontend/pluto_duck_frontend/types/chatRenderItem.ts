@@ -61,6 +61,19 @@ export interface ToolItem extends BaseRenderItem {
 }
 
 /**
+ * 연속 도구 호출 그룹 아이템
+ */
+export interface ToolGroupItem extends BaseRenderItem {
+  type: 'tool-group';
+  /** 그룹 공통 툴 이름 */
+  toolName: string;
+  /** 그룹 내부 도구 호출 목록 */
+  children: ToolItem[];
+  /** 그룹 집계 상태 */
+  state: 'pending' | 'completed' | 'error';
+}
+
+/**
  * 어시스턴트 메시지 아이템
  */
 export interface AssistantMessageItem extends BaseRenderItem {
@@ -89,6 +102,7 @@ export type ChatRenderItem =
   | UserMessageItem
   | ReasoningItem
   | ToolItem
+  | ToolGroupItem
   | AssistantMessageItem
   | ApprovalItem;
 
@@ -105,6 +119,10 @@ export function isReasoningItem(item: ChatRenderItem): item is ReasoningItem {
 
 export function isToolItem(item: ChatRenderItem): item is ToolItem {
   return item.type === 'tool';
+}
+
+export function isToolGroupItem(item: ChatRenderItem): item is ToolGroupItem {
+  return item.type === 'tool-group';
 }
 
 export function isAssistantMessageItem(item: ChatRenderItem): item is AssistantMessageItem {

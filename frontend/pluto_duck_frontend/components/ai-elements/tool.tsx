@@ -65,11 +65,75 @@ export type ToolContentProps = ComponentProps<typeof CollapsibleContent>;
 export const ToolContent = ({ className, ...props }: ToolContentProps) => (
   <CollapsibleContent
     className={cn(
-      "overflow-hidden text-popover-foreground outline-none data-[state=open]:animate-collapsible-down data-[state=closed]:animate-collapsible-up",
+      "overflow-hidden text-popover-foreground outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:animate-in data-[state=open]:slide-in-from-top-2",
       className
     )}
     {...props}
   />
+);
+
+export type ToolDetailBoxProps = ComponentProps<"div">;
+
+export const ToolDetailBox = ({
+  className,
+  ...props
+}: ToolDetailBoxProps) => (
+  <div
+    className={cn("bg-muted/50 rounded-[10px] overflow-hidden p-0", className)}
+    {...props}
+  />
+);
+
+export type ToolDetailRowProps = ComponentProps<"div"> & {
+  content: string;
+  variant?: "default" | "error";
+  renderMode?: "plain" | "code";
+  language?: "json";
+};
+
+export const ToolDetailRow = ({
+  className,
+  content,
+  variant = "default",
+  renderMode = "plain",
+  language = "json",
+  ...props
+}: ToolDetailRowProps) => {
+  if (renderMode === "code") {
+    return (
+      <div className={cn("font-mono", className)} {...props}>
+        <CodeBlock
+          code={content}
+          language={language}
+          wrapLongLines
+          normalizeWhiteTokens
+          className="overflow-visible [&_pre]:!p-[10px_14px] [&_pre]:!text-[0.7rem] [&_pre]:!leading-[1.4] [&_code]:!text-[0.7rem]"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        "p-[10px_14px] font-mono text-[0.7rem] leading-[1.4] whitespace-pre-wrap break-all",
+        variant === "error" ? "text-destructive" : "text-muted-foreground",
+        className
+      )}
+      {...props}
+    >
+      {content}
+    </div>
+  );
+};
+
+export type ToolDetailDividerProps = ComponentProps<"div">;
+
+export const ToolDetailDivider = ({
+  className,
+  ...props
+}: ToolDetailDividerProps) => (
+  <div className={cn("h-px bg-border mx-3.5", className)} {...props} />
 );
 
 export type ToolInputProps = ComponentProps<"div"> & {

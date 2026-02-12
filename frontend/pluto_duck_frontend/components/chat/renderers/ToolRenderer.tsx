@@ -6,10 +6,12 @@ import {
   Tool,
   ToolHeader,
   ToolContent,
-  ToolInput,
-  ToolOutput,
+  ToolDetailBox,
+  ToolDetailRow,
+  ToolDetailDivider,
 } from '../../ai-elements/tool';
 import { StepDot } from '../../ai-elements/step-dot';
+import { mapToolStateToPhase } from '../../ai-elements/tool-state-phase-map';
 import { TodoCheckbox } from '../../ai-elements/todo-checkbox';
 import {
   Collapsible,
@@ -18,6 +20,10 @@ import {
 } from '../../ui/collapsible';
 import type { ToolItem } from '../../../types/chatRenderItem';
 import { parseTodosFromToolPayload } from './toolTodoParser';
+import {
+  buildToolDetailRowsForChild,
+  extractToolMessageContent,
+} from './toolDetailContent';
 import {
   getToolTodoStepPhase,
   getToolTodoTextClass,
@@ -28,7 +34,7 @@ import {
  * Convert snake_case or camelCase to Title Case
  * e.g., read_file → Read File, executeCommand → Execute Command
  */
-function formatToolName(name: string): string {
+export function formatToolName(name: string): string {
   if (!name) return 'Tool';
 
   // Handle snake_case and camelCase
@@ -100,23 +106,15 @@ function shortenParam(value: string, fieldType: string): string {
 /**
  * Extract actual content from ToolMessage wrapper
  */
-function extractContent(output: unknown): unknown {
-  if (output == null) return null;
-  // Handle ToolMessage wrapper: { type: "tool", content: "...", tool_call_id: "..." }
-  if (typeof output === 'object') {
-    const toolMessage = output as { content?: unknown };
-    if (toolMessage.content !== undefined) {
-      return toolMessage.content;
-    }
-  }
-  return output;
+export function extractContent(output: unknown): unknown {
+  return extractToolMessageContent(output);
 }
 
 /**
  * Get first meaningful item from tool output for preview
  */
 function getFirstMeaningfulItem(output: unknown): string | null {
-  const content = extractContent(output);
+  const content = extractToolMessageContent(output);
   if (content == null) return null;
 
   const serializedContent =
@@ -160,18 +158,62 @@ function getToolUIState(state: ToolItem['state']): 'input-streaming' | 'output-a
 
 export interface ToolRendererProps {
   item: ToolItem;
+  variant?: 'default' | 'inline';
 }
 
 export const ToolRenderer = memo(function ToolRenderer({
   item,
+  variant = 'default',
 }: ToolRendererProps) {
+  // 1) inline write_todos
+  if (variant === 'inline' && item.toolName === 'write_todos') {
+    const todos = parseTodosFromToolPayload(item.input, item.output);
+    const todoCountLabel = `Update Todos — ${todos.length} items`;
+
+    return (
+      <div className="flex items-center gap-2 px-2 py-1 min-w-0 text-xs">
+        <StepDot phase={getToolTodoStepPhase(item.state)} className="scale-[0.7]" />
+        <span className="truncate min-w-0 text-[0.8rem]">{todoCountLabel}</span>
+        {item.error ? (
+          <span className="truncate min-w-0 text-[0.8rem] text-destructive">
+            {item.error}
+          </span>
+        ) : null}
+      </div>
+    );
+  }
+
+  // 2) inline generic tool
+  if (variant === 'inline') {
+    const toolState = getToolUIState(item.state);
+    const phase = mapToolStateToPhase(toolState);
+    const keyParam = extractKeyParam(item.input);
+    const preview = item.state === 'completed' ? getFirstMeaningfulItem(item.output) : null;
+    const fallback = formatToolName(item.toolName);
+    const inlineText = keyParam ?? preview ?? fallback;
+
+    return (
+      <div className="flex items-center gap-2 px-2 py-1 min-w-0 text-xs">
+        <StepDot phase={phase} className="scale-[0.7]" />
+        {item.error ? (
+          <span className="truncate min-w-0 text-[0.8rem] text-destructive">
+            {item.error}
+          </span>
+        ) : (
+          <span className="truncate min-w-0 text-[0.8rem]">{inlineText}</span>
+        )}
+      </div>
+    );
+  }
+
+  // 3) default rendering
   // Special handling for write_todos tool
   if (item.toolName === 'write_todos') {
     const todos = parseTodosFromToolPayload(item.input, item.output);
     const showChevron = shouldShowToolTodoChevron(item.state);
 
     return (
-      <Collapsible className="not-prose text-xs group" defaultOpen={true}>
+      <Collapsible className="not-prose text-xs group" defaultOpen={false}>
         <CollapsibleTrigger
           className="group/step flex w-full items-center gap-2.5 rounded-[10px] px-2 py-2 pr-3 transition-colors hover:bg-muted/50 disabled:cursor-default"
           disabled={!showChevron}
@@ -185,8 +227,8 @@ export const ToolRenderer = memo(function ToolRenderer({
           ) : null}
         </CollapsibleTrigger>
         {todos.length > 0 && (
-          <CollapsibleContent className="overflow-hidden text-popover-foreground outline-none data-[state=open]:animate-collapsible-down data-[state=closed]:animate-collapsible-up">
-            <div className="pl-[38px] pr-2 pb-2">
+          <CollapsibleContent className="overflow-hidden text-popover-foreground outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:animate-in data-[state=open]:slide-in-from-top-2">
+            <div className="pl-[38px] pr-2 pt-2 pb-2">
               {todos.map((todo) => (
                 <div key={todo.id} className="flex items-start gap-2 py-1">
                   <TodoCheckbox status={todo.status} />
@@ -214,10 +256,7 @@ export const ToolRenderer = memo(function ToolRenderer({
   const toolName = formatToolName(item.toolName);
   const keyParam = extractKeyParam(item.input);
   const preview = item.state !== 'pending' ? getFirstMeaningfulItem(item.output) : null;
-  const actualOutput = extractContent(item.output);
-  const hasInput = item.input !== null && item.input !== undefined;
-  const hasOutput = actualOutput !== null && actualOutput !== undefined;
-  const hasError = Boolean(item.error);
+  const detailRows = buildToolDetailRowsForChild(item);
 
   return (
     <Tool defaultOpen={false}>
@@ -228,12 +267,22 @@ export const ToolRenderer = memo(function ToolRenderer({
         preview={preview}
       />
       <ToolContent>
-        {hasInput && <ToolInput input={item.input} />}
-        {(hasOutput || hasError) && (
-          <ToolOutput
-            output={hasOutput ? JSON.stringify(actualOutput, null, 2) : undefined}
-            errorText={item.error}
-          />
+        {detailRows.length > 0 && (
+          <div className="pl-[38px] pr-2 pt-2 pb-2">
+            <ToolDetailBox>
+              {detailRows.map((row, index) => (
+                <div key={row.key}>
+                  {index > 0 && <ToolDetailDivider />}
+                  <ToolDetailRow
+                    content={row.content}
+                    variant={row.variant}
+                    renderMode={row.renderMode}
+                    language={row.language}
+                  />
+                </div>
+              ))}
+            </ToolDetailBox>
+          </div>
         )}
       </ToolContent>
     </Tool>

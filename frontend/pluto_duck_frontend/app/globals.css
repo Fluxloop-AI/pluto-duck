@@ -191,6 +191,24 @@
   margin-top: 0 !important;
 }
 
+/* Reasoning block typography (inside not-prose, overrides Streamdown defaults) */
+.not-prose .streamdown-root h3 {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: hsl(var(--foreground) / 0.65);
+  line-height: 1.4;
+  margin: 10px 0 0 !important;
+  padding-bottom: 4px;
+}
+
+.not-prose .streamdown-root p {
+  font-size: 0.8rem;
+  font-weight: 400;
+  line-height: 1.4;
+  color: hsl(var(--muted-foreground));
+  margin: 0 0 20px !important;
+}
+
 [role="log"] .prose .streamdown-root > :last-child {
   margin-bottom: 0;
 }

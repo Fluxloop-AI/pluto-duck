@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  shouldDefaultOpenToolTodo,
   getToolTodoStepPhase,
   getToolTodoTextClass,
   shouldShowToolTodoChevron,
@@ -17,6 +18,12 @@ test('shows chevron only when tool todo state is completed', () => {
   assert.equal(shouldShowToolTodoChevron('pending'), false);
   assert.equal(shouldShowToolTodoChevron('completed'), true);
   assert.equal(shouldShowToolTodoChevron('error'), false);
+});
+
+test('keeps todos expanded unless tool todo state is completed', () => {
+  assert.equal(shouldDefaultOpenToolTodo('pending'), true);
+  assert.equal(shouldDefaultOpenToolTodo('completed'), false);
+  assert.equal(shouldDefaultOpenToolTodo('error'), true);
 });
 
 test('returns text classes by todo item status', () => {

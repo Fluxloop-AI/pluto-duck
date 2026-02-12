@@ -17,6 +17,10 @@ export function shouldShowToolTodoChevron(state: ToolTodoState): boolean {
   return state === "completed";
 }
 
+export function shouldDefaultOpenToolTodo(state: ToolTodoState): boolean {
+  return state !== "completed";
+}
+
 export function getToolTodoTextClass(status: ToolTodoStatus | undefined): string {
   if (status === "completed") {
     return "text-muted-foreground line-through";

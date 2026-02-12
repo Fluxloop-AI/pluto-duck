@@ -27,6 +27,7 @@ import {
 import {
   getToolTodoStepPhase,
   getToolTodoTextClass,
+  shouldDefaultOpenToolTodo,
   shouldShowToolTodoChevron,
 } from './toolTodoViewModel';
 
@@ -213,7 +214,10 @@ export const ToolRenderer = memo(function ToolRenderer({
     const showChevron = shouldShowToolTodoChevron(item.state);
 
     return (
-      <Collapsible className="not-prose text-xs group" defaultOpen={false}>
+      <Collapsible
+        className="not-prose text-xs group"
+        defaultOpen={shouldDefaultOpenToolTodo(item.state)}
+      >
         <CollapsibleTrigger
           className="group/step flex w-full items-center gap-2.5 rounded-[10px] px-2 py-2 pr-3 transition-colors hover:bg-muted/50 disabled:cursor-default"
           disabled={!showChevron}

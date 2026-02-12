@@ -20,6 +20,10 @@ import {
 import type { ToolItem } from '../../../types/chatRenderItem';
 import { parseTodosFromToolPayload } from './toolTodoParser';
 import {
+  buildToolDetailRowsForChild,
+  extractToolMessageContent,
+} from './toolDetailContent';
+import {
   getToolTodoStepPhase,
   getToolTodoTextClass,
   shouldShowToolTodoChevron,
@@ -102,22 +106,14 @@ function shortenParam(value: string, fieldType: string): string {
  * Extract actual content from ToolMessage wrapper
  */
 export function extractContent(output: unknown): unknown {
-  if (output == null) return null;
-  // Handle ToolMessage wrapper: { type: "tool", content: "...", tool_call_id: "..." }
-  if (typeof output === 'object') {
-    const toolMessage = output as { content?: unknown };
-    if (toolMessage.content !== undefined) {
-      return toolMessage.content;
-    }
-  }
-  return output;
+  return extractToolMessageContent(output);
 }
 
 /**
  * Get first meaningful item from tool output for preview
  */
 function getFirstMeaningfulItem(output: unknown): string | null {
-  const content = extractContent(output);
+  const content = extractToolMessageContent(output);
   if (content == null) return null;
 
   const serializedContent =
@@ -259,10 +255,11 @@ export const ToolRenderer = memo(function ToolRenderer({
   const toolName = formatToolName(item.toolName);
   const keyParam = extractKeyParam(item.input);
   const preview = item.state !== 'pending' ? getFirstMeaningfulItem(item.output) : null;
-  const actualOutput = extractContent(item.output);
-  const hasInput = item.input !== null && item.input !== undefined;
-  const hasOutput = actualOutput !== null && actualOutput !== undefined;
-  const hasError = Boolean(item.error);
+  const detailRows = buildToolDetailRowsForChild(item);
+  const inputRow = detailRows.find(row => row.kind === 'input');
+  const resultRow = detailRows.find(
+    row => row.kind === 'output' || row.kind === 'error'
+  );
 
   return (
     <Tool defaultOpen={false}>
@@ -273,11 +270,11 @@ export const ToolRenderer = memo(function ToolRenderer({
         preview={preview}
       />
       <ToolContent>
-        {hasInput && <ToolInput input={item.input} />}
-        {(hasOutput || hasError) && (
+        {inputRow && item.input != null && <ToolInput input={item.input} />}
+        {resultRow && (
           <ToolOutput
-            output={hasOutput ? JSON.stringify(actualOutput, null, 2) : undefined}
-            errorText={item.error}
+            output={resultRow.kind === 'output' ? resultRow.content : undefined}
+            errorText={resultRow.kind === 'error' ? resultRow.content : undefined}
           />
         )}
       </ToolContent>

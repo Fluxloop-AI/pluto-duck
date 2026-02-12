@@ -11,7 +11,8 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '../../ui/collapsible';
-import { formatToolName, extractContent } from './ToolRenderer';
+import { formatToolName } from './ToolRenderer';
+import { buildToolDetailRowsForChild } from './toolDetailContent';
 import { parseTodosFromToolPayload } from './toolTodoParser';
 import { getToolTodoTextClass } from './toolTodoViewModel';
 
@@ -27,18 +28,23 @@ function mapGroupStateToPhase(state: ToolGroupItem['state']): 'running' | 'compl
 
 function renderDefaultChildren(children: ToolItem[]) {
   return children.map(child => {
-    const actualOutput = extractContent(child.output);
-    const hasInput = child.input !== null && child.input !== undefined;
-    const hasOutput = actualOutput !== null && actualOutput !== undefined;
-    const hasError = Boolean(child.error);
+    const detailRows = buildToolDetailRowsForChild(child);
+    const inputRow = detailRows.find(row => row.kind === 'input');
+    const resultRow = detailRows.find(
+      row => row.kind === 'output' || row.kind === 'error'
+    );
+
+    if (!inputRow && !resultRow) {
+      return null;
+    }
 
     return (
       <div key={child.id}>
-        {hasInput && <ToolInput input={child.input} />}
-        {(hasOutput || hasError) && (
+        {inputRow && child.input != null && <ToolInput input={child.input} />}
+        {resultRow && (
           <ToolOutput
-            output={hasOutput ? JSON.stringify(actualOutput, null, 2) : undefined}
-            errorText={child.error}
+            output={resultRow.kind === 'output' ? resultRow.content : undefined}
+            errorText={resultRow.kind === 'error' ? resultRow.content : undefined}
           />
         )}
       </div>

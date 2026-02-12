@@ -228,7 +228,7 @@ export const ToolRenderer = memo(function ToolRenderer({
         </CollapsibleTrigger>
         {todos.length > 0 && (
           <CollapsibleContent className="overflow-hidden text-popover-foreground outline-none data-[state=open]:animate-collapsible-down data-[state=closed]:animate-collapsible-up">
-            <div className="pl-[38px] pr-2 pb-2">
+            <div className="pl-[38px] pr-2 pt-2 pb-2">
               {todos.map((todo) => (
                 <div key={todo.id} className="flex items-start gap-2 py-1">
                   <TodoCheckbox status={todo.status} />
@@ -268,7 +268,7 @@ export const ToolRenderer = memo(function ToolRenderer({
       />
       <ToolContent>
         {detailRows.length > 0 && (
-          <div className="pl-[38px] pr-2 pb-2">
+          <div className="pl-[38px] pr-2 pt-2 pb-2">
             <ToolDetailBox>
               {detailRows.map((row, index) => (
                 <div key={row.key}>

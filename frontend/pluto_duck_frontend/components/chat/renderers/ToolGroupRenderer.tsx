@@ -38,7 +38,7 @@ function renderDefaultChildren(children: ToolItem[]) {
   }
 
   return (
-    <div className="pl-[38px] pr-2 pb-2">
+    <div className="pl-[38px] pr-2 pt-2 pb-2">
       <ToolDetailBox>
         {entries.map(entry =>
           'type' in entry ? (

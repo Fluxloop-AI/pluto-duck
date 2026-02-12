@@ -5,14 +5,18 @@ import { ChevronDownIcon } from 'lucide-react';
 import type { ToolGroupItem, ToolItem } from '../../../types/chatRenderItem';
 import { StepDot } from '../../ai-elements/step-dot';
 import { TodoCheckbox } from '../../ai-elements/todo-checkbox';
-import { ToolInput, ToolOutput } from '../../ai-elements/tool';
+import {
+  ToolDetailBox,
+  ToolDetailDivider,
+  ToolDetailRow,
+} from '../../ai-elements/tool';
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from '../../ui/collapsible';
 import { formatToolName } from './ToolRenderer';
-import { buildToolDetailRowsForChild } from './toolDetailContent';
+import { buildToolDetailEntriesForChildren } from './toolDetailContent';
 import { parseTodosFromToolPayload } from './toolTodoParser';
 import { getToolTodoTextClass } from './toolTodoViewModel';
 
@@ -27,29 +31,29 @@ function mapGroupStateToPhase(state: ToolGroupItem['state']): 'running' | 'compl
 }
 
 function renderDefaultChildren(children: ToolItem[]) {
-  return children.map(child => {
-    const detailRows = buildToolDetailRowsForChild(child);
-    const inputRow = detailRows.find(row => row.kind === 'input');
-    const resultRow = detailRows.find(
-      row => row.kind === 'output' || row.kind === 'error'
-    );
+  const entries = buildToolDetailEntriesForChildren(children);
 
-    if (!inputRow && !resultRow) {
-      return null;
-    }
+  if (entries.length === 0) {
+    return null;
+  }
 
-    return (
-      <div key={child.id}>
-        {inputRow && child.input != null && <ToolInput input={child.input} />}
-        {resultRow && (
-          <ToolOutput
-            output={resultRow.kind === 'output' ? resultRow.content : undefined}
-            errorText={resultRow.kind === 'error' ? resultRow.content : undefined}
-          />
+  return (
+    <div className="pl-[38px] pr-2 pb-2">
+      <ToolDetailBox>
+        {entries.map(entry =>
+          'type' in entry ? (
+            <ToolDetailDivider key={entry.key} />
+          ) : (
+            <ToolDetailRow
+              key={entry.key}
+              content={entry.content}
+              variant={entry.variant}
+            />
+          )
         )}
-      </div>
-    );
-  });
+      </ToolDetailBox>
+    </div>
+  );
 }
 
 function renderTodoChildren(children: ToolItem[]) {

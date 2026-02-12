@@ -209,6 +209,10 @@
   margin: 0 0 20px !important;
 }
 
+.not-prose .streamdown-root code[data-streamdown="inline-code"] {
+  font-size: 0.7rem;
+}
+
 [role="log"] .prose .streamdown-root > :last-child {
   margin-bottom: 0;
 }

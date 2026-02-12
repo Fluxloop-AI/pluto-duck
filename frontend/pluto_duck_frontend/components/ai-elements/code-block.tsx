@@ -13,6 +13,7 @@ import {
   useState,
 } from "react";
 import { type BundledLanguage, codeToHtml, type ShikiTransformer } from "shiki";
+import { normalizeWhiteTokenColors } from "./codeBlockColorNormalization";
 
 type CodeBlockProps = HTMLAttributes<HTMLDivElement> & {
   code: string;
@@ -63,10 +64,6 @@ function escapeHtml(raw: string): string {
 
 function createPlainCodeHtml(code: string): string {
   return `<pre class="shiki"><code>${escapeHtml(code)}</code></pre>`;
-}
-
-function normalizeWhiteTokenColors(html: string): string {
-  return html.replace(/color:\s*(white|#(?:fff|ffffff))\b/gi, "color:#6B7280");
 }
 
 export async function highlightCode(

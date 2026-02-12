@@ -6,8 +6,9 @@ import {
   Tool,
   ToolHeader,
   ToolContent,
-  ToolInput,
-  ToolOutput,
+  ToolDetailBox,
+  ToolDetailRow,
+  ToolDetailDivider,
 } from '../../ai-elements/tool';
 import { StepDot } from '../../ai-elements/step-dot';
 import { mapToolStateToPhase } from '../../ai-elements/tool-state-phase-map';
@@ -256,10 +257,6 @@ export const ToolRenderer = memo(function ToolRenderer({
   const keyParam = extractKeyParam(item.input);
   const preview = item.state !== 'pending' ? getFirstMeaningfulItem(item.output) : null;
   const detailRows = buildToolDetailRowsForChild(item);
-  const inputRow = detailRows.find(row => row.kind === 'input');
-  const resultRow = detailRows.find(
-    row => row.kind === 'output' || row.kind === 'error'
-  );
 
   return (
     <Tool defaultOpen={false}>
@@ -270,12 +267,17 @@ export const ToolRenderer = memo(function ToolRenderer({
         preview={preview}
       />
       <ToolContent>
-        {inputRow && item.input != null && <ToolInput input={item.input} />}
-        {resultRow && (
-          <ToolOutput
-            output={resultRow.kind === 'output' ? resultRow.content : undefined}
-            errorText={resultRow.kind === 'error' ? resultRow.content : undefined}
-          />
+        {detailRows.length > 0 && (
+          <div className="pl-[38px] pr-2 pb-2">
+            <ToolDetailBox>
+              {detailRows.map((row, index) => (
+                <div key={row.key}>
+                  {index > 0 && <ToolDetailDivider />}
+                  <ToolDetailRow content={row.content} variant={row.variant} />
+                </div>
+              ))}
+            </ToolDetailBox>
+          </div>
         )}
       </ToolContent>
     </Tool>

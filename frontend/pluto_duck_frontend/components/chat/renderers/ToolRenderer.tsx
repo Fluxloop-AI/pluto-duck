@@ -101,7 +101,7 @@ function shortenParam(value: string, fieldType: string): string {
 /**
  * Extract actual content from ToolMessage wrapper
  */
-function extractContent(output: unknown): unknown {
+export function extractContent(output: unknown): unknown {
   if (output == null) return null;
   // Handle ToolMessage wrapper: { type: "tool", content: "...", tool_call_id: "..." }
   if (typeof output === 'object') {

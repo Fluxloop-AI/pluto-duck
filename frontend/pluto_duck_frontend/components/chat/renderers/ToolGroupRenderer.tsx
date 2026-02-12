@@ -109,7 +109,7 @@ export const ToolGroupRenderer = memo(function ToolGroupRenderer({
         <span className="font-medium text-[0.85rem] shrink-0">{displayName}</span>
         <ChevronDownIcon className="size-3 text-muted-foreground opacity-40 transition-[opacity,transform] shrink-0 ml-auto group-hover/step:opacity-70 group-data-[state=open]/step:rotate-180 group-data-[state=open]/step:opacity-70" />
       </CollapsibleTrigger>
-      <CollapsibleContent className="overflow-hidden text-popover-foreground outline-none data-[state=open]:animate-collapsible-down data-[state=closed]:animate-collapsible-up">
+      <CollapsibleContent className="overflow-hidden text-popover-foreground outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-2 data-[state=open]:animate-in data-[state=open]:slide-in-from-top-2">
         {isTodo
           ? renderTodoChildren(item.children)
           : renderDefaultChildren(item.children)

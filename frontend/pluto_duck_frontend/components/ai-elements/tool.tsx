@@ -72,6 +72,50 @@ export const ToolContent = ({ className, ...props }: ToolContentProps) => (
   />
 );
 
+export type ToolDetailBoxProps = ComponentProps<"div">;
+
+export const ToolDetailBox = ({
+  className,
+  ...props
+}: ToolDetailBoxProps) => (
+  <div
+    className={cn("bg-muted/50 rounded-[10px] overflow-hidden p-0", className)}
+    {...props}
+  />
+);
+
+export type ToolDetailRowProps = ComponentProps<"div"> & {
+  content: string;
+  variant?: "default" | "error";
+};
+
+export const ToolDetailRow = ({
+  className,
+  content,
+  variant = "default",
+  ...props
+}: ToolDetailRowProps) => (
+  <div
+    className={cn(
+      "p-[10px_14px] font-mono text-[0.76rem] leading-[1.6] whitespace-pre-wrap break-all",
+      variant === "error" ? "text-destructive" : "text-muted-foreground",
+      className
+    )}
+    {...props}
+  >
+    {content}
+  </div>
+);
+
+export type ToolDetailDividerProps = ComponentProps<"div">;
+
+export const ToolDetailDivider = ({
+  className,
+  ...props
+}: ToolDetailDividerProps) => (
+  <div className={cn("h-px bg-border mx-3.5", className)} {...props} />
+);
+
 export type ToolInputProps = ComponentProps<"div"> & {
   input: ToolUIInput;
 };

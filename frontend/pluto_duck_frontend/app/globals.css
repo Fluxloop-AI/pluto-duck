@@ -350,37 +350,6 @@
   background: rgba(128, 128, 128, 0.6);
 }
 
-/* Collapsible animation using Radix CSS variables */
-@keyframes collapsible-down {
-  from {
-    height: 0;
-    opacity: 0;
-  }
-  to {
-    height: var(--radix-collapsible-content-height);
-    opacity: 1;
-  }
-}
-
-@keyframes collapsible-up {
-  from {
-    height: var(--radix-collapsible-content-height);
-    opacity: 1;
-  }
-  to {
-    height: 0;
-    opacity: 0;
-  }
-}
-
-.animate-collapsible-down {
-  animation: collapsible-down 200ms ease-out;
-}
-
-.animate-collapsible-up {
-  animation: collapsible-up 150ms ease-out;
-}
-
 @keyframes reasoning-fade-out {
   from {
     opacity: 1;

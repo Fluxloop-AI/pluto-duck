@@ -48,6 +48,8 @@ function renderDefaultChildren(children: ToolItem[]) {
               key={entry.key}
               content={entry.content}
               variant={entry.variant}
+              renderMode={entry.renderMode}
+              language={entry.language}
             />
           )
         )}

@@ -273,7 +273,12 @@ export const ToolRenderer = memo(function ToolRenderer({
               {detailRows.map((row, index) => (
                 <div key={row.key}>
                   {index > 0 && <ToolDetailDivider />}
-                  <ToolDetailRow content={row.content} variant={row.variant} />
+                  <ToolDetailRow
+                    content={row.content}
+                    variant={row.variant}
+                    renderMode={row.renderMode}
+                    language={row.language}
+                  />
                 </div>
               ))}
             </ToolDetailBox>

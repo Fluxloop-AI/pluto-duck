@@ -87,25 +87,45 @@ export const ToolDetailBox = ({
 export type ToolDetailRowProps = ComponentProps<"div"> & {
   content: string;
   variant?: "default" | "error";
+  renderMode?: "plain" | "code";
+  language?: "json";
 };
 
 export const ToolDetailRow = ({
   className,
   content,
   variant = "default",
+  renderMode = "plain",
+  language = "json",
   ...props
-}: ToolDetailRowProps) => (
-  <div
-    className={cn(
-      "p-[10px_14px] font-mono text-[0.7rem] leading-[1.4] whitespace-pre-wrap break-all",
-      variant === "error" ? "text-destructive" : "text-muted-foreground",
-      className
-    )}
-    {...props}
-  >
-    {content}
-  </div>
-);
+}: ToolDetailRowProps) => {
+  if (renderMode === "code") {
+    return (
+      <div className={cn("font-mono", className)} {...props}>
+        <CodeBlock
+          code={content}
+          language={language}
+          wrapLongLines
+          normalizeWhiteTokens
+          className="overflow-visible [&_pre]:!p-[10px_14px] [&_pre]:!text-[0.7rem] [&_pre]:!leading-[1.4] [&_code]:!text-[0.7rem]"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        "p-[10px_14px] font-mono text-[0.7rem] leading-[1.4] whitespace-pre-wrap break-all",
+        variant === "error" ? "text-destructive" : "text-muted-foreground",
+        className
+      )}
+      {...props}
+    >
+      {content}
+    </div>
+  );
+};
 
 export type ToolDetailDividerProps = ComponentProps<"div">;
 

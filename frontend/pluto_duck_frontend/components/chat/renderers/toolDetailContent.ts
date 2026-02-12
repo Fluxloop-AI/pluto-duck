@@ -1,6 +1,7 @@
 import type { ToolItem } from '../../../types/chatRenderItem';
 
 export type ToolDetailRowKind = 'input' | 'output' | 'error';
+export type ToolDetailRenderMode = 'plain' | 'code';
 
 export interface ToolDetailRow {
   key: string;
@@ -8,6 +9,8 @@ export interface ToolDetailRow {
   kind: ToolDetailRowKind;
   content: string;
   variant: 'default' | 'error';
+  renderMode: ToolDetailRenderMode;
+  language?: 'json';
 }
 
 export interface ToolDetailDividerEntry {
@@ -69,6 +72,8 @@ export function buildToolDetailRowsForChild(child: ToolDetailChild): ToolDetailR
       kind: 'input',
       content: inputContent,
       variant: 'default',
+      renderMode: 'code',
+      language: 'json',
     });
   }
 
@@ -84,6 +89,7 @@ export function buildToolDetailRowsForChild(child: ToolDetailChild): ToolDetailR
       kind: 'error',
       content: errorContent,
       variant: 'error',
+      renderMode: 'plain',
     });
     return rows;
   }
@@ -99,6 +105,8 @@ export function buildToolDetailRowsForChild(child: ToolDetailChild): ToolDetailR
       kind: 'output',
       content: outputContent,
       variant: 'default',
+      renderMode: 'code',
+      language: 'json',
     });
   }
 
@@ -129,4 +137,3 @@ export function buildToolDetailEntriesForChildren(
 
   return entries;
 }
-

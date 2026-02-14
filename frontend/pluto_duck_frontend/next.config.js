@@ -1,13 +1,13 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  output: 'export',
+  output: 'standalone',
   experimental: {
     typedRoutes: true,
   },
-  // Rewrites don't work with 'output: export', so we set NEXT_PUBLIC_BACKEND_URL instead
+  // Optional override for local diagnostics; default flow is same-origin API.
   env: {
-    NEXT_PUBLIC_BACKEND_URL: process.env.NEXT_PUBLIC_BACKEND_URL || 'http://127.0.0.1:8123',
+    NEXT_PUBLIC_BACKEND_URL: process.env.NEXT_PUBLIC_BACKEND_URL || '',
   },
 };
 

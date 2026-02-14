@@ -51,71 +51,21 @@ jobs:
         with:
           version: 8
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          # Install without llama-cpp-python (users download locally)
-          pip install pyinstaller>=6.11
-          pip install -e '.'
-
       - name: Install frontend dependencies
         run: |
           cd frontend/pluto_duck_frontend
           pnpm install --no-frozen-lockfile
 
-      - name: Build frontend
+      - name: Build frontend server bundle
         run: |
-          cd frontend/pluto_duck_frontend
-          pnpm build
-
-      - name: Build backend
-        run: |
-          pyinstaller pluto-duck-backend.spec --distpath dist --workpath build/.pyinstaller
-
-      - name: Sign backend (macOS)
-        if: runner.os == 'macOS'
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: |
-          # Import certificate
-          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
-          KEYCHAIN=build.keychain
-          KEYCHAIN_PW=actions
-          security create-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
-          # keep unlocked for up to 6 hours (avoid intermittent prompts/locks)
-          security set-keychain-settings -lut 21600 "$KEYCHAIN"
-          security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
-          # ensure codesign/productbuild can access the key in headless CI
-          security import certificate.p12 -k "$KEYCHAIN" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productbuild -T /usr/bin/security
-          security set-key-partition-list -S apple-tool:,apple:,codesign:,productbuild: -s -k "$KEYCHAIN_PW" "$KEYCHAIN"
-          # make sure the keychain is in the search list and default
-          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
-          security default-keychain -s "$KEYCHAIN"
-          security find-identity -v -p codesigning || true
-          
-          # Sign backend binary
-          IDENTITY="${{ secrets.APPLE_SIGNING_IDENTITY }}"
-          codesign --force --options runtime --sign "$IDENTITY" --timestamp dist/pluto-duck-backend/pluto-duck-backend
-          
-          # Sign all dylibs
-          xattr -cr dist/pluto-duck-backend/_internal 2>/dev/null || true
-          find dist/pluto-duck-backend/_internal \( -name "*.dylib" -o -name "*.so" \) -print0 | while IFS= read -r -d '' file; do
-            echo "codesign $file"
-            codesign --force --options runtime --sign "$IDENTITY" --timestamp "$file"
-          done
+          ./scripts/build-frontend-server.sh
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          # CI already builds (and signs) backend + builds frontend; skip Tauri's beforeBuildCommand.
+          # CI already builds frontend server bundle; skip Tauri's beforeBuildCommand.
           TAURI_SKIP_BEFORE_BUILD: "1"
           # IMPORTANT: do NOT set an empty password env var on macOS runners.
           # If your key is password-protected, store it in GitHub Secrets and pass it in the signing step below.
@@ -124,44 +74,8 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         with:
           projectPath: tauri-shell
-          # Build the .app bundle (and .app.tar.gz for updater), but do NOT build the DMG yet.
-          # We'll re-sign the in-bundle updater payload, then create+notarize the DMG ourselves.
+          # Build the .app bundle (and .app.tar.gz for updater), then create+notarize the DMG in later steps.
           args: --target ${{ matrix.target }} --bundles app
-
-      - name: Re-sign in-app updater payload (fix notarization)
-        if: runner.os == 'macOS'
-        run: |
-          set -euo pipefail
-          IDENTITY="${{ secrets.APPLE_SIGNING_IDENTITY }}"
-          if [ -z "${IDENTITY}" ]; then
-            echo "ERROR: Missing GitHub Secret: APPLE_SIGNING_IDENTITY"
-            exit 1
-          fi
-
-          APP_PATH="tauri-shell/src-tauri/target/${{ matrix.target }}/release/bundle/macos/Pluto Duck.app"
-          UP_PAYLOAD_DIR="${APP_PATH}/Contents/Resources/_up_/_up_/dist/pluto-duck-backend"
-          echo "App path: ${APP_PATH}"
-          echo "Updater payload dir: ${UP_PAYLOAD_DIR}"
-          if [ ! -d "${UP_PAYLOAD_DIR}" ]; then
-            echo "ERROR: updater payload dir not found (unexpected): ${UP_PAYLOAD_DIR}"
-            exit 1
-          fi
-
-          # Remove extended attributes that can interfere with signing.
-          xattr -cr "${UP_PAYLOAD_DIR}" 2>/dev/null || true
-
-          # Sign all Mach-O files in the in-app payload (dylibs, python extensions, executables).
-          /usr/bin/find "${UP_PAYLOAD_DIR}" -type f -print0 | while IFS= read -r -d '' file; do
-            if file -b "${file}" | grep -q "Mach-O"; then
-              echo "codesign ${file}"
-              codesign --force --options runtime --sign "${IDENTITY}" --timestamp "${file}"
-            fi
-          done
-
-          # Re-sign the app bundle after nested payload signing.
-          echo "Re-signing app bundle..."
-          codesign --force --options runtime --sign "${IDENTITY}" --timestamp "${APP_PATH}"
-          codesign --verify --deep --strict --verbose=2 "${APP_PATH}"
 
       - name: Create DMG from signed app
         if: runner.os == 'macOS'
@@ -204,7 +118,7 @@ jobs:
           export SUBMIT_JSON
 
           echo "${SUBMIT_JSON}"
-          SUBMISSION_ID="$(python -c "import json, os; print(json.loads(os.environ['SUBMIT_JSON']).get('id',''))")"
+          SUBMISSION_ID="$(node -e "const data = JSON.parse(process.env.SUBMIT_JSON || '{}'); process.stdout.write(data.id || '');")"
           if [ -z "${SUBMISSION_ID}" ]; then
             echo "ERROR: Could not parse submission id from notarytool output"
             exit 1
@@ -233,7 +147,7 @@ jobs:
               --output-format json || true)"
             export INFO_JSON
 
-            STATUS="$(python -c "import json, os; print(json.loads(os.environ['INFO_JSON']).get('status',''))")"
+            STATUS="$(node -e "const data = JSON.parse(process.env.INFO_JSON || '{}'); process.stdout.write(data.status || '');")"
             if [ -z "${STATUS}" ]; then
               STATUS="In Progress"
             fi

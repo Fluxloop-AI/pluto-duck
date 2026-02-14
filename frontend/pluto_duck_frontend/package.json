@@ -9,7 +9,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "node --test ./lib/__tests__/*.test.ts ./hooks/__tests__/*.test.ts ./components/chat/renderers/__tests__/*.test.ts"
+    "test": "node --test ./lib/__tests__/*.test.ts ./hooks/__tests__/*.test.ts ./components/chat/renderers/__tests__/*.test.ts ./app/api/v1/_server/__tests__/*.test.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.1.0",

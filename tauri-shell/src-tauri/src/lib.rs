@@ -42,9 +42,9 @@ pub fn run() {
     .plugin(tauri_plugin_process::init())
     .plugin(tauri_plugin_updater::Builder::new().build())
     .setup(|app| {
-      if let Err(err) = backend::launch(app) {
-        log::error!("backend launch failed: {err:?}");
-        eprintln!("backend launch failed: {err:?}");
+      if let Err(err) = node_server::launch(app) {
+        log::error!("node server launch failed: {err:?}");
+        eprintln!("node server launch failed: {err:?}");
       }
       if cfg!(debug_assertions) {
         app.handle().plugin(
@@ -72,6 +72,10 @@ pub fn run() {
 
         window_builder.build()?
       };
+
+      if let Err(err) = node_server::navigate_window(&window) {
+        log::warn!("failed to navigate window to node server: {err:?}");
+      }
 
       // Apply macOS native titlebar customizations
       #[cfg(target_os = "macos")]
@@ -154,14 +158,14 @@ pub fn run() {
           }
         }
         tauri::RunEvent::Exit => {
-          log::info!("App is exiting - cleaning up backend");
-          if let Some(state) = app_handle.try_state::<backend::BackendState>() {
+          log::info!("App is exiting - cleaning up node server");
+          if let Some(state) = app_handle.try_state::<node_server::ServerState>() {
             if let Ok(mut guard) = state.lock() {
               if let Some(mut child) = guard.take() {
-                log::info!("Killing backend process on exit...");
+                log::info!("Killing node server process on exit...");
                 let _ = child.kill();
                 let _ = child.wait();
-                log::info!("Backend process killed on exit");
+                log::info!("Node server process killed on exit");
               }
             }
           }
@@ -232,102 +236,132 @@ fn apply_unified_toolbar(window: &tauri::WebviewWindow) {
   }
 }
 
-mod backend {
+mod node_server {
+  use std::net::{SocketAddr, TcpStream};
   use std::path::PathBuf;
   use std::process::{Child, Command, Stdio};
   use std::sync::{Arc, Mutex};
+  use std::time::{Duration, Instant};
 
   use anyhow::{Context, Result};
-  use log::{error, info};
-  use tauri::{App, AppHandle, Manager};
+  use log::{error, info, warn};
+  use tauri::{App, AppHandle, Manager, WebviewWindow};
 
-  const BACKEND_BINARY_DEBUG: &str = "../../dist/pluto-duck-backend/pluto-duck-backend";
-  const BACKEND_RESOURCE_PATH: &str = "_up_/_up_/dist/pluto-duck-backend/pluto-duck-backend";
-  const BACKEND_PORT: u16 = 8123;
+  const FRONTEND_HOST: &str = "127.0.0.1";
+  const FRONTEND_PORT: u16 = 3100;
+  const SERVER_DIST_DEBUG: &str = "../../dist/pluto-duck-frontend-server";
+  const SERVER_DIST_RESOURCE: &str = "dist/pluto-duck-frontend-server";
 
-  struct BackendProcess(Arc<Mutex<Option<Child>>>);
+  struct ServerProcess(Arc<Mutex<Option<Child>>>);
 
-  impl Drop for BackendProcess {
+  impl Drop for ServerProcess {
     fn drop(&mut self) {
-      info!("BackendProcess dropping - killing backend");
+      info!("ServerProcess dropping - killing node server");
       if let Ok(mut guard) = self.0.lock() {
         if let Some(mut child) = guard.take() {
-          info!("Killing backend process...");
+          info!("Killing node server process...");
           let _ = child.kill();
           let _ = child.wait();
-          info!("Backend process killed");
+          info!("Node server process killed");
         }
       }
     }
   }
 
-  pub type BackendState = Arc<Mutex<Option<Child>>>;
+  pub type ServerState = Arc<Mutex<Option<Child>>>;
 
   pub fn launch(app: &mut App) -> Result<()> {
+    if cfg!(debug_assertions) {
+      info!(
+        "debug build detected - skipping node server spawn (beforeDevCommand handles Next dev server)"
+      );
+      return Ok(());
+    }
+
     let app_handle = app.handle();
-    let binary = backend_binary_path(app)?;
+    let server_root = server_root(app)?;
+    let server_entry = server_root.join("server.js");
     let data_root = resolve_data_root(&app_handle);
 
     info!(
-      "launching backend binary {:?} with data root {:?}",
-      binary,
+      "launching node server {:?} with data root {:?}",
+      server_entry,
       data_root
     );
 
     let log_dir = data_root.join("logs");
     std::fs::create_dir_all(&log_dir).context("failed to create log directory")?;
-    let stdout_log = std::fs::File::create(log_dir.join("backend-stdout.log"))
+    let stdout_log = std::fs::File::create(log_dir.join("node-server-stdout.log"))
       .context("failed to create stdout log")?;
-    let stderr_log = std::fs::File::create(log_dir.join("backend-stderr.log"))
+    let stderr_log = std::fs::File::create(log_dir.join("node-server-stderr.log"))
       .context("failed to create stderr log")?;
 
-    let mut command = Command::new(&binary);
-    if let Some(parent) = binary.parent() {
-      command.current_dir(parent);
+    if !server_entry.exists() {
+      anyhow::bail!("node server entry not found at {}", server_entry.display());
     }
+
+    let mut command = Command::new("node");
     command
+      .current_dir(&server_root)
       .env("PLUTODUCK_DATA_DIR__ROOT", &data_root)
-      .args([
-        "--port",
-        &BACKEND_PORT.to_string(),
-        "--data-root",
-        data_root.to_string_lossy().as_ref(),
-      ])
+      .env("HOSTNAME", FRONTEND_HOST)
+      .env("PORT", FRONTEND_PORT.to_string())
+      .arg("server.js")
       .stdout(Stdio::from(stdout_log))
       .stderr(Stdio::from(stderr_log));
 
-    let child = command.spawn().context("failed to spawn backend process")?;
-    let state: BackendState = Arc::new(Mutex::new(Some(child)));
-    let process_wrapper = BackendProcess(state.clone());
+    let child = command.spawn().context("failed to spawn node server process")?;
+    let state: ServerState = Arc::new(Mutex::new(Some(child)));
+    let process_wrapper = ServerProcess(state.clone());
 
     app.manage(state);
     app.manage(process_wrapper);
 
     info!(
-      "backend process spawned on http://127.0.0.1:{BACKEND_PORT} with data root {:?}",
+      "node server process spawned on {} with data root {:?}",
+      frontend_url(),
       data_root
     );
-    info!("backend health will be checked by frontend polling");
+
+    if !wait_for_server(Duration::from_secs(15)) {
+      warn!("node server did not become ready within timeout");
+    }
 
     Ok(())
   }
 
-
-  fn backend_binary_path(app: &App) -> Result<PathBuf> {
-    let path = if cfg!(debug_assertions) {
-      PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join(BACKEND_BINARY_DEBUG)
-    } else {
-      app
-        .path()
-        .resource_dir()
-        .context("resource directory unavailable")?
-        .join(BACKEND_RESOURCE_PATH)
-    };
-    if !path.exists() {
-      anyhow::bail!("backend binary not found at {}", path.display());
+  pub fn navigate_window(window: &WebviewWindow) -> Result<()> {
+    if cfg!(debug_assertions) {
+      return Ok(());
     }
-    Ok(path)
+    let target = frontend_url().parse().context("failed to parse frontend url")?;
+    window.navigate(target).context("failed to navigate to frontend url")?;
+    Ok(())
+  }
+
+  fn server_root(app: &App) -> Result<PathBuf> {
+    if cfg!(debug_assertions) {
+      let debug_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(SERVER_DIST_DEBUG);
+      if !debug_path.exists() {
+        anyhow::bail!("node server directory not found at {}", debug_path.display());
+      }
+      return Ok(debug_path);
+    }
+
+    let resource_dir = app
+      .path()
+      .resource_dir()
+      .context("resource directory unavailable")?;
+
+    let primary_resource_path = resource_dir.join(SERVER_DIST_RESOURCE);
+    if primary_resource_path.exists() {
+      return Ok(primary_resource_path);
+    }
+
+    anyhow::bail!(
+      "node server directory not found in resources ({})",
+      primary_resource_path.display()
+    );
   }
 
   fn resolve_data_root(app: &AppHandle) -> PathBuf {
@@ -339,12 +373,30 @@ mod backend {
         .app_data_dir()
         .unwrap_or_else(|_| std::env::temp_dir().join("pluto_duck"))
     };
-    let root = base.join("backend");
+    let root = base.join("node-server");
     let logs = root.join("logs");
     if let Err(err) = std::fs::create_dir_all(&logs) {
-      error!("failed to create backend data directories: {err}");
+      error!("failed to create node server data directories: {err}");
     }
     root
   }
 
+  fn frontend_url() -> String {
+    format!("http://{FRONTEND_HOST}:{FRONTEND_PORT}")
+  }
+
+  fn wait_for_server(timeout: Duration) -> bool {
+    let address: SocketAddr = match format!("{FRONTEND_HOST}:{FRONTEND_PORT}").parse() {
+      Ok(value) => value,
+      Err(_) => return false,
+    };
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+      if TcpStream::connect_timeout(&address, Duration::from_millis(400)).is_ok() {
+        return true;
+      }
+      std::thread::sleep(Duration::from_millis(200));
+    }
+    false
+  }
 }

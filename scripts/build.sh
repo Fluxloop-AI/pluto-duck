@@ -9,33 +9,21 @@ echo ""
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
-# Activate virtual environment
-if [ -f "$ROOT_DIR/.venv/bin/activate" ]; then
-  echo "Activating Python virtual environment..."
-  source "$ROOT_DIR/.venv/bin/activate"
-fi
-
-# Step 1: Build Backend
-echo "Step 1/3: Building backend with PyInstaller..."
+# Step 1: Build Next standalone server bundle
+echo "Step 1/2: Building frontend standalone server..."
 echo "-----------------------------------------"
-./scripts/build-backend.sh
-echo "✓ Backend build complete"
+./scripts/build-frontend-server.sh
+echo "✓ Frontend server build complete"
 echo ""
 
-# Step 2: Build Frontend
-echo "Step 2/3: Building frontend with Next.js..."
-echo "-----------------------------------------"
-cd "$ROOT_DIR/frontend/pluto_duck_frontend"
-pnpm install
-pnpm build
-echo "✓ Frontend build complete"
-echo ""
-
-# Step 3: Build Tauri App
-echo "Step 3/3: Building Tauri app..."
+# Step 2: Build Tauri App
+echo "Step 2/2: Building Tauri app..."
 echo "-----------------------------------------"
 cd "$ROOT_DIR/tauri-shell"
-cargo tauri build
+export TAURI_SKIP_BEFORE_BUILD=1
+# Local build path should be reproducible without macOS signing/notarization preconditions.
+# Build only the .app bundle and override signing identity for this path.
+cargo tauri build --bundles app --config '{"bundle":{"macOS":{"signingIdentity":null}}}'
 echo "✓ Tauri build complete"
 echo ""
 
@@ -49,4 +37,3 @@ echo ""
 echo "To run it:"
 echo "  open '$ROOT_DIR/tauri-shell/src-tauri/target/release/bundle/macos/Pluto Duck.app'"
 echo ""
-

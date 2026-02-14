@@ -4,13 +4,6 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TAURI_DIR="$ROOT_DIR/tauri-shell"
 
-echo "Killing backend processes on 8123 (if any)..."
-if pids=$(lsof -ti tcp:8123 2>/dev/null); then
-  echo "$pids" | xargs -r kill
-else
-  echo "No backend process detected on 8123"
-fi
-
 echo "Killing frontend processes on 3100 (if any)..."
 if pids=$(lsof -ti tcp:3100 2>/dev/null); then
   echo "$pids" | xargs -r kill
@@ -27,4 +20,3 @@ cd "$TAURI_DIR"
 
 echo "Starting cargo tauri dev"
 cargo tauri dev
-

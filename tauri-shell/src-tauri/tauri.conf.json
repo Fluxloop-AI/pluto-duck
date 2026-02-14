@@ -5,7 +5,7 @@
   "identifier": "com.plutoduck.desktop",
   "build": {
     "devUrl": "http://127.0.0.1:3100",
-    "frontendDist": "../../frontend/pluto_duck_frontend/out",
+    "frontendDist": "../dist/tauri-ui-shell",
     "beforeDevCommand": "pnpm --dir ../frontend/pluto_duck_frontend dev --hostname 127.0.0.1 --port 3100",
     "beforeBuildCommand": "bash ../scripts/tauri-before-build.sh"
   },
@@ -31,9 +31,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "resources": [
-      "../../dist/pluto-duck-backend"
-    ],
+    "resources": {
+      "../dist/pluto-duck-frontend-server": "dist/pluto-duck-frontend-server"
+    },
     "icon": [
       "icons/icon.icns",
       "icons/icon.png",

@@ -8,7 +8,7 @@
     "export": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "rm -rf .next/types && tsc --noEmit",
     "test": "node --test ./lib/__tests__/*.test.ts ./hooks/__tests__/*.test.ts ./components/chat/renderers/__tests__/*.test.ts ./app/api/v1/_server/__tests__/*.test.ts"
   },
   "dependencies": {

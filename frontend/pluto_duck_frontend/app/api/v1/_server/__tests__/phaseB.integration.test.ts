@@ -27,11 +27,14 @@ const {
   createBoard,
   createBoardItem,
   createBoardQuery,
+  deleteBoardAsset,
+  downloadBoardAsset,
   executeBoardQueryByItem,
   getBoardDetail,
   getCachedBoardQueryResult,
   listBoards,
   resetBoardsSchemaForTests,
+  uploadBoardAsset,
 } = boardsModule;
 
 const scopeModuleUrl = new URL('../scope.ts', import.meta.url);
@@ -198,4 +201,50 @@ test('Boards store supports create-item-query flow with scoped access', async ()
   const detail = await getBoardDetail(board.id, projectId);
   assert.equal(detail.items.length, 1);
   assert.equal(detail.items[0]?.id, item.id);
+});
+
+test('Boards asset upload/download/delete flow works with project scope', async () => {
+  const settings = await getSettings();
+  assert.ok(settings.default_project_id);
+  const projectId = settings.default_project_id as string;
+
+  const board = await createBoard(projectId, {
+    name: 'Asset Board',
+  });
+  const item = await createBoardItem(
+    board.id,
+    {
+      item_type: 'image',
+      title: 'Asset Item',
+      payload: {},
+    },
+    projectId
+  );
+
+  const uploaded = await uploadBoardAsset(
+    item.id,
+    {
+      file_name: 'sample.csv',
+      mime_type: 'text/csv',
+      content: new Uint8Array(Buffer.from('a,b\n1,2\n', 'utf8')),
+    },
+    projectId
+  );
+  assert.ok(uploaded.asset_id.length > 0);
+  assert.equal(uploaded.file_name, 'sample.csv');
+  assert.equal(uploaded.mime_type, 'text/csv');
+  assert.equal(uploaded.url, `/api/v1/boards/assets/${uploaded.asset_id}/download`);
+
+  const downloaded = await downloadBoardAsset(uploaded.asset_id, projectId);
+  assert.equal(downloaded.filename, 'sample.csv');
+  assert.equal(downloaded.mime_type, 'text/csv');
+  assert.equal(Buffer.from(downloaded.content).toString('utf8'), 'a,b\n1,2\n');
+
+  await assert.rejects(
+    () => downloadBoardAsset(uploaded.asset_id, 'mismatch-project'),
+    /Project scope does not match asset project id/
+  );
+
+  await deleteBoardAsset(uploaded.asset_id, projectId);
+  await assert.rejects(() => downloadBoardAsset(uploaded.asset_id, projectId), /Asset not found/);
 });

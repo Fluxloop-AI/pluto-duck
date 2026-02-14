@@ -1,13 +1,27 @@
 import { NextResponse } from 'next/server';
 
-import { StoreHttpError } from '../../../_server/store.ts';
-import { toErrorResponse } from '../../../_server/http.ts';
+import { deleteBoardAsset } from '../../../_server/boards.ts';
+import {
+  noContent,
+  requireRouteParam,
+  resolveProjectScope,
+  toErrorResponse,
+} from '../../../_server/http.ts';
 
 export const dynamic = 'force-dynamic';
 
-export async function DELETE(): Promise<NextResponse> {
+interface RouteContext {
+  params: {
+    assetId: string;
+  };
+}
+
+export async function DELETE(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    throw new StoreHttpError(501, 'Asset delete endpoint is not implemented yet');
+    const assetId = requireRouteParam(context.params.assetId, 'Asset id');
+    const scope = resolveProjectScope(request);
+    await deleteBoardAsset(assetId, scope.project_id);
+    return noContent();
   } catch (error) {
     return toErrorResponse(error);
   }

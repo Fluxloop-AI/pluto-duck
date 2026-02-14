@@ -1,13 +1,32 @@
 import { NextResponse } from 'next/server';
 
-import { StoreHttpError } from '../../../../_server/store.ts';
-import { toErrorResponse } from '../../../../_server/http.ts';
+import { downloadBoardAsset } from '../../../../_server/boards.ts';
+import {
+  requireRouteParam,
+  resolveProjectScope,
+  toErrorResponse,
+} from '../../../../_server/http.ts';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(): Promise<NextResponse> {
+interface RouteContext {
+  params: {
+    assetId: string;
+  };
+}
+
+export async function GET(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    throw new StoreHttpError(501, 'Asset download endpoint is not implemented yet');
+    const assetId = requireRouteParam(context.params.assetId, 'Asset id');
+    const scope = resolveProjectScope(request);
+    const downloaded = await downloadBoardAsset(assetId, scope.project_id);
+    return new NextResponse(downloaded.content, {
+      status: 200,
+      headers: {
+        'Content-Type': downloaded.mime_type,
+        'Content-Disposition': `attachment; filename="${downloaded.filename.replaceAll('"', '')}"`,
+      },
+    });
   } catch (error) {
     return toErrorResponse(error);
   }

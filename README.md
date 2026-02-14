@@ -58,42 +58,36 @@ Pluto Duck organizes your data workflow into three logical zones to balance agil
 
 ## 📂 Project Layout
 
-- `backend/pluto_duck_backend`: FastAPI service, API endpoints, and Agent runtime.
-- `backend/duckpipe`: **New!** Lightweight SQL pipeline library (dbt replacement).
-- `backend/deepagents`: File-system based agent state, memory, and skills.
-- `packages/pluto_duck_cli`: CLI tool for terminal-based analysis.
-- `frontend/pluto_duck_frontend`: Next.js web interface (Chat & Board).
-- `tauri-shell`: macOS Desktop application wrapper.
+- `frontend/pluto_duck_frontend`: Next.js web + Node API runtime (chat, boards, assets, source).
+- `tauri-shell`: Desktop shell that launches the frontend server bundle.
+- `scripts`: Build/dev/release scripts for Node + Tauri workflow.
+- `docs/REMOVE_PYTHON_*`: remove-python migration checklists and status.
 
 ---
 
 ## 🚀 Getting Started
 
 ### Prerequisites
-- Python 3.10+
-- Node.js 18+ (for frontend)
-- Rust (for desktop app build)
+- Node.js 18+
+- pnpm 8+
+- Rust toolchain (for Tauri build)
+- DuckDB CLI (`duckdb`) in `PATH`
 
 ### Installation
 
 ```bash
-# 1. Setup Python Environment
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .[dev]
+# Install frontend dependencies
+pnpm --dir frontend/pluto_duck_frontend install
 
-# 2. Run Backend & Frontend (Dev Mode)
-./scripts/dev.sh
+# Run web runtime (Next + Node API routes)
+pnpm --dir frontend/pluto_duck_frontend dev --hostname 127.0.0.1 --port 3100
+
+# Optional: run desktop app (Tauri)
+./scripts/dev-tauri.sh
+
+# Build desktop bundle
+./scripts/build.sh
 ```
-
-### CLI Usage
-
-```bash
-# Run a quick query via CLI agent
-pluto-duck agent-stream "Show me top customers from my postgres db"
-```
-
-Agent responses are streamed via SSE. Each event carries structured JSON describing reasoning updates, tool outputs, and final summaries.
 
 ---
 

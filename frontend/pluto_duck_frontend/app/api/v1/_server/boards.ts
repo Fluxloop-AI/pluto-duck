@@ -1,10 +1,14 @@
 import { randomUUID } from 'node:crypto';
+import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
+import { basename, dirname, join, resolve } from 'node:path';
 
 import { dbExec, dbQuery, sqlString } from './db.ts';
 import { StoreHttpError } from './store.ts';
 
 type JsonMap = Record<string, unknown>;
 type BoardItemType = 'markdown' | 'chart' | 'table' | 'metric' | 'image';
+const MAX_BOARD_ASSET_BYTES = 64 * 1024 * 1024;
+const DEFAULT_BOARD_ASSET_MIME = 'application/octet-stream';
 
 const BOARD_ITEM_TYPES: Set<BoardItemType> = new Set([
   'markdown',
@@ -135,6 +139,37 @@ function assertScopeMatch(scopeProjectId: string | null, actualProjectId: string
   }
 }
 
+function resolveBoardAssetsRootDir(): string {
+  const explicitDataRoot = process.env.PLUTODUCK_DATA_DIR__ROOT?.trim();
+  if (explicitDataRoot) {
+    return resolve(explicitDataRoot, 'board-assets');
+  }
+
+  const explicitDbPath = process.env.PLUTODUCK_DB_PATH?.trim();
+  if (explicitDbPath) {
+    return resolve(dirname(explicitDbPath), 'board-assets');
+  }
+
+  return resolve(process.cwd(), '.pluto-duck-data', 'board-assets');
+}
+
+function normalizeAssetFileName(fileName: string): string {
+  const normalizedBase = basename(fileName).trim();
+  const fallback = 'upload.bin';
+  if (normalizedBase.length === 0) {
+    return fallback;
+  }
+  return normalizedBase.replace(/[\r\n]/g, '_');
+}
+
+function normalizeAssetMimeType(mimeType: string | null | undefined): string {
+  const normalized = mimeType?.trim();
+  if (!normalized) {
+    return DEFAULT_BOARD_ASSET_MIME;
+  }
+  return normalized.toLowerCase();
+}
+
 interface BoardRow {
   id: string;
   project_id: string;
@@ -181,6 +216,19 @@ interface QueryRow {
   last_result_json: string | null;
 }
 
+interface BoardAssetRow {
+  id: string;
+  item_id: string;
+  board_id: string;
+  project_id: string;
+  storage_path: string;
+  original_name: string;
+  mime_type: string | null;
+  file_size_bytes: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface BoardRecord {
   id: string;
   project_id: string;
@@ -212,6 +260,20 @@ export interface QueryResultRecord {
   data: Array<Record<string, unknown>>;
   row_count: number;
   executed_at: string;
+}
+
+export interface BoardAssetUploadRecord {
+  asset_id: string;
+  file_name: string;
+  file_size: number;
+  mime_type: string;
+  url: string;
+}
+
+export interface BoardAssetDownloadRecord {
+  filename: string;
+  mime_type: string;
+  content: Uint8Array;
 }
 
 async function ensureBoardsSchema(): Promise<void> {
@@ -257,6 +319,19 @@ CREATE TABLE IF NOT EXISTS board_queries (
   last_result_json VARCHAR,
   last_executed_at VARCHAR,
   status VARCHAR NOT NULL DEFAULT 'idle',
+  created_at VARCHAR NOT NULL,
+  updated_at VARCHAR NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS board_assets (
+  id VARCHAR PRIMARY KEY,
+  item_id VARCHAR NOT NULL,
+  board_id VARCHAR NOT NULL,
+  project_id VARCHAR NOT NULL,
+  storage_path VARCHAR NOT NULL,
+  original_name VARCHAR NOT NULL,
+  mime_type VARCHAR,
+  file_size_bytes BIGINT NOT NULL,
   created_at VARCHAR NOT NULL,
   updated_at VARCHAR NOT NULL
 );
@@ -368,6 +443,63 @@ LIMIT 1;
     throw new StoreHttpError(404, 'Item not found');
   }
   return row;
+}
+
+async function loadBoardAssetRow(assetId: string): Promise<BoardAssetRow> {
+  const rows = await dbQuery<BoardAssetRow>(
+    `
+SELECT
+  id,
+  item_id,
+  board_id,
+  project_id,
+  storage_path,
+  original_name,
+  mime_type,
+  file_size_bytes,
+  created_at,
+  updated_at
+FROM board_assets
+WHERE id = ${sqlString(assetId)}
+LIMIT 1;
+`
+  );
+  const row = rows[0];
+  if (!row) {
+    throw new StoreHttpError(404, 'Asset not found');
+  }
+  return row;
+}
+
+async function unlinkIfPresent(filePath: string): Promise<void> {
+  try {
+    await unlink(filePath);
+  } catch (error) {
+    if (!(error instanceof Error) || !('code' in error) || (error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw error;
+    }
+  }
+}
+
+async function listBoardAssetsByItem(itemId: string): Promise<BoardAssetRow[]> {
+  return dbQuery<BoardAssetRow>(
+    `
+SELECT
+  id,
+  item_id,
+  board_id,
+  project_id,
+  storage_path,
+  original_name,
+  mime_type,
+  file_size_bytes,
+  created_at,
+  updated_at
+FROM board_assets
+WHERE item_id = ${sqlString(itemId)}
+ORDER BY created_at ASC, id ASC;
+`
+  );
 }
 
 async function touchBoard(boardId: string): Promise<void> {
@@ -592,6 +724,24 @@ export async function deleteBoard(boardIdInput: string, scopeProjectId: string |
     const board = await loadBoardRow(boardId);
     assertScopeMatch(scopeProjectId, board.project_id, 'Project scope does not match board project id');
 
+    const assetRows = await dbQuery<BoardAssetRow>(
+      `
+SELECT
+  id,
+  item_id,
+  board_id,
+  project_id,
+  storage_path,
+  original_name,
+  mime_type,
+  file_size_bytes,
+  created_at,
+  updated_at
+FROM board_assets
+WHERE board_id = ${sqlString(boardId)};
+`
+    );
+
     await dbExec(
       `
 DELETE FROM board_queries
@@ -599,10 +749,15 @@ WHERE item_id IN (
   SELECT id FROM board_items WHERE board_id = ${sqlString(boardId)}
 );
 
+DELETE FROM board_assets WHERE board_id = ${sqlString(boardId)};
 DELETE FROM board_items WHERE board_id = ${sqlString(boardId)};
 DELETE FROM boards WHERE id = ${sqlString(boardId)};
 `
     );
+
+    for (const asset of assetRows) {
+      await unlinkIfPresent(asset.storage_path);
+    }
 
     await syncProjectBoardCount(board.project_id);
   });
@@ -779,13 +934,18 @@ export async function deleteBoardItem(itemIdInput: string, scopeProjectId: strin
     const itemId = normalizeId(itemIdInput, 'Item id');
     const itemScope = await loadItemScope(itemId);
     assertScopeMatch(scopeProjectId, itemScope.project_id, 'Project scope does not match item project id');
+    const assetRows = await listBoardAssetsByItem(itemId);
 
     await dbExec(
       `
 DELETE FROM board_queries WHERE item_id = ${sqlString(itemId)};
+DELETE FROM board_assets WHERE item_id = ${sqlString(itemId)};
 DELETE FROM board_items WHERE id = ${sqlString(itemId)};
 `
     );
+    for (const asset of assetRows) {
+      await unlinkIfPresent(asset.storage_path);
+    }
     await touchBoard(itemScope.board_id);
   });
 }
@@ -826,6 +986,128 @@ WHERE id = ${sqlString(itemId)};
     );
     await touchBoard(itemScope.board_id);
     return toBoardItemRecord(await loadItemRow(itemId));
+  });
+}
+
+export async function uploadBoardAsset(
+  itemIdInput: string,
+  payload: {
+    file_name: string;
+    mime_type?: string | null;
+    content: Uint8Array;
+  },
+  scopeProjectId: string | null
+): Promise<BoardAssetUploadRecord> {
+  return withBoardsLock(async () => {
+    await ensureBoardsSchema();
+
+    const itemId = normalizeId(itemIdInput, 'Item id');
+    const itemScope = await loadItemScope(itemId);
+    assertScopeMatch(scopeProjectId, itemScope.project_id, 'Project scope does not match item project id');
+
+    const contentBytes = payload.content.byteLength;
+    if (contentBytes <= 0) {
+      throw new StoreHttpError(400, 'Uploaded file is empty');
+    }
+    if (contentBytes > MAX_BOARD_ASSET_BYTES) {
+      throw new StoreHttpError(413, `Uploaded file exceeds ${MAX_BOARD_ASSET_BYTES} bytes`);
+    }
+
+    const fileName = normalizeAssetFileName(payload.file_name);
+    const mimeType = normalizeAssetMimeType(payload.mime_type);
+    const assetId = randomUUID();
+    const now = nowIso();
+    const assetRoot = resolveBoardAssetsRootDir();
+    const assetDir = join(assetRoot, itemScope.project_id, itemScope.board_id, itemId);
+    await mkdir(assetDir, { recursive: true });
+    const storagePath = join(assetDir, `${assetId}-${fileName}`);
+
+    await writeFile(storagePath, payload.content);
+    try {
+      await dbExec(
+        `
+INSERT INTO board_assets (
+  id,
+  item_id,
+  board_id,
+  project_id,
+  storage_path,
+  original_name,
+  mime_type,
+  file_size_bytes,
+  created_at,
+  updated_at
+) VALUES (
+  ${sqlString(assetId)},
+  ${sqlString(itemId)},
+  ${sqlString(itemScope.board_id)},
+  ${sqlString(itemScope.project_id)},
+  ${sqlString(storagePath)},
+  ${sqlString(fileName)},
+  ${sqlString(mimeType)},
+  ${contentBytes},
+  ${sqlString(now)},
+  ${sqlString(now)}
+);
+`
+      );
+    } catch (error) {
+      await unlinkIfPresent(storagePath);
+      throw error;
+    }
+
+    await touchBoard(itemScope.board_id);
+    return {
+      asset_id: assetId,
+      file_name: fileName,
+      file_size: contentBytes,
+      mime_type: mimeType,
+      url: `/api/v1/boards/assets/${assetId}/download`,
+    };
+  });
+}
+
+export async function downloadBoardAsset(
+  assetIdInput: string,
+  scopeProjectId: string | null
+): Promise<BoardAssetDownloadRecord> {
+  return withBoardsLock(async () => {
+    await ensureBoardsSchema();
+    const assetId = normalizeId(assetIdInput, 'Asset id');
+    const asset = await loadBoardAssetRow(assetId);
+    assertScopeMatch(scopeProjectId, asset.project_id, 'Project scope does not match asset project id');
+
+    let content: Uint8Array;
+    try {
+      content = await readFile(asset.storage_path);
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new StoreHttpError(404, 'Asset file missing on disk');
+      }
+      throw error;
+    }
+
+    return {
+      filename: asset.original_name,
+      mime_type: normalizeAssetMimeType(asset.mime_type),
+      content,
+    };
+  });
+}
+
+export async function deleteBoardAsset(
+  assetIdInput: string,
+  scopeProjectId: string | null
+): Promise<void> {
+  return withBoardsLock(async () => {
+    await ensureBoardsSchema();
+    const assetId = normalizeId(assetIdInput, 'Asset id');
+    const asset = await loadBoardAssetRow(assetId);
+    assertScopeMatch(scopeProjectId, asset.project_id, 'Project scope does not match asset project id');
+
+    await dbExec(`DELETE FROM board_assets WHERE id = ${sqlString(asset.id)};`);
+    await unlinkIfPresent(asset.storage_path);
+    await touchBoard(asset.board_id);
   });
 }
 

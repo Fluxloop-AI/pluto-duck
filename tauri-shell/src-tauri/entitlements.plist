@@ -2,11 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- Allow JIT compilation for Python -->
+    <!-- Allow JIT compilation for embedded runtimes -->
     <key>com.apple.security.cs.allow-jit</key>
     <true/>
     
-    <!-- Allow unsigned executable memory for PyInstaller -->
+    <!-- Allow unsigned executable memory for runtime adapters -->
     <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
     <true/>
     
@@ -14,7 +14,7 @@
     <key>com.apple.security.cs.allow-dyld-environment-variables</key>
     <true/>
     
-    <!-- Network access for backend server -->
+    <!-- Network access for local app server -->
     <key>com.apple.security.network.client</key>
     <true/>
     <key>com.apple.security.network.server</key>
@@ -25,4 +25,3 @@
     <true/>
 </dict>
 </plist>
-

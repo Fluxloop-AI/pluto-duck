@@ -14,7 +14,7 @@ interface RouteContext {
 
 export async function GET(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const conversationId = requireRouteParam(context.params.conversationId, 'Conversation id');
+    const conversationId = requireRouteParam((await context.params).conversationId, 'Conversation id');
     const scope = resolveProjectScope(request);
     const summary = await getConversationSummary(conversationId);
     if (!summary || (scope.project_id && summary.project_id !== scope.project_id)) {

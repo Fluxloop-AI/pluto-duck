@@ -19,7 +19,7 @@ interface RouteContext {
 
 export async function GET(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const analysisId = requireRouteParam(context.params.analysisId, 'analysis_id');
+    const analysisId = requireRouteParam((await context.params).analysisId, 'analysis_id');
     const scope = resolveProjectScope(request);
     return ok(await withRequestTimeout(() => getFreshness(analysisId, scope.project_id), { timeoutMs: 10_000 }));
   } catch (error) {

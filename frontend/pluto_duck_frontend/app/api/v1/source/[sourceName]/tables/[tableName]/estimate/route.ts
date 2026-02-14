@@ -14,8 +14,8 @@ interface RouteContext {
 
 export async function GET(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const sourceName = requireRouteParam(context.params.sourceName, 'Source name');
-    const tableName = requireRouteParam(context.params.tableName, 'Table name');
+    const sourceName = requireRouteParam((await context.params).sourceName, 'Source name');
+    const tableName = requireRouteParam((await context.params).tableName, 'Table name');
     const scope = resolveProjectScope(request);
     return ok(await estimateSourceTableSize(sourceName, tableName, scope.project_id));
   } catch (error) {

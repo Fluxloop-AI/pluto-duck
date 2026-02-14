@@ -18,7 +18,7 @@ interface RouteContext {
 
 export async function GET(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const analysisId = requireRouteParam(context.params.analysisId, 'analysis_id');
+    const analysisId = requireRouteParam((await context.params).analysisId, 'analysis_id');
     const scope = resolveProjectScope(request);
     const url = new URL(request.url);
     const force = (url.searchParams.get('force') ?? 'false').toLowerCase() === 'true';

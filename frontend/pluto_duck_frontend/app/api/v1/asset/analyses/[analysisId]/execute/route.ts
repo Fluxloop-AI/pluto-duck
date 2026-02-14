@@ -26,7 +26,7 @@ interface ExecuteRequest {
 
 export async function POST(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const analysisId = requireRouteParam(context.params.analysisId, 'analysis_id');
+    const analysisId = requireRouteParam((await context.params).analysisId, 'analysis_id');
     const scope = resolveProjectScope(request);
     const payload = await parseJsonBody<ExecuteRequest>(request, {
       maxBytes: 64 * 1024,

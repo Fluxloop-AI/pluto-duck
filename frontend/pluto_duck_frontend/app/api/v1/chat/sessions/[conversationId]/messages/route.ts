@@ -60,7 +60,7 @@ function extractUserText(content: unknown): string {
 
 export async function POST(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const conversationId = requireRouteParam(context.params.conversationId, 'Conversation id');
+    const conversationId = requireRouteParam((await context.params).conversationId, 'Conversation id');
     const scope = resolveProjectScope(request);
     const payload = await parseJsonBody<AppendMessageRequest>(request);
 

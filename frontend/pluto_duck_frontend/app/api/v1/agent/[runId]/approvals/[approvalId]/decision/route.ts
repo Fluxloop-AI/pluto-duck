@@ -26,8 +26,8 @@ interface ApprovalDecisionRequest {
 
 export async function POST(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const runId = requireRouteParam(context.params.runId, 'Run id');
-    const approvalId = requireRouteParam(context.params.approvalId, 'Approval id');
+    const runId = requireRouteParam((await context.params).runId, 'Run id');
+    const approvalId = requireRouteParam((await context.params).approvalId, 'Approval id');
     const scope = resolveProjectScope(request);
     const payload = await parseJsonBody<ApprovalDecisionRequest>(request);
     if (payload.decision !== 'approve' && payload.decision !== 'reject' && payload.decision !== 'edit') {

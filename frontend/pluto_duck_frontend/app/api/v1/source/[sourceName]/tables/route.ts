@@ -13,7 +13,7 @@ interface RouteContext {
 
 export async function GET(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const sourceName = requireRouteParam(context.params.sourceName, 'Source name');
+    const sourceName = requireRouteParam((await context.params).sourceName, 'Source name');
     const scope = resolveProjectScope(request);
     return ok(await listSourceTables(sourceName, scope.project_id));
   } catch (error) {

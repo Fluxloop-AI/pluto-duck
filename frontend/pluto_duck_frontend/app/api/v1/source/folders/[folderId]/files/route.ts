@@ -13,7 +13,7 @@ interface RouteContext {
 
 export async function GET(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const folderId = requireRouteParam(context.params.folderId, 'folder_id');
+    const folderId = requireRouteParam((await context.params).folderId, 'folder_id');
     const scope = resolveProjectScope(request);
     const url = new URL(request.url);
     const limit = Number(url.searchParams.get('limit') ?? '500');

@@ -13,7 +13,7 @@ interface RouteContext {
 
 export async function GET(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const runId = requireRouteParam(context.params.runId, 'Run id');
+    const runId = requireRouteParam((await context.params).runId, 'Run id');
     const scope = resolveProjectScope(request);
     return ok(await getRunResult(runId, scope.project_id));
   } catch (error) {
@@ -23,7 +23,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
 
 export async function DELETE(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const runId = requireRouteParam(context.params.runId, 'Run id');
+    const runId = requireRouteParam((await context.params).runId, 'Run id');
     const scope = resolveProjectScope(request);
     const url = new URL(request.url);
     const reason = url.searchParams.get('reason');

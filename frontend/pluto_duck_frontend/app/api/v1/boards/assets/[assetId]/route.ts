@@ -18,7 +18,7 @@ interface RouteContext {
 
 export async function DELETE(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const assetId = requireRouteParam(context.params.assetId, 'Asset id');
+    const assetId = requireRouteParam((await context.params).assetId, 'Asset id');
     const scope = resolveProjectScope(request);
     await deleteBoardAsset(assetId, scope.project_id);
     return noContent();

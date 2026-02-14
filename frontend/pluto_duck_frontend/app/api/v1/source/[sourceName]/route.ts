@@ -24,7 +24,7 @@ interface UpdateSourceRequest {
 
 export async function GET(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const sourceName = requireRouteParam(context.params.sourceName, 'Source name');
+    const sourceName = requireRouteParam((await context.params).sourceName, 'Source name');
     const scope = resolveProjectScope(request);
     return ok(await getSourceDetail(sourceName, scope.project_id));
   } catch (error) {
@@ -34,7 +34,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
 
 export async function PATCH(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const sourceName = requireRouteParam(context.params.sourceName, 'Source name');
+    const sourceName = requireRouteParam((await context.params).sourceName, 'Source name');
     const scope = resolveProjectScope(request);
     const payload = await parseJsonBody<UpdateSourceRequest>(request);
     return ok(await updateSourceConnection(sourceName, payload, scope.project_id));
@@ -45,7 +45,7 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Ne
 
 export async function DELETE(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const sourceName = requireRouteParam(context.params.sourceName, 'Source name');
+    const sourceName = requireRouteParam((await context.params).sourceName, 'Source name');
     const scope = resolveProjectScope(request);
     await deleteSourceConnection(sourceName, scope.project_id);
     return noContent();

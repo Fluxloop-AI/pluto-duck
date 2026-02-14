@@ -13,7 +13,7 @@ interface RouteContext {
 
 export async function POST(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const localTable = requireRouteParam(context.params.localTable, 'local_table');
+    const localTable = requireRouteParam((await context.params).localTable, 'local_table');
     const scope = resolveProjectScope(request);
     return ok(await refreshCachedTable(localTable, scope.project_id));
   } catch (error) {

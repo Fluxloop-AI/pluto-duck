@@ -19,7 +19,7 @@ interface RouteContext {
 
 export async function GET(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const localTable = requireRouteParam(context.params.localTable, 'local_table');
+    const localTable = requireRouteParam((await context.params).localTable, 'local_table');
     const scope = resolveProjectScope(request);
     return ok(await getCachedTable(localTable, scope.project_id));
   } catch (error) {
@@ -29,7 +29,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
 
 export async function DELETE(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const localTable = requireRouteParam(context.params.localTable, 'local_table');
+    const localTable = requireRouteParam((await context.params).localTable, 'local_table');
     const scope = resolveProjectScope(request);
     await dropCachedTable(localTable, scope.project_id);
     return noContent();

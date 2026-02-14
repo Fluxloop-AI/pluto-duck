@@ -19,7 +19,7 @@ interface RouteContext {
 
 export async function POST(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const fileId = requireRouteParam(context.params.fileId, 'file_id');
+    const fileId = requireRouteParam((await context.params).fileId, 'file_id');
     const scope = resolveProjectScope(request);
     return ok(
       await withRequestTimeout(() => rescanQuickDiagnosis(fileId, scope.project_id), {

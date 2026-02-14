@@ -20,7 +20,7 @@ export async function POST(
   context: RouteContext
 ): Promise<NextResponse> {
   try {
-    const projectId = resolveRouteProjectId(request, context.params.projectId);
+    const projectId = resolveRouteProjectId(request, (await context.params).projectId);
     const payload = await parseJsonBody<ProjectDangerOperationRequest>(request);
     return ok(await resetProjectData(projectId, payload.confirmation));
   } catch (error) {

@@ -13,7 +13,7 @@ interface RouteContext {
 
 export async function POST(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const folderId = requireRouteParam(context.params.folderId, 'folder_id');
+    const folderId = requireRouteParam((await context.params).folderId, 'folder_id');
     const scope = resolveProjectScope(request);
     return ok(await scanFolderSourceFiles(folderId, scope.project_id));
   } catch (error) {

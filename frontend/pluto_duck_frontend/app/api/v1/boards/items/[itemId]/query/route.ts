@@ -26,7 +26,7 @@ interface CreateQueryRequest {
 
 export async function POST(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const itemId = requireRouteParam(context.params.itemId, 'Item id');
+    const itemId = requireRouteParam((await context.params).itemId, 'Item id');
     const scope = resolveProjectScope(request);
     const payload = await parseJsonBody<CreateQueryRequest>(request);
     return created(await createBoardQuery(itemId, payload, scope.project_id));

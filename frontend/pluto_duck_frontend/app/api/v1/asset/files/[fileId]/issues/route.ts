@@ -19,7 +19,7 @@ interface RouteContext {
 
 export async function GET(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const fileId = requireRouteParam(context.params.fileId, 'file_id');
+    const fileId = requireRouteParam((await context.params).fileId, 'file_id');
     const scope = resolveProjectScope(request);
     const url = new URL(request.url);
     const status = url.searchParams.get('status');

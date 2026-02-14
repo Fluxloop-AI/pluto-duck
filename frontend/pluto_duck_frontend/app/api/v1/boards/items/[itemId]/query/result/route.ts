@@ -18,7 +18,7 @@ interface RouteContext {
 
 export async function GET(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const itemId = requireRouteParam(context.params.itemId, 'Item id');
+    const itemId = requireRouteParam((await context.params).itemId, 'Item id');
     const scope = resolveProjectScope(request);
     return ok(await getCachedBoardQueryResult(itemId, scope.project_id));
   } catch (error) {

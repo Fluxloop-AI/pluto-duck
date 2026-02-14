@@ -26,7 +26,7 @@ interface UpdateBoardItemRequest {
 
 export async function PATCH(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const itemId = requireRouteParam(context.params.itemId, 'Item id');
+    const itemId = requireRouteParam((await context.params).itemId, 'Item id');
     const scope = resolveProjectScope(request);
     const payload = await parseJsonBody<UpdateBoardItemRequest>(request);
     return ok(await updateBoardItem(itemId, payload, scope.project_id));
@@ -37,7 +37,7 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Ne
 
 export async function DELETE(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const itemId = requireRouteParam(context.params.itemId, 'Item id');
+    const itemId = requireRouteParam((await context.params).itemId, 'Item id');
     const scope = resolveProjectScope(request);
     await deleteBoardItem(itemId, scope.project_id);
     return noContent();

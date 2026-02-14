@@ -18,7 +18,7 @@ interface RouteContext {
 
 export async function DELETE(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const folderId = requireRouteParam(context.params.folderId, 'folder_id');
+    const folderId = requireRouteParam((await context.params).folderId, 'folder_id');
     const scope = resolveProjectScope(request);
     await deleteFolderSourceRecord(folderId, scope.project_id);
     return noContent();

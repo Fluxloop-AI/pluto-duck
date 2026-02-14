@@ -21,7 +21,7 @@ export async function PATCH(
   context: RouteContext
 ): Promise<NextResponse> {
   try {
-    const projectId = resolveRouteProjectId(request, context.params.projectId);
+    const projectId = resolveRouteProjectId(request, (await context.params).projectId);
     const payload = await parseJsonBody<UpdateProjectSettingsRequest>(request);
     await updateProjectSettings(projectId, payload);
     return noContent();

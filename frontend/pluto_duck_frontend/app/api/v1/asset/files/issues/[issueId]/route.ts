@@ -30,7 +30,7 @@ interface DeleteIssueRequest {
 
 export async function PATCH(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const issueId = requireRouteParam(context.params.issueId, 'issue_id');
+    const issueId = requireRouteParam((await context.params).issueId, 'issue_id');
     const payload = await parseJsonBody<UpdateIssueRequest>(request, {
       maxBytes: 16 * 1024,
       timeoutMs: 10_000,
@@ -47,7 +47,7 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Ne
 
 export async function DELETE(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const issueId = requireRouteParam(context.params.issueId, 'issue_id');
+    const issueId = requireRouteParam((await context.params).issueId, 'issue_id');
     const payload = await parseJsonBody<DeleteIssueRequest>(request, {
       maxBytes: 16 * 1024,
       timeoutMs: 10_000,

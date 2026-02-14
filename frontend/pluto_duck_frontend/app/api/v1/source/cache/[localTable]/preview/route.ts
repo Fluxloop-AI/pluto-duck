@@ -13,7 +13,7 @@ interface RouteContext {
 
 export async function GET(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const localTable = requireRouteParam(context.params.localTable, 'local_table');
+    const localTable = requireRouteParam((await context.params).localTable, 'local_table');
     const scope = resolveProjectScope(request);
     const url = new URL(request.url);
     const limitRaw = Number(url.searchParams.get('limit') ?? '100');

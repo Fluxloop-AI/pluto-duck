@@ -19,7 +19,7 @@ function includeEventsFlag(request: Request): boolean {
 
 export async function GET(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const conversationId = requireRouteParam(context.params.conversationId, 'Conversation id');
+    const conversationId = requireRouteParam((await context.params).conversationId, 'Conversation id');
     const scope = resolveProjectScope(request);
     return ok(await getConversationDetail(conversationId, scope.project_id, includeEventsFlag(request)));
   } catch (error) {
@@ -29,7 +29,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
 
 export async function DELETE(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const conversationId = requireRouteParam(context.params.conversationId, 'Conversation id');
+    const conversationId = requireRouteParam((await context.params).conversationId, 'Conversation id');
     const scope = resolveProjectScope(request);
     await deleteConversation(conversationId, scope.project_id);
     return noContent();

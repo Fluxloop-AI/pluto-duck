@@ -20,7 +20,7 @@ interface RouteContext {
 
 export async function GET(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const fileId = requireRouteParam(context.params.fileId, 'file_id');
+    const fileId = requireRouteParam((await context.params).fileId, 'file_id');
     const scope = resolveProjectScope(request);
     return ok(await withRequestTimeout(() => getFileAsset(fileId, scope.project_id), { timeoutMs: 10_000 }));
   } catch (error) {
@@ -30,7 +30,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
 
 export async function DELETE(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const fileId = requireRouteParam(context.params.fileId, 'file_id');
+    const fileId = requireRouteParam((await context.params).fileId, 'file_id');
     const scope = resolveProjectScope(request);
     const url = new URL(request.url);
     const dropTable = (url.searchParams.get('drop_table') ?? 'true').toLowerCase() !== 'false';

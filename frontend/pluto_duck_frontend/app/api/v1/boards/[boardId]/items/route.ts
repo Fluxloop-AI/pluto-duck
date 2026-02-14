@@ -31,7 +31,7 @@ interface CreateBoardItemRequest {
 
 export async function GET(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const boardId = requireRouteParam(context.params.boardId, 'Board id');
+    const boardId = requireRouteParam((await context.params).boardId, 'Board id');
     const scope = resolveProjectScope(request);
     return ok(await listBoardItems(boardId, scope.project_id));
   } catch (error) {
@@ -41,7 +41,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
 
 export async function POST(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const boardId = requireRouteParam(context.params.boardId, 'Board id');
+    const boardId = requireRouteParam((await context.params).boardId, 'Board id');
     const scope = resolveProjectScope(request);
     const payload = await parseJsonBody<CreateBoardItemRequest>(request);
     return created(await createBoardItem(boardId, payload, scope.project_id));

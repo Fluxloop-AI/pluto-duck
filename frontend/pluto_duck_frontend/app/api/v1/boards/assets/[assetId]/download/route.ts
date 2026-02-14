@@ -17,7 +17,7 @@ interface RouteContext {
 
 export async function GET(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const assetId = requireRouteParam(context.params.assetId, 'Asset id');
+    const assetId = requireRouteParam((await context.params).assetId, 'Asset id');
     const scope = resolveProjectScope(request);
     const downloaded = await downloadBoardAsset(assetId, scope.project_id);
     return new NextResponse(downloaded.content, {

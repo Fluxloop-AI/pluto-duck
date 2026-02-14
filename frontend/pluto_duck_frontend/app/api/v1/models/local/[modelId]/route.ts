@@ -13,7 +13,7 @@ interface RouteContext {
 
 export async function DELETE(_request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const modelId = requireRouteParam(context.params.modelId, 'model_id');
+    const modelId = requireRouteParam((await context.params).modelId, 'model_id');
     await withRequestTimeout(() => deleteLocalModel(modelId), {
       timeoutMs: 10_000,
       detail: 'Local model delete timed out',

@@ -30,7 +30,7 @@ interface UpdateAnalysisRequest {
 
 export async function GET(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const analysisId = requireRouteParam(context.params.analysisId, 'analysis_id');
+    const analysisId = requireRouteParam((await context.params).analysisId, 'analysis_id');
     const scope = resolveProjectScope(request);
     return ok(await withRequestTimeout(() => getAnalysis(analysisId, scope.project_id), { timeoutMs: 10_000 }));
   } catch (error) {
@@ -40,7 +40,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
 
 export async function PATCH(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const analysisId = requireRouteParam(context.params.analysisId, 'analysis_id');
+    const analysisId = requireRouteParam((await context.params).analysisId, 'analysis_id');
     const scope = resolveProjectScope(request);
     const payload = await parseJsonBody<UpdateAnalysisRequest>(request, {
       maxBytes: 256 * 1024,
@@ -59,7 +59,7 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Ne
 
 export async function DELETE(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const analysisId = requireRouteParam(context.params.analysisId, 'analysis_id');
+    const analysisId = requireRouteParam((await context.params).analysisId, 'analysis_id');
     const scope = resolveProjectScope(request);
     await withRequestTimeout(() => deleteAnalysis(analysisId, scope.project_id), {
       timeoutMs: 30_000,

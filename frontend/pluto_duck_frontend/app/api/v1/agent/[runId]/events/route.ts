@@ -12,7 +12,7 @@ interface RouteContext {
 
 export async function GET(request: Request, context: RouteContext): Promise<Response> {
   try {
-    const runId = requireRouteParam(context.params.runId, 'Run id');
+    const runId = requireRouteParam((await context.params).runId, 'Run id');
     const scope = resolveProjectScope(request);
     const stream = createAgentEventStream(runId, request.signal, scope.project_id);
     return new Response(stream, {

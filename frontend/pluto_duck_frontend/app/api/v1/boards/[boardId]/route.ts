@@ -26,7 +26,7 @@ interface UpdateBoardRequest {
 
 export async function GET(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const boardId = requireRouteParam(context.params.boardId, 'Board id');
+    const boardId = requireRouteParam((await context.params).boardId, 'Board id');
     const scope = resolveProjectScope(request);
     return ok(await getBoardDetail(boardId, scope.project_id));
   } catch (error) {
@@ -36,7 +36,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Next
 
 export async function PATCH(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const boardId = requireRouteParam(context.params.boardId, 'Board id');
+    const boardId = requireRouteParam((await context.params).boardId, 'Board id');
     const scope = resolveProjectScope(request);
     const payload = await parseJsonBody<UpdateBoardRequest>(request);
     return ok(await updateBoard(boardId, payload, scope.project_id));
@@ -47,7 +47,7 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Ne
 
 export async function DELETE(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const boardId = requireRouteParam(context.params.boardId, 'Board id');
+    const boardId = requireRouteParam((await context.params).boardId, 'Board id');
     const scope = resolveProjectScope(request);
     await deleteBoard(boardId, scope.project_id);
     return noContent();

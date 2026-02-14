@@ -13,7 +13,7 @@ interface RouteContext {
 
 export async function GET(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const runId = requireRouteParam(context.params.runId, 'Run id');
+    const runId = requireRouteParam((await context.params).runId, 'Run id');
     const scope = resolveProjectScope(request);
     return ok(await listRunApprovals(runId, scope.project_id));
   } catch (error) {

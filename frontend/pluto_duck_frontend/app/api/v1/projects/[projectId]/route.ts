@@ -16,7 +16,7 @@ export async function GET(
   context: RouteContext
 ): Promise<NextResponse> {
   try {
-    const projectId = resolveRouteProjectId(request, context.params.projectId);
+    const projectId = resolveRouteProjectId(request, (await context.params).projectId);
     return ok(await getProject(projectId));
   } catch (error) {
     return toErrorResponse(error);
@@ -28,7 +28,7 @@ export async function DELETE(
   context: RouteContext
 ): Promise<NextResponse> {
   try {
-    resolveRouteProjectId(request, context.params.projectId);
+    resolveRouteProjectId(request, (await context.params).projectId);
     legacyDeleteProject();
   } catch (error) {
     return toErrorResponse(error);

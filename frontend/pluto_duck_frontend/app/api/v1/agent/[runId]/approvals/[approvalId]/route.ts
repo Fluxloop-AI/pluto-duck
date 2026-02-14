@@ -14,8 +14,8 @@ interface RouteContext {
 
 export async function GET(request: Request, context: RouteContext): Promise<NextResponse> {
   try {
-    const runId = requireRouteParam(context.params.runId, 'Run id');
-    const approvalId = requireRouteParam(context.params.approvalId, 'Approval id');
+    const runId = requireRouteParam((await context.params).runId, 'Run id');
+    const approvalId = requireRouteParam((await context.params).approvalId, 'Approval id');
     const scope = resolveProjectScope(request);
     return ok(await getRunApproval(runId, approvalId, scope.project_id));
   } catch (error) {

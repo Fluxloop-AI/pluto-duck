@@ -72,7 +72,7 @@ export function BoardToolbar({
       {/* Tab List - aligned with editor content */}
       <div className="w-full max-w-4xl pl-6">
         <div className="flex items-center gap-1">
-          <div className="flex-1 min-w-0 overflow-x-auto scrollbar-hide">
+          <div className="min-w-0 max-w-full overflow-x-auto scrollbar-hide">
             <div className="flex items-center gap-1">
               {tabs.map((tab) => (
                 <div

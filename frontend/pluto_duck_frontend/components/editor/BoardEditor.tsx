@@ -241,7 +241,7 @@ export const BoardEditor = forwardRef<BoardEditorHandle, BoardEditorProps>(
               <div className="relative min-h-full max-w-4xl" ref={onRef}>
                 <RichTextPlugin
                   contentEditable={
-                    <ContentEditable className="min-h-full outline-none prose dark:prose-invert max-w-none py-6 px-6" />
+                    <ContentEditable className="min-h-full outline-none prose dark:prose-invert max-w-none py-6 px-6 [--tw-prose-body:hsl(var(--foreground))]" />
                   }
                   placeholder={
                     <div className="absolute top-6 left-6 text-muted-foreground pointer-events-none">

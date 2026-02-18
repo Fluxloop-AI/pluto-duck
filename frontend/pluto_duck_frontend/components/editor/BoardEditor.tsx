@@ -241,10 +241,10 @@ export const BoardEditor = forwardRef<BoardEditorHandle, BoardEditorProps>(
               <div className="relative min-h-full max-w-4xl" ref={onRef}>
                 <RichTextPlugin
                   contentEditable={
-                    <ContentEditable className="min-h-full outline-none prose dark:prose-invert max-w-none py-6 px-8" />
+                    <ContentEditable className="min-h-full outline-none prose dark:prose-invert max-w-none py-6 px-6" />
                   }
                   placeholder={
-                    <div className="absolute top-6 left-8 text-muted-foreground pointer-events-none">
+                    <div className="absolute top-6 left-6 text-muted-foreground pointer-events-none">
                       Type &apos;/&apos; to insert blocks...
                     </div>
                   }

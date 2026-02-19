@@ -20,7 +20,7 @@ import { useRef, useState, useCallback, forwardRef, useImperativeHandle } from '
 
 import { editorTheme } from './theme';
 import type { Board } from '../../lib/boardsApi';
-import { ImageNode, AssetEmbedNode, CalloutNode, type AssetEmbedConfig } from './nodes';
+import { ImageNode, AssetEmbedNode, CalloutNode, MarkdownTableNode, type AssetEmbedConfig } from './nodes';
 import SlashCommandPlugin, { AssetEmbedContext } from './plugins/SlashCommandPlugin';
 import DraggableBlockPlugin from './plugins/DraggableBlockPlugin';
 import { InitialContentPlugin } from './plugins/InitialContentPlugin';
@@ -96,6 +96,7 @@ export const BoardEditor = forwardRef<BoardEditorHandle, BoardEditorProps>(
       AutoLinkNode,
       HorizontalRuleNode,
       CalloutNode,
+      MarkdownTableNode,
       ImageNode,
       AssetEmbedNode,
     ],

@@ -11,12 +11,18 @@ import {
   type CalloutType,
 } from './nodes/CalloutNode';
 import {
+  $createMarkdownTableNode,
+  $isMarkdownTableNode,
+  MarkdownTableNode,
+} from './nodes/MarkdownTableNode';
+import {
   CALLOUT_BLOCK_START_REGEXP,
   CALLOUT_INLINE_REGEXP,
   HORIZONTAL_RULE_REGEXP,
   resolveCalloutType,
   stripCalloutQuotePrefix,
 } from './transformerUtils';
+import { parseMarkdownTable } from './markdownTableUtils';
 
 const HORIZONTAL_RULE: ElementTransformer = {
   dependencies: [HorizontalRuleNode],
@@ -93,4 +99,41 @@ const CALLOUT_BLOCK: MultilineElementTransformer = {
   type: 'multiline-element',
 };
 
-export const BOARD_TRANSFORMERS = [CALLOUT_BLOCK, CALLOUT_INLINE, HORIZONTAL_RULE, ...TRANSFORMERS];
+export const MARKDOWN_TABLE: MultilineElementTransformer = {
+  dependencies: [MarkdownTableNode],
+  export: (node) => ($isMarkdownTableNode(node) ? node.getMarkdown() : null),
+  regExpStart: /^\|(.+)\|$/,
+  regExpEnd: {
+    optional: true,
+    regExp: /^(?!\|)/,
+  },
+  replace: (rootNode, children, startMatch, _endMatch, linesInBetween, isImport) => {
+    if (!isImport) {
+      return false;
+    }
+
+    const markdownLines = children
+      ? children
+          .map((node) => node.getTextContent())
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0)
+      : [startMatch[0], ...(linesInBetween || [])];
+
+    const markdown = markdownLines.join('\n').trim();
+    const parsed = parseMarkdownTable(markdown);
+    if (!parsed) {
+      return false;
+    }
+
+    rootNode.append($createMarkdownTableNode(markdown));
+  },
+  type: 'multiline-element',
+};
+
+export const BOARD_TRANSFORMERS = [
+  MARKDOWN_TABLE,
+  CALLOUT_BLOCK,
+  CALLOUT_INLINE,
+  HORIZONTAL_RULE,
+  ...TRANSFORMERS,
+];

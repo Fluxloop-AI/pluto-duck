@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { PlusIcon, XIcon, MoreHorizontal, Pencil, Save, Play, Download } from 'lucide-react';
+import { PlusIcon, XIcon, MoreHorizontal, Pencil, Save, Play, Download, Loader2, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -79,6 +79,11 @@ export function BoardToolbar({
   };
 
   const handleMenuAction = () => undefined;
+  const formattedLastSavedAt = lastSavedAt?.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
 
   if (!board) return null;
 
@@ -175,14 +180,37 @@ export function BoardToolbar({
               <TooltipTrigger asChild>
                 <button
                   onClick={onSave}
-                  className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+                  className={cn(
+                    'relative flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground',
+                    saveStatus === 'saving' && 'pointer-events-none opacity-50'
+                  )}
                   aria-label="Save"
                 >
                   <Save className="h-4 w-4" />
+                  {saveStatus === 'unsaved' && (
+                    <span className="absolute bottom-0 right-0 h-2 w-2 rounded-full bg-orange-400" />
+                  )}
+                  {saveStatus === 'saving' && (
+                    <span className="absolute bottom-0 right-0 flex h-3 w-3 items-center justify-center rounded-full bg-background">
+                      <Loader2 className="h-2.5 w-2.5 animate-spin text-muted-foreground" />
+                    </span>
+                  )}
+                  {(saveStatus === 'saved' || saveStatus === 'auto-saved') && (
+                    <span className="absolute bottom-0 right-0 flex h-3 w-3 items-center justify-center rounded-full bg-green-500">
+                      <Check className="h-2 w-2 text-white" />
+                    </span>
+                  )}
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom">
-                <p>Save</p>
+                {(saveStatus === 'idle' || saveStatus === 'unsaved') && <p>Save (⌘S)</p>}
+                {saveStatus === 'saving' && <p>Saving...</p>}
+                {saveStatus === 'saved' && (
+                  <p>{formattedLastSavedAt ? `Saved · ${formattedLastSavedAt}` : 'Saved'}</p>
+                )}
+                {saveStatus === 'auto-saved' && (
+                  <p>{formattedLastSavedAt ? `Auto-saved · ${formattedLastSavedAt}` : 'Auto-saved'}</p>
+                )}
               </TooltipContent>
             </Tooltip>
 

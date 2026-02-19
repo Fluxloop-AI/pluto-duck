@@ -1,5 +1,5 @@
 export const editorTheme = {
-  paragraph: 'mb-2 text-base',
+  paragraph: 'mt-0 mb-3 text-base',
   quote: 'border-l-4 border-gray-300 pl-4 italic my-2',
   heading: {
     h1: 'text-3xl font-bold mb-4 mt-6',
@@ -10,8 +10,8 @@ export const editorTheme = {
     nested: {
       listitem: 'list-none',
     },
-    ol: 'list-decimal ml-4 my-2',
-    ul: 'list-disc ml-4 my-2',
+    ol: 'list-decimal ml-0 pl-5 my-2',
+    ul: 'list-disc ml-0 pl-5 my-2',
     listitem: 'mb-1',
   },
   code: 'bg-muted px-1.5 py-0.5 rounded font-mono text-sm',

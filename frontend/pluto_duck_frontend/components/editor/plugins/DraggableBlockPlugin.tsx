@@ -47,6 +47,7 @@ export default function DraggableBlockPlugin({ anchorElem = document.body }: Dra
         style={{
           position: 'absolute',
           left: 0,
+          top: 0,
           right: 0,
           height: '4px',
           backgroundColor: '#3b82f6',

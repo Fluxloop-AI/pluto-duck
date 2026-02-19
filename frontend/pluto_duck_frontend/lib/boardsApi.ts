@@ -11,6 +11,8 @@ export interface BoardTab {
   content: string | null; // Lexical editor JSON content
 }
 
+export type SaveStatus = 'idle' | 'unsaved' | 'saving' | 'saved' | 'auto-saved';
+
 export interface BoardSettings {
   tabs?: BoardTab[];
   activeTabId?: string;

@@ -1,6 +1,7 @@
 'use client';
 
 import { LexicalComposer } from '@lexical/react/LexicalComposer';
+import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { RichTextPlugin } from '@lexical/react/LexicalRichTextPlugin';
 import { ContentEditable } from '@lexical/react/LexicalContentEditable';
 import { HistoryPlugin } from '@lexical/react/LexicalHistoryPlugin';
@@ -23,8 +24,10 @@ import {
   forwardRef,
   useImperativeHandle,
   useEffect,
+  type MutableRefObject,
   type KeyboardEvent,
 } from 'react';
+import type { LexicalEditor } from 'lexical';
 
 import { editorTheme } from './theme';
 import type { Board } from '../../lib/boardsApi';
@@ -49,11 +52,13 @@ interface BoardEditorProps {
   boardUpdatedAt?: string | null;
   initialContent: string | null;
   onContentChange: (content: string) => void;
+  onContentDirty?: () => void;
 }
 
 export interface BoardEditorHandle {
   insertMarkdown: (content: string) => void;
   insertAssetEmbed: (analysisId: string, projectId: string, config: AssetEmbedConfig) => void;
+  flushAndGetSnapshot: () => string | null;
 }
 
 // State for the two-step embed flow
@@ -70,6 +75,19 @@ interface EditConfigState {
   onSave: ((config: AssetEmbedConfig) => void) | null;
 }
 
+function EditorRefPlugin({ editorRef }: { editorRef: MutableRefObject<LexicalEditor | null> }) {
+  const [editor] = useLexicalComposerContext();
+
+  useEffect(() => {
+    editorRef.current = editor;
+    return () => {
+      editorRef.current = null;
+    };
+  }, [editor, editorRef]);
+
+  return null;
+}
+
 export const BoardEditor = forwardRef<BoardEditorHandle, BoardEditorProps>(
   function BoardEditor({
     board,
@@ -80,19 +98,11 @@ export const BoardEditor = forwardRef<BoardEditorHandle, BoardEditorProps>(
     boardUpdatedAt,
     initialContent,
     onContentChange,
+    onContentDirty,
   }, ref) {
   const insertMarkdownRef = useRef<InsertMarkdownHandle>(null);
   const insertAssetEmbedRef = useRef<InsertAssetEmbedHandle>(null);
-
-  // Expose insertMarkdown and insertAssetEmbed methods to parent
-  useImperativeHandle(ref, () => ({
-    insertMarkdown: (content: string) => {
-      insertMarkdownRef.current?.insertMarkdown(content);
-    },
-    insertAssetEmbed: (analysisId: string, projectId: string, config: AssetEmbedConfig) => {
-      insertAssetEmbedRef.current?.insertAssetEmbed(analysisId, projectId, config);
-    },
-  }));
+  const lexicalEditorRef = useRef<LexicalEditor | null>(null);
 
   const initialConfig = {
     namespace: 'BoardEditor',
@@ -117,10 +127,41 @@ export const BoardEditor = forwardRef<BoardEditorHandle, BoardEditorProps>(
     ],
   };
 
-  const [isSaving, setIsSaving] = useState(false);
-  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedContentRef = useRef<string | null>(initialContent);
+
+  const flushAndGetSnapshot = useCallback(() => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+
+    const editor = lexicalEditorRef.current;
+    if (!editor) {
+      return null;
+    }
+
+    const jsonState = JSON.stringify(editor.getEditorState().toJSON());
+    if (jsonState === lastSavedContentRef.current) {
+      return null;
+    }
+
+    lastSavedContentRef.current = jsonState;
+    console.log('[BoardEditor] Flush tab content:', tabId);
+    onContentChange(jsonState);
+    return jsonState;
+  }, [onContentChange, tabId]);
+
+  // Expose insertMarkdown and insertAssetEmbed methods to parent
+  useImperativeHandle(ref, () => ({
+    insertMarkdown: (content: string) => {
+      insertMarkdownRef.current?.insertMarkdown(content);
+    },
+    insertAssetEmbed: (analysisId: string, projectId: string, config: AssetEmbedConfig) => {
+      insertAssetEmbedRef.current?.insertAssetEmbed(analysisId, projectId, config);
+    },
+    flushAndGetSnapshot,
+  }), [flushAndGetSnapshot]);
 
   // Asset Embed flow state (for new embeds)
   const [embedFlow, setEmbedFlow] = useState<EmbedFlowState>({
@@ -211,20 +252,26 @@ export const BoardEditor = forwardRef<BoardEditorHandle, BoardEditorProps>(
       if (jsonState === lastSavedContentRef.current) {
         return;
       }
-      
-      setIsSaving(true);
+
       lastSavedContentRef.current = jsonState;
+      onContentDirty?.();
 
       console.log('[BoardEditor] Saving tab content:', tabId);
       onContentChange(jsonState);
-
-      // Reset saving state and update last saved time
-      setTimeout(() => {
-        setIsSaving(false);
-        setLastSavedAt(new Date());
-      }, 500);
     }, 1000); // 1 second debounce
-  }, [tabId, onContentChange]);
+  }, [onContentChange, onContentDirty, tabId]);
+
+  useEffect(() => {
+    lastSavedContentRef.current = initialContent;
+  }, [initialContent]);
+
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const [anchorElem, setAnchorElem] = useState<HTMLElement | null>(null);
   const onRef = useCallback((node: HTMLDivElement | null) => {
@@ -262,28 +309,10 @@ export const BoardEditor = forwardRef<BoardEditorHandle, BoardEditorProps>(
 
   return (
     <div className="h-full flex flex-col bg-background relative">
-      <div className="absolute top-2 right-4 z-10 flex items-center gap-3">
-        {lastSavedAt && (
-          <span className="text-xs text-muted-foreground">
-            {lastSavedAt.toLocaleString('en-US', {
-              year: 'numeric',
-              month: 'long',
-              day: 'numeric',
-              hour: 'numeric',
-              minute: '2-digit',
-              hour12: true,
-            })}
-          </span>
-        )}
-        {isSaving ? (
-          <span className="text-xs text-muted-foreground animate-pulse">Saving...</span>
-        ) : (
-          <span className="text-xs text-muted-foreground opacity-50">Auto-saved</span>
-        )}
-      </div>
       <AssetEmbedContext.Provider value={{ openAssetEmbed }}>
         <ConfigModalContext.Provider value={{ openConfigModal }}>
           <LexicalComposer initialConfig={initialConfig}>
+            <EditorRefPlugin editorRef={lexicalEditorRef} />
             <div className="flex-1 overflow-auto">
               <div className="min-h-full">
                 <div className="pl-[22px] pr-6 pt-5 pb-6">

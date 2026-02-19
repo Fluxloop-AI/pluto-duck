@@ -10,12 +10,12 @@ import {
   TARGET_LINE_HALF_HEIGHT,
   TEXT_BOX_HORIZONTAL_PADDING,
   Upward,
-} from './constants';
-import { Point, Rectangle, type PointContainResult } from './geometry';
+} from './constants.ts';
+import { Point, Rectangle, type PointContainResult } from './geometry.ts';
 
 let prevIndex = Infinity;
 
-type PositionEvent = Pick<MouseEvent, 'x' | 'y'>;
+type PositionEvent = Pick<MouseEvent, 'clientX' | 'clientY'>;
 
 export function getCurrentIndex(keysLength: number): number {
   if (keysLength === 0) {
@@ -74,9 +74,9 @@ export function getBlockElement(
         const firstNodeZoom = calculateZoomLevel(firstNode);
         const lastNodeZoom = calculateZoomLevel(lastNode);
 
-        if (event.y / firstNodeZoom < firstNodeRect.top) {
+        if (event.clientY / firstNodeZoom < firstNodeRect.top) {
           blockElem = firstNode;
-        } else if (event.y / lastNodeZoom > lastNodeRect.bottom) {
+        } else if (event.clientY / lastNodeZoom > lastNodeRect.bottom) {
           blockElem = lastNode;
         }
 
@@ -98,7 +98,7 @@ export function getBlockElement(
       }
 
       const zoom = calculateZoomLevel(elem);
-      const point = new Point(event.x / zoom, event.y / zoom);
+      const point = new Point(event.clientX / zoom, event.clientY / zoom);
       const domRect = Rectangle.fromDOM(elem);
       const { marginTop, marginBottom } = getCollapsedMargins(elem);
       const rect = domRect.generateNewRect({
@@ -114,6 +114,14 @@ export function getBlockElement(
       } = rect.contains(point) as PointContainResult;
 
       if (result) {
+        blockElem = elem;
+        prevIndex = index;
+        break;
+      }
+
+      if (useEdgeAsDefault && !isOnTopSide && !isOnBottomSide) {
+        // Drag handle can be slightly outside text box on the horizontal axis.
+        // In drag mode, prioritize vertical proximity to keep target line visible.
         blockElem = elem;
         prevIndex = index;
         break;
@@ -184,7 +192,7 @@ export function setTargetLine(
 
   let lineTop = targetBlockElemTop;
 
-  if (mouseY >= targetBlockElemTop) {
+  if (shouldInsertAfterBlock(mouseY, targetBlockElemTop, targetBlockElemHeight)) {
     lineTop += targetBlockElemHeight + marginBottom / 2;
   } else {
     lineTop -= marginTop / 2;
@@ -196,6 +204,10 @@ export function setTargetLine(
   targetLineElem.style.transform = `translate(${left}px, ${top}px)`;
   targetLineElem.style.width = `${anchorWidth - (TEXT_BOX_HORIZONTAL_PADDING - SPACE) * 2}px`;
   targetLineElem.style.opacity = '.4';
+}
+
+export function shouldInsertAfterBlock(pointerY: number, targetTop: number, targetHeight: number): boolean {
+  return pointerY >= targetTop + targetHeight / 2;
 }
 
 export function hideTargetLine(targetLineElem: HTMLElement | null): void {

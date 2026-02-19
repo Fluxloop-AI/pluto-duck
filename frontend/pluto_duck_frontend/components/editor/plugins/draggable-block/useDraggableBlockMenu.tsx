@@ -26,6 +26,7 @@ import { DRAG_DATA_FORMAT } from './constants';
 import {
   getBlockElement,
   hideTargetLine,
+  shouldInsertAfterBlock,
   setDragImage,
   setMenuPosition,
   setTargetLine,
@@ -40,6 +41,22 @@ interface UseDraggableBlockMenuParams {
   menuComponent: ReactNode;
   targetLineComponent: ReactNode;
   isOnMenu: (element: HTMLElement) => boolean;
+}
+
+function resolveEventTargetElement(target: EventTarget | null): HTMLElement | null {
+  if (target == null) {
+    return null;
+  }
+
+  if (isHTMLElement(target)) {
+    return target;
+  }
+
+  if (target instanceof Node && target.parentElement && isHTMLElement(target.parentElement)) {
+    return target.parentElement;
+  }
+
+  return null;
 }
 
 export function useDraggableBlockMenu({
@@ -107,8 +124,9 @@ export function useDraggableBlockMenu({
         return false;
       }
 
-      const { pageY, target } = event;
-      if (target != null && !isHTMLElement(target)) {
+      const { clientY, target } = event;
+      const targetElement = resolveEventTargetElement(target);
+      if (targetElement === null) {
         return false;
       }
 
@@ -119,7 +137,7 @@ export function useDraggableBlockMenu({
         return false;
       }
 
-      setTargetLine(targetLineElem, targetBlockElem, pageY / calculateZoomLevel(target), anchorElem);
+      setTargetLine(targetLineElem, targetBlockElem, clientY / calculateZoomLevel(targetElement), anchorElem);
 
       // Prevent default event to be able to trigger onDrop events.
       event.preventDefault();
@@ -136,15 +154,15 @@ export function useDraggableBlockMenu({
         return false;
       }
 
-      const { target, dataTransfer, pageY } = event;
+      const { target, dataTransfer, clientY } = event;
+      const targetElement = resolveEventTargetElement(target);
+      if (targetElement === null) {
+        return false;
+      }
       const dragData = dataTransfer != null ? dataTransfer.getData(DRAG_DATA_FORMAT) : '';
       const draggedNode = $getNodeByKey(dragData);
 
       if (!draggedNode) {
-        return false;
-      }
-
-      if (target != null && !isHTMLElement(target)) {
         return false;
       }
 
@@ -162,8 +180,14 @@ export function useDraggableBlockMenu({
         return true;
       }
 
-      const targetBlockElemTop = targetBlockElem.getBoundingClientRect().top;
-      if (pageY / calculateZoomLevel(target) >= targetBlockElemTop) {
+      const { top: targetBlockElemTop, height: targetBlockElemHeight } = targetBlockElem.getBoundingClientRect();
+      if (
+        shouldInsertAfterBlock(
+          clientY / calculateZoomLevel(targetElement),
+          targetBlockElemTop,
+          targetBlockElemHeight,
+        )
+      ) {
         targetNode.insertAfter(draggedNode);
       } else {
         targetNode.insertBefore(draggedNode);

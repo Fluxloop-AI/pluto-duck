@@ -334,10 +334,6 @@ export const BoardsView = forwardRef<BoardsViewHandle, BoardsViewProps>(
     saveTabs(tabs, activeTabIdRef.current, { immediate: true, isManual: true });
   }, [saveTabs, tabs]);
 
-  useEffect(() => {
-    // Reserved for Phase 4 wiring (toolbar button + keyboard shortcut).
-  }, [handleManualSave]);
-
   // Expose editor insertion methods to parent.
   useImperativeHandle(ref, () => ({
     insertMarkdown: (content: string) => {
@@ -367,6 +363,9 @@ export const BoardsView = forwardRef<BoardsViewHandle, BoardsViewProps>(
         board={activeBoard}
         tabs={tabs}
         activeTabId={activeTabId}
+        saveStatus={saveStatus}
+        lastSavedAt={lastSavedAt}
+        onSave={handleManualSave}
         onSelectTab={handleSelectTab}
         onAddTab={handleAddTab}
         onRenameTab={handleRenameTab}
@@ -385,6 +384,7 @@ export const BoardsView = forwardRef<BoardsViewHandle, BoardsViewProps>(
             boardUpdatedAt={boardUpdatedAt}
             initialContent={activeTab.content}
             onContentChange={handleTabContentChange}
+            onContentDirty={markUnsaved}
           />
         )}
       </div>

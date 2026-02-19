@@ -17,12 +17,15 @@ import {
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { getDisplayTabTitle } from '@/lib/boardTitle';
-import type { Board, BoardTab } from '../../lib/boardsApi';
+import type { Board, BoardTab, SaveStatus } from '../../lib/boardsApi';
 
 interface BoardToolbarProps {
   board: Board | null;
   tabs: BoardTab[];
   activeTabId: string | null;
+  saveStatus: SaveStatus;
+  lastSavedAt: Date | null;
+  onSave: () => void;
   onSelectTab: (tabId: string) => void;
   onAddTab: () => void;
   onRenameTab: (tabId: string, newName: string) => void;
@@ -33,6 +36,9 @@ export function BoardToolbar({
   board,
   tabs,
   activeTabId,
+  saveStatus,
+  lastSavedAt,
+  onSave,
   onSelectTab,
   onAddTab,
   onRenameTab,
@@ -77,7 +83,11 @@ export function BoardToolbar({
   if (!board) return null;
 
   return (
-    <div className="flex items-center bg-background py-2">
+    <div
+      className="flex items-center bg-background py-2"
+      data-save-status={saveStatus}
+      data-last-saved-at={lastSavedAt?.toISOString() ?? ''}
+    >
       <div className="flex w-full items-center pl-4 pr-3">
         <div className="min-w-0 flex-1 overflow-x-auto scrollbar-hide">
           <div className="flex min-w-max items-center gap-1">
@@ -164,7 +174,7 @@ export function BoardToolbar({
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
-                  onClick={handleMenuAction}
+                  onClick={onSave}
                   className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
                   aria-label="Save"
                 >

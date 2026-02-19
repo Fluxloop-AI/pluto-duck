@@ -49,6 +49,7 @@ interface BoardEditorProps {
   boardUpdatedAt?: string | null;
   initialContent: string | null;
   onContentChange: (content: string) => void;
+  onContentDirty?: () => void;
 }
 
 export interface BoardEditorHandle {
@@ -80,6 +81,7 @@ export const BoardEditor = forwardRef<BoardEditorHandle, BoardEditorProps>(
     boardUpdatedAt,
     initialContent,
     onContentChange,
+    onContentDirty,
   }, ref) {
   const insertMarkdownRef = useRef<InsertMarkdownHandle>(null);
   const insertAssetEmbedRef = useRef<InsertAssetEmbedHandle>(null);
@@ -117,8 +119,6 @@ export const BoardEditor = forwardRef<BoardEditorHandle, BoardEditorProps>(
     ],
   };
 
-  const [isSaving, setIsSaving] = useState(false);
-  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedContentRef = useRef<string | null>(initialContent);
 
@@ -211,20 +211,14 @@ export const BoardEditor = forwardRef<BoardEditorHandle, BoardEditorProps>(
       if (jsonState === lastSavedContentRef.current) {
         return;
       }
-      
-      setIsSaving(true);
+
       lastSavedContentRef.current = jsonState;
+      onContentDirty?.();
 
       console.log('[BoardEditor] Saving tab content:', tabId);
       onContentChange(jsonState);
-
-      // Reset saving state and update last saved time
-      setTimeout(() => {
-        setIsSaving(false);
-        setLastSavedAt(new Date());
-      }, 500);
     }, 1000); // 1 second debounce
-  }, [tabId, onContentChange]);
+  }, [onContentChange, onContentDirty, tabId]);
 
   const [anchorElem, setAnchorElem] = useState<HTMLElement | null>(null);
   const onRef = useCallback((node: HTMLDivElement | null) => {
@@ -262,25 +256,6 @@ export const BoardEditor = forwardRef<BoardEditorHandle, BoardEditorProps>(
 
   return (
     <div className="h-full flex flex-col bg-background relative">
-      <div className="absolute top-2 right-4 z-10 flex items-center gap-3">
-        {lastSavedAt && (
-          <span className="text-xs text-muted-foreground">
-            {lastSavedAt.toLocaleString('en-US', {
-              year: 'numeric',
-              month: 'long',
-              day: 'numeric',
-              hour: 'numeric',
-              minute: '2-digit',
-              hour12: true,
-            })}
-          </span>
-        )}
-        {isSaving ? (
-          <span className="text-xs text-muted-foreground animate-pulse">Saving...</span>
-        ) : (
-          <span className="text-xs text-muted-foreground opacity-50">Auto-saved</span>
-        )}
-      </div>
       <AssetEmbedContext.Provider value={{ openAssetEmbed }}>
         <ConfigModalContext.Provider value={{ openConfigModal }}>
           <LexicalComposer initialConfig={initialConfig}>

@@ -10,23 +10,22 @@ import {
   CalloutNode,
   type CalloutType,
 } from './nodes/CalloutNode';
+import {
+  CALLOUT_BLOCK_START_REGEXP,
+  CALLOUT_INLINE_REGEXP,
+  HORIZONTAL_RULE_REGEXP,
+  resolveCalloutType,
+  stripCalloutQuotePrefix,
+} from './transformerUtils';
 
 const HORIZONTAL_RULE: ElementTransformer = {
   dependencies: [HorizontalRuleNode],
   export: (node) => ($isHorizontalRuleNode(node) ? '---' : null),
-  regExp: /^(---|\*\*\*|___)\s?$/,
+  regExp: HORIZONTAL_RULE_REGEXP,
   replace: (parentNode) => {
     parentNode.replace($createHorizontalRuleNode());
   },
   type: 'element',
-};
-
-const CALLOUT_TYPE_BY_MARKER: Record<string, CalloutType> = {
-  NOTE: 'info',
-  IMPORTANT: 'info',
-  WARNING: 'warning',
-  TIP: 'success',
-  CAUTION: 'error',
 };
 
 const CALLOUT_MARKER_BY_TYPE: Record<CalloutType, string> = {
@@ -39,10 +38,9 @@ const CALLOUT_MARKER_BY_TYPE: Record<CalloutType, string> = {
 const CALLOUT_INLINE: ElementTransformer = {
   dependencies: [CalloutNode],
   export: () => null,
-  regExp: /^>\s*\[!(NOTE|WARNING|TIP|IMPORTANT|CAUTION)\]\s*(.*)$/i,
+  regExp: CALLOUT_INLINE_REGEXP,
   replace: (parentNode, _children, match) => {
-    const marker = match[1]?.toUpperCase();
-    const type = CALLOUT_TYPE_BY_MARKER[marker];
+    const type = resolveCalloutType(match[1]);
     if (!type) {
       return false;
     }
@@ -71,14 +69,13 @@ const CALLOUT_BLOCK: MultilineElementTransformer = {
       .join('\n');
     return `> [!${marker}]\n${body}`;
   },
-  regExpStart: /^>\s*\[!(NOTE|WARNING|TIP|IMPORTANT|CAUTION)\]\s*$/i,
+  regExpStart: CALLOUT_BLOCK_START_REGEXP,
   regExpEnd: {
     optional: true,
     regExp: /^$/,
   },
   replace: (rootNode, children, startMatch, _endMatch, linesInBetween) => {
-    const marker = startMatch[1]?.toUpperCase();
-    const type = CALLOUT_TYPE_BY_MARKER[marker];
+    const type = resolveCalloutType(startMatch[1]);
     if (!type) {
       return false;
     }
@@ -89,9 +86,7 @@ const CALLOUT_BLOCK: MultilineElementTransformer = {
       return;
     }
 
-    const lines = (linesInBetween || [])
-      .map((line) => line.replace(/^>\s?/, ''))
-      .map((line) => line.trimEnd());
+    const lines = (linesInBetween || []).map((line) => stripCalloutQuotePrefix(line));
     const text = lines.join('\n').trim();
     rootNode.append($createCalloutNode(type, text));
   },

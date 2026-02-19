@@ -29,6 +29,7 @@ import { $createImageNode } from '../nodes/ImageNode';
 import { $createAssetEmbedNode, type AssetEmbedConfig } from '../nodes/AssetEmbedNode';
 import { $createCalloutNode } from '../nodes/CalloutNode';
 import { $setBlocksType } from '@lexical/selection';
+import { filterSlashOptionsByQuery } from './slashMenuFilter';
 
 // Context for Asset Embed integration
 export interface AssetEmbedContextType {
@@ -55,32 +56,6 @@ class SlashMenuOption extends MenuOption {
     this.keywords = keywords || [];
     this.onSelect = onSelect;
   }
-}
-
-function filterSlashOptions(options: SlashMenuOption[], queryString: string | null): SlashMenuOption[] {
-  const raw = (queryString || '').trim().toLowerCase();
-  if (!raw) return options;
-
-  const scored: Array<{ option: SlashMenuOption; score: number }> = [];
-
-  for (const option of options) {
-    const title = option.title.toLowerCase();
-    const keywords = option.keywords.map((k) => k.toLowerCase());
-
-    // Prefer prefix matches (Notion-like feel), then fallback to contains.
-    let score = -1;
-    if (title.startsWith(raw)) score = 300;
-    else if (keywords.some((k) => k.startsWith(raw))) score = 200;
-    else if (title.includes(raw)) score = 100;
-    else if (keywords.some((k) => k.includes(raw))) score = 50;
-
-    if (score >= 0) {
-      scored.push({ option, score });
-    }
-  }
-
-  scored.sort((a, b) => b.score - a.score);
-  return scored.map((s) => s.option);
 }
 
 export default function SlashCommandPlugin({ projectId }: { projectId: string }): JSX.Element | null {
@@ -195,7 +170,7 @@ export default function SlashCommandPlugin({ projectId }: { projectId: string })
   );
 
   const filteredOptions = useMemo(
-    () => filterSlashOptions(options, queryString),
+    () => filterSlashOptionsByQuery(options, queryString),
     [options, queryString],
   );
 

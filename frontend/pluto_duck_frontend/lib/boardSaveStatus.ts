@@ -55,7 +55,7 @@ export function buildManualSaveRequest({
     };
   }
 
-  if (saveStatus === 'idle') {
+  if (saveStatus !== 'unsaved') {
     return { shouldSave: false, tabs, activeTabId };
   }
 

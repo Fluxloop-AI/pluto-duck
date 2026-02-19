@@ -103,6 +103,7 @@ export const BoardsView = forwardRef<BoardsViewHandle, BoardsViewProps>(
   const savedDisplayTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const pendingSnapshotRef = useRef<SaveSnapshot | null>(null);
   const isSavingRef = useRef(false);
+  const saveRunTokenRef = useRef(0);
 
   const clearSavedDisplayTimeout = useCallback(() => {
     if (!savedDisplayTimeoutRef.current) {
@@ -140,53 +141,58 @@ export const BoardsView = forwardRef<BoardsViewHandle, BoardsViewProps>(
 
   const runSaveQueue = useCallback(async (initialSnapshot: SaveSnapshot) => {
     let currentSnapshot: SaveSnapshot | null = initialSnapshot;
+    const runToken = ++saveRunTokenRef.current;
+    isSavingRef.current = true;
 
-    while (currentSnapshot) {
-      isSavingRef.current = true;
-      clearSavedDisplayTimeout();
-      setSaveStatusLogged('saving');
+    try {
+      while (currentSnapshot) {
+        clearSavedDisplayTimeout();
+        setSaveStatusLogged('saving');
 
-      try {
-        const updatedBoard = await updateBoard(currentSnapshot.boardId, {
-          settings: {
-            tabs: currentSnapshot.tabs,
-            activeTabId: currentSnapshot.activeTabId,
-          },
-        });
+        try {
+          const updatedBoard = await updateBoard(currentSnapshot.boardId, {
+            settings: {
+              tabs: currentSnapshot.tabs,
+              activeTabId: currentSnapshot.activeTabId,
+            },
+          });
+
+          if (activeBoardIdRef.current !== currentSnapshot.boardId) {
+            pendingSnapshotRef.current = null;
+            return;
+          }
+
+          setBoardUpdatedAt(updatedBoard.updated_at);
+          onBoardUpdate?.(updatedBoard);
+
+          setLastSavedAt(new Date());
+          setSaveStatusLogged(resolvePostSaveStatus(currentSnapshot.isManual));
+          clearSavedDisplayTimeout();
+          savedDisplayTimeoutRef.current = setTimeout(() => {
+            setSaveStatusLogged('idle');
+          }, 2000);
+        } catch (error) {
+          if (activeBoardIdRef.current !== currentSnapshot.boardId) {
+            pendingSnapshotRef.current = null;
+            return;
+          }
+          console.error('Failed to save tabs:', error);
+          clearSavedDisplayTimeout();
+          setSaveStatusLogged(resolveSaveErrorStatus());
+        }
 
         if (activeBoardIdRef.current !== currentSnapshot.boardId) {
           pendingSnapshotRef.current = null;
           return;
         }
 
-        setBoardUpdatedAt(updatedBoard.updated_at);
-        onBoardUpdate?.(updatedBoard);
-
-        setLastSavedAt(new Date());
-        setSaveStatusLogged(resolvePostSaveStatus(currentSnapshot.isManual));
-        clearSavedDisplayTimeout();
-        savedDisplayTimeoutRef.current = setTimeout(() => {
-          setSaveStatusLogged('idle');
-        }, 2000);
-      } catch (error) {
-        if (activeBoardIdRef.current !== currentSnapshot.boardId) {
-          pendingSnapshotRef.current = null;
-          return;
-        }
-        console.error('Failed to save tabs:', error);
-        clearSavedDisplayTimeout();
-        setSaveStatusLogged(resolveSaveErrorStatus());
-      } finally {
+        currentSnapshot = pendingSnapshotRef.current;
+        pendingSnapshotRef.current = null;
+      }
+    } finally {
+      if (saveRunTokenRef.current === runToken) {
         isSavingRef.current = false;
       }
-
-      if (activeBoardIdRef.current !== currentSnapshot.boardId) {
-        pendingSnapshotRef.current = null;
-        return;
-      }
-
-      currentSnapshot = pendingSnapshotRef.current;
-      pendingSnapshotRef.current = null;
     }
   }, [clearSavedDisplayTimeout, onBoardUpdate, setSaveStatusLogged]);
 
@@ -209,6 +215,7 @@ export const BoardsView = forwardRef<BoardsViewHandle, BoardsViewProps>(
     }
     clearSavedDisplayTimeout();
     pendingSnapshotRef.current = null;
+    saveRunTokenRef.current += 1;
     isSavingRef.current = false;
     setSaveStatusLogged('idle');
     setLastSavedAt(null);

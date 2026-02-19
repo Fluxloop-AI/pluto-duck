@@ -39,6 +39,36 @@ test('buildManualSaveRequest uses flush snapshot for same tab save', () => {
   assert.equal(request.tabs[0]?.content, '{"v":2}');
 });
 
+test('buildManualSaveRequest skips save when snapshot is null and no pending change', () => {
+  const tabs: BoardTab[] = [{ id: 'tab-1', name: 'Page 1', content: '{"v":1}' }];
+
+  for (const status of ['idle', 'saving', 'saved', 'auto-saved'] as const) {
+    const request = buildManualSaveRequest({
+      tabs,
+      activeTabId: 'tab-1',
+      editorSnapshot: null,
+      saveStatus: status,
+    });
+
+    assert.equal(request.shouldSave, false, `expected skip for status=${status}`);
+    assert.equal(request.tabs, tabs);
+  }
+});
+
+test('buildManualSaveRequest keeps manual save when snapshot is null but unsaved', () => {
+  const tabs: BoardTab[] = [{ id: 'tab-1', name: 'Page 1', content: '{"v":1}' }];
+
+  const request = buildManualSaveRequest({
+    tabs,
+    activeTabId: 'tab-1',
+    editorSnapshot: null,
+    saveStatus: 'unsaved',
+  });
+
+  assert.equal(request.shouldSave, true);
+  assert.equal(request.tabs, tabs);
+});
+
 test('Cmd+S guard returns false outside board editable context', () => {
   const shouldHandle = shouldHandleBoardSaveShortcut({
     key: 's',

@@ -1,5 +1,6 @@
 import { DecoratorNode, LexicalNode, NodeKey, SerializedLexicalNode, Spread } from 'lexical';
 import { ReactNode } from 'react';
+import { MarkdownTableComponent } from '../components/MarkdownTableComponent';
 
 export type SerializedMarkdownTableNode = Spread<
   {
@@ -7,15 +8,6 @@ export type SerializedMarkdownTableNode = Spread<
   },
   SerializedLexicalNode
 >;
-
-type MarkdownTableComponentProps = {
-  markdown: string;
-  nodeKey: NodeKey;
-};
-
-function MarkdownTableComponent({ markdown }: MarkdownTableComponentProps): ReactNode {
-  return <pre className="whitespace-pre-wrap">{markdown}</pre>;
-}
 
 export class MarkdownTableNode extends DecoratorNode<ReactNode> {
   __markdown: string;

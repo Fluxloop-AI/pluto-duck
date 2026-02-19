@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useMemo, useRef, forwardRef, useImper
 import { LayoutDashboard } from 'lucide-react';
 import { BoardToolbar } from './BoardToolbar';
 import { BoardEditor, type BoardEditorHandle } from '../editor/BoardEditor';
-import { Board, BoardTab, updateBoard } from '../../lib/boardsApi';
+import { Board, BoardTab, SaveStatus, updateBoard } from '../../lib/boardsApi';
 import type { AssetEmbedConfig } from '../editor/nodes/AssetEmbedNode';
 import { nanoid } from 'nanoid';
 
@@ -17,6 +17,18 @@ interface BoardsViewProps {
 export interface BoardsViewHandle {
   insertMarkdown: (content: string) => void;
   insertAssetEmbed: (analysisId: string, projectId: string, config: AssetEmbedConfig) => void;
+}
+
+interface SaveTabsOptions {
+  immediate?: boolean;
+  isManual?: boolean;
+}
+
+interface SaveSnapshot {
+  boardId: string;
+  tabs: BoardTab[];
+  activeTabId: string | null;
+  isManual: boolean;
 }
 
 // Default tab when a board has no tabs yet
@@ -54,51 +66,145 @@ export const BoardsView = forwardRef<BoardsViewHandle, BoardsViewProps>(
   function BoardsView({ projectId, activeBoard, onBoardUpdate }, ref) {
   const boardEditorRef = useRef<BoardEditorHandle>(null);
 
-  // Expose insertMarkdown and insertAssetEmbed methods to parent
-  useImperativeHandle(ref, () => ({
-    insertMarkdown: (content: string) => {
-      boardEditorRef.current?.insertMarkdown(content);
-    },
-    insertAssetEmbed: (analysisId: string, projectId: string, config: AssetEmbedConfig) => {
-      boardEditorRef.current?.insertAssetEmbed(analysisId, projectId, config);
-    },
-  }));
-
   const [tabs, setTabs] = useState<BoardTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [boardUpdatedAt, setBoardUpdatedAt] = useState<string | null>(activeBoard?.updated_at ?? null);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const activeTabIdRef = useRef<string | null>(null);
-  const saveSequenceRef = useRef(0);
-  const appliedSaveSequenceRef = useRef(0);
+  const activeBoardIdRef = useRef<string | null>(activeBoard?.id ?? null);
+  const activeBoardRef = useRef<Board | null>(activeBoard);
 
-  // Save tabs to backend - use ref to avoid stale closures
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const savedDisplayTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingSnapshotRef = useRef<SaveSnapshot | null>(null);
+  const isSavingRef = useRef(false);
+
+  const clearSavedDisplayTimeout = useCallback(() => {
+    if (!savedDisplayTimeoutRef.current) {
+      return;
+    }
+    clearTimeout(savedDisplayTimeoutRef.current);
+    savedDisplayTimeoutRef.current = null;
+  }, []);
+
+  const setSaveStatusLogged = useCallback((nextStatus: SaveStatus) => {
+    setSaveStatus((currentStatus) => {
+      if (currentStatus === nextStatus) {
+        return currentStatus;
+      }
+      console.log(`[BoardsView] Save status: ${currentStatus} -> ${nextStatus}`);
+      return nextStatus;
+    });
+  }, []);
+
+  const markUnsaved = useCallback(() => {
+    if (saveStatus === 'saving' || isSavingRef.current) {
+      return;
+    }
+    clearSavedDisplayTimeout();
+    setSaveStatusLogged('unsaved');
+  }, [clearSavedDisplayTimeout, saveStatus, setSaveStatusLogged]);
+
+  useEffect(() => {
+    activeBoardIdRef.current = activeBoard?.id ?? null;
+  }, [activeBoard?.id]);
+
+  useEffect(() => {
+    activeBoardRef.current = activeBoard;
+  }, [activeBoard]);
+
+  const runSaveQueue = useCallback(async (initialSnapshot: SaveSnapshot) => {
+    let currentSnapshot: SaveSnapshot | null = initialSnapshot;
+
+    while (currentSnapshot) {
+      isSavingRef.current = true;
+      clearSavedDisplayTimeout();
+      setSaveStatusLogged('saving');
+
+      try {
+        const updatedBoard = await updateBoard(currentSnapshot.boardId, {
+          settings: {
+            tabs: currentSnapshot.tabs,
+            activeTabId: currentSnapshot.activeTabId,
+          },
+        });
+
+        if (activeBoardIdRef.current !== currentSnapshot.boardId) {
+          pendingSnapshotRef.current = null;
+          return;
+        }
+
+        setBoardUpdatedAt(updatedBoard.updated_at);
+        onBoardUpdate?.(updatedBoard);
+
+        setLastSavedAt(new Date());
+        setSaveStatusLogged(currentSnapshot.isManual ? 'saved' : 'auto-saved');
+        clearSavedDisplayTimeout();
+        savedDisplayTimeoutRef.current = setTimeout(() => {
+          setSaveStatusLogged('idle');
+        }, 2000);
+      } catch (error) {
+        if (activeBoardIdRef.current !== currentSnapshot.boardId) {
+          pendingSnapshotRef.current = null;
+          return;
+        }
+        console.error('Failed to save tabs:', error);
+        clearSavedDisplayTimeout();
+        setSaveStatusLogged('unsaved');
+      } finally {
+        isSavingRef.current = false;
+      }
+
+      if (activeBoardIdRef.current !== currentSnapshot.boardId) {
+        pendingSnapshotRef.current = null;
+        return;
+      }
+
+      currentSnapshot = pendingSnapshotRef.current;
+      pendingSnapshotRef.current = null;
+    }
+  }, [clearSavedDisplayTimeout, onBoardUpdate, setSaveStatusLogged]);
+
+  const enqueueSnapshot = useCallback((snapshot: SaveSnapshot) => {
+    if (isSavingRef.current) {
+      pendingSnapshotRef.current = snapshot;
+      return;
+    }
+
+    void runSaveQueue(snapshot);
+  }, [runSaveQueue]);
 
   // Reset local tab state only when board/project identity changes.
   useEffect(() => {
+    const currentBoard = activeBoardRef.current;
+
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = null;
     }
-    saveSequenceRef.current = 0;
-    appliedSaveSequenceRef.current = 0;
+    clearSavedDisplayTimeout();
+    pendingSnapshotRef.current = null;
+    isSavingRef.current = false;
+    setSaveStatusLogged('idle');
+    setLastSavedAt(null);
 
-    if (!activeBoard) {
+    if (!currentBoard) {
       setTabs([]);
       setActiveTabId(null);
       setBoardUpdatedAt(null);
       return;
     }
 
-    const nextTabs = migrateToTabs(activeBoard);
-    const settings = activeBoard.settings || {};
+    const nextTabs = migrateToTabs(currentBoard);
+    const settings = currentBoard.settings || {};
     const nextActiveTabId = settings.activeTabId && nextTabs.find((tab) => tab.id === settings.activeTabId)
       ? settings.activeTabId
       : nextTabs[0]?.id || null;
     setTabs(nextTabs);
     setActiveTabId(nextActiveTabId);
-    setBoardUpdatedAt(activeBoard.updated_at ?? null);
-  }, [projectId, activeBoard?.id]);
+    setBoardUpdatedAt(currentBoard.updated_at ?? null);
+  }, [projectId, activeBoard?.id, clearSavedDisplayTimeout, setSaveStatusLogged]);
 
   // Keep timestamp in sync when parent board updates.
   useEffect(() => {
@@ -111,12 +217,19 @@ export const BoardsView = forwardRef<BoardsViewHandle, BoardsViewProps>(
   }, [activeTabId]);
 
   useEffect(() => {
+    if ((saveStatus === 'saved' || saveStatus === 'auto-saved') && lastSavedAt) {
+      console.log(`[BoardsView] Last saved at: ${lastSavedAt.toISOString()}`);
+    }
+  }, [lastSavedAt, saveStatus]);
+
+  useEffect(() => {
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
+      clearSavedDisplayTimeout();
     };
-  }, []);
+  }, [clearSavedDisplayTimeout]);
 
   // Get active tab
   const activeTab = useMemo(() => 
@@ -124,39 +237,44 @@ export const BoardsView = forwardRef<BoardsViewHandle, BoardsViewProps>(
     [tabs, activeTabId]
   );
   
-  const saveTabs = useCallback(async (newTabs: BoardTab[], newActiveTabId?: string) => {
-    if (!activeBoard) return;
-    
-    // Debounce saves to prevent too many API calls
+  const saveTabs = useCallback((snapshotTabs: BoardTab[], snapshotActiveTabId: string | null, options?: SaveTabsOptions) => {
+    const boardId = activeBoardIdRef.current;
+    if (!boardId) {
+      return;
+    }
+
+    const snapshot: SaveSnapshot = {
+      boardId,
+      tabs: snapshotTabs,
+      activeTabId: snapshotActiveTabId,
+      isManual: options?.isManual ?? false,
+    };
+
+    if (options?.immediate) {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+      enqueueSnapshot(snapshot);
+      return;
+    }
+
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
-    
-    saveTimeoutRef.current = setTimeout(async () => {
-      const saveSequence = ++saveSequenceRef.current;
-      try {
-        const updated = await updateBoard(activeBoard.id, {
-          settings: {
-            tabs: newTabs,
-            activeTabId: newActiveTabId ?? activeTabIdRef.current,
-          },
-        });
-        setBoardUpdatedAt(updated.updated_at);
-        if (saveSequence >= appliedSaveSequenceRef.current) {
-          appliedSaveSequenceRef.current = saveSequence;
-          onBoardUpdate?.(updated);
-        }
-      } catch (error) {
-        console.error('Failed to save tabs:', error);
-      }
+
+    saveTimeoutRef.current = setTimeout(() => {
+      saveTimeoutRef.current = null;
+      enqueueSnapshot(snapshot);
     }, 500); // 500ms debounce for tab operations
-  }, [activeBoard?.id, onBoardUpdate]); // Use activeBoard.id instead of activeBoard object
+  }, [enqueueSnapshot]);
 
   // Tab operations
   const handleSelectTab = useCallback((tabId: string) => {
     setActiveTabId(tabId);
+    markUnsaved();
     saveTabs(tabs, tabId);
-  }, [tabs, saveTabs]);
+  }, [markUnsaved, saveTabs, tabs]);
 
   const handleAddTab = useCallback(() => {
     const newTab: BoardTab = {
@@ -167,32 +285,35 @@ export const BoardsView = forwardRef<BoardsViewHandle, BoardsViewProps>(
     const newTabs = [...tabs, newTab];
     setTabs(newTabs);
     setActiveTabId(newTab.id);
+    markUnsaved();
     saveTabs(newTabs, newTab.id);
-  }, [tabs, saveTabs]);
+  }, [markUnsaved, saveTabs, tabs]);
 
   const handleRenameTab = useCallback((tabId: string, newName: string) => {
     const newTabs = tabs.map(tab => 
       tab.id === tabId ? { ...tab, name: newName } : tab
     );
     setTabs(newTabs);
-    saveTabs(newTabs);
-  }, [tabs, saveTabs]);
+    markUnsaved();
+    saveTabs(newTabs, activeTabIdRef.current);
+  }, [markUnsaved, saveTabs, tabs]);
 
   const handleDeleteTab = useCallback((tabId: string) => {
     if (tabs.length <= 1) return; // Don't delete last tab
     
     const newTabs = tabs.filter(tab => tab.id !== tabId);
     setTabs(newTabs);
+    markUnsaved();
     
     // If deleted tab was active, switch to first tab
     if (activeTabId === tabId) {
       const newActiveId = newTabs[0]?.id || null;
       setActiveTabId(newActiveId);
-      saveTabs(newTabs, newActiveId || undefined);
+      saveTabs(newTabs, newActiveId);
     } else {
-      saveTabs(newTabs);
+      saveTabs(newTabs, activeTabId);
     }
-  }, [tabs, activeTabId, saveTabs]);
+  }, [activeTabId, markUnsaved, saveTabs, tabs]);
 
   // Update tab content (called from BoardEditor)
   const handleTabContentChange = useCallback((content: string) => {
@@ -202,8 +323,30 @@ export const BoardsView = forwardRef<BoardsViewHandle, BoardsViewProps>(
       tab.id === activeTabId ? { ...tab, content } : tab
     );
     setTabs(newTabs);
-    saveTabs(newTabs);
-  }, [tabs, activeTabId, saveTabs]);
+    markUnsaved();
+    saveTabs(newTabs, activeTabId);
+  }, [activeTabId, markUnsaved, saveTabs, tabs]);
+
+  const handleManualSave = useCallback(() => {
+    if (!activeTabIdRef.current) {
+      return;
+    }
+    saveTabs(tabs, activeTabIdRef.current, { immediate: true, isManual: true });
+  }, [saveTabs, tabs]);
+
+  useEffect(() => {
+    // Reserved for Phase 4 wiring (toolbar button + keyboard shortcut).
+  }, [handleManualSave]);
+
+  // Expose editor insertion methods to parent.
+  useImperativeHandle(ref, () => ({
+    insertMarkdown: (content: string) => {
+      boardEditorRef.current?.insertMarkdown(content);
+    },
+    insertAssetEmbed: (analysisId: string, projectId: string, config: AssetEmbedConfig) => {
+      boardEditorRef.current?.insertAssetEmbed(analysisId, projectId, config);
+    },
+  }));
 
   if (!activeBoard) {
     return (

@@ -5,6 +5,13 @@ import { LayoutDashboard } from 'lucide-react';
 import { BoardToolbar } from './BoardToolbar';
 import { BoardEditor, type BoardEditorHandle } from '../editor/BoardEditor';
 import { Board, BoardTab, SaveStatus, updateBoard } from '../../lib/boardsApi';
+import {
+  buildManualSaveRequest,
+  mergePendingSnapshot,
+  resolvePostSaveStatus,
+  resolveSaveErrorStatus,
+  shouldHandleBoardSaveShortcut,
+} from '../../lib/boardSaveStatus';
 import type { AssetEmbedConfig } from '../editor/nodes/AssetEmbedNode';
 import { nanoid } from 'nanoid';
 
@@ -62,9 +69,26 @@ function migrateToTabs(board: Board): BoardTab[] {
   return [createDefaultTab()];
 }
 
+function isEditableElement(element: Element | null): boolean {
+  if (!element) {
+    return false;
+  }
+
+  if (
+    element instanceof HTMLInputElement
+    || element instanceof HTMLTextAreaElement
+    || element instanceof HTMLSelectElement
+  ) {
+    return true;
+  }
+
+  return element instanceof HTMLElement && element.isContentEditable;
+}
+
 export const BoardsView = forwardRef<BoardsViewHandle, BoardsViewProps>(
   function BoardsView({ projectId, activeBoard, onBoardUpdate }, ref) {
   const boardEditorRef = useRef<BoardEditorHandle>(null);
+  const boardContainerRef = useRef<HTMLDivElement | null>(null);
 
   const [tabs, setTabs] = useState<BoardTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
@@ -139,7 +163,7 @@ export const BoardsView = forwardRef<BoardsViewHandle, BoardsViewProps>(
         onBoardUpdate?.(updatedBoard);
 
         setLastSavedAt(new Date());
-        setSaveStatusLogged(currentSnapshot.isManual ? 'saved' : 'auto-saved');
+        setSaveStatusLogged(resolvePostSaveStatus(currentSnapshot.isManual));
         clearSavedDisplayTimeout();
         savedDisplayTimeoutRef.current = setTimeout(() => {
           setSaveStatusLogged('idle');
@@ -151,7 +175,7 @@ export const BoardsView = forwardRef<BoardsViewHandle, BoardsViewProps>(
         }
         console.error('Failed to save tabs:', error);
         clearSavedDisplayTimeout();
-        setSaveStatusLogged('unsaved');
+        setSaveStatusLogged(resolveSaveErrorStatus());
       } finally {
         isSavingRef.current = false;
       }
@@ -168,7 +192,7 @@ export const BoardsView = forwardRef<BoardsViewHandle, BoardsViewProps>(
 
   const enqueueSnapshot = useCallback((snapshot: SaveSnapshot) => {
     if (isSavingRef.current) {
-      pendingSnapshotRef.current = snapshot;
+      pendingSnapshotRef.current = mergePendingSnapshot(pendingSnapshotRef.current, snapshot);
       return;
     }
 
@@ -328,11 +352,59 @@ export const BoardsView = forwardRef<BoardsViewHandle, BoardsViewProps>(
   }, [activeTabId, markUnsaved, saveTabs, tabs]);
 
   const handleManualSave = useCallback(() => {
-    if (!activeTabIdRef.current) {
+    const editorSnapshot = boardEditorRef.current?.flushAndGetSnapshot() ?? null;
+    const request = buildManualSaveRequest({
+      tabs,
+      activeTabId: activeTabIdRef.current,
+      editorSnapshot,
+      saveStatus,
+    });
+
+    if (!request.shouldSave || !request.activeTabId) {
       return;
     }
-    saveTabs(tabs, activeTabIdRef.current, { immediate: true, isManual: true });
-  }, [saveTabs, tabs]);
+
+    if (request.tabs !== tabs) {
+      setTabs(request.tabs);
+    }
+
+    saveTabs(request.tabs, request.activeTabId, { immediate: true, isManual: true });
+  }, [saveStatus, saveTabs, tabs]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const boardContainer = boardContainerRef.current;
+      const activeElement = document.activeElement;
+      const hasBoardFocus = Boolean(
+        boardContainer
+        && activeElement
+        && boardContainer.contains(activeElement)
+      );
+      const isOutsideBoardEditable = Boolean(
+        activeElement
+        && !hasBoardFocus
+        && isEditableElement(activeElement)
+      );
+
+      if (!shouldHandleBoardSaveShortcut({
+        key: event.key,
+        metaKey: event.metaKey,
+        ctrlKey: event.ctrlKey,
+        hasBoardFocus,
+        isOutsideBoardEditable,
+      })) {
+        return;
+      }
+
+      event.preventDefault();
+      handleManualSave();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [handleManualSave]);
 
   // Expose editor insertion methods to parent.
   useImperativeHandle(ref, () => ({
@@ -358,7 +430,7 @@ export const BoardsView = forwardRef<BoardsViewHandle, BoardsViewProps>(
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div ref={boardContainerRef} className="flex h-full flex-col">
       <BoardToolbar
         board={activeBoard}
         tabs={tabs}

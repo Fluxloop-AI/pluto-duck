@@ -1,6 +1,7 @@
 'use client';
 
 import { LexicalComposer } from '@lexical/react/LexicalComposer';
+import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { RichTextPlugin } from '@lexical/react/LexicalRichTextPlugin';
 import { ContentEditable } from '@lexical/react/LexicalContentEditable';
 import { HistoryPlugin } from '@lexical/react/LexicalHistoryPlugin';
@@ -23,8 +24,10 @@ import {
   forwardRef,
   useImperativeHandle,
   useEffect,
+  type MutableRefObject,
   type KeyboardEvent,
 } from 'react';
+import type { LexicalEditor } from 'lexical';
 
 import { editorTheme } from './theme';
 import type { Board } from '../../lib/boardsApi';
@@ -55,6 +58,7 @@ interface BoardEditorProps {
 export interface BoardEditorHandle {
   insertMarkdown: (content: string) => void;
   insertAssetEmbed: (analysisId: string, projectId: string, config: AssetEmbedConfig) => void;
+  flushAndGetSnapshot: () => string | null;
 }
 
 // State for the two-step embed flow
@@ -71,6 +75,19 @@ interface EditConfigState {
   onSave: ((config: AssetEmbedConfig) => void) | null;
 }
 
+function EditorRefPlugin({ editorRef }: { editorRef: MutableRefObject<LexicalEditor | null> }) {
+  const [editor] = useLexicalComposerContext();
+
+  useEffect(() => {
+    editorRef.current = editor;
+    return () => {
+      editorRef.current = null;
+    };
+  }, [editor, editorRef]);
+
+  return null;
+}
+
 export const BoardEditor = forwardRef<BoardEditorHandle, BoardEditorProps>(
   function BoardEditor({
     board,
@@ -85,16 +102,7 @@ export const BoardEditor = forwardRef<BoardEditorHandle, BoardEditorProps>(
   }, ref) {
   const insertMarkdownRef = useRef<InsertMarkdownHandle>(null);
   const insertAssetEmbedRef = useRef<InsertAssetEmbedHandle>(null);
-
-  // Expose insertMarkdown and insertAssetEmbed methods to parent
-  useImperativeHandle(ref, () => ({
-    insertMarkdown: (content: string) => {
-      insertMarkdownRef.current?.insertMarkdown(content);
-    },
-    insertAssetEmbed: (analysisId: string, projectId: string, config: AssetEmbedConfig) => {
-      insertAssetEmbedRef.current?.insertAssetEmbed(analysisId, projectId, config);
-    },
-  }));
+  const lexicalEditorRef = useRef<LexicalEditor | null>(null);
 
   const initialConfig = {
     namespace: 'BoardEditor',
@@ -121,6 +129,39 @@ export const BoardEditor = forwardRef<BoardEditorHandle, BoardEditorProps>(
 
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedContentRef = useRef<string | null>(initialContent);
+
+  const flushAndGetSnapshot = useCallback(() => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+
+    const editor = lexicalEditorRef.current;
+    if (!editor) {
+      return null;
+    }
+
+    const jsonState = JSON.stringify(editor.getEditorState().toJSON());
+    if (jsonState === lastSavedContentRef.current) {
+      return null;
+    }
+
+    lastSavedContentRef.current = jsonState;
+    console.log('[BoardEditor] Flush tab content:', tabId);
+    onContentChange(jsonState);
+    return jsonState;
+  }, [onContentChange, tabId]);
+
+  // Expose insertMarkdown and insertAssetEmbed methods to parent
+  useImperativeHandle(ref, () => ({
+    insertMarkdown: (content: string) => {
+      insertMarkdownRef.current?.insertMarkdown(content);
+    },
+    insertAssetEmbed: (analysisId: string, projectId: string, config: AssetEmbedConfig) => {
+      insertAssetEmbedRef.current?.insertAssetEmbed(analysisId, projectId, config);
+    },
+    flushAndGetSnapshot,
+  }), [flushAndGetSnapshot]);
 
   // Asset Embed flow state (for new embeds)
   const [embedFlow, setEmbedFlow] = useState<EmbedFlowState>({
@@ -220,6 +261,18 @@ export const BoardEditor = forwardRef<BoardEditorHandle, BoardEditorProps>(
     }, 1000); // 1 second debounce
   }, [onContentChange, onContentDirty, tabId]);
 
+  useEffect(() => {
+    lastSavedContentRef.current = initialContent;
+  }, [initialContent]);
+
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const [anchorElem, setAnchorElem] = useState<HTMLElement | null>(null);
   const onRef = useCallback((node: HTMLDivElement | null) => {
     if (node) {
@@ -259,6 +312,7 @@ export const BoardEditor = forwardRef<BoardEditorHandle, BoardEditorProps>(
       <AssetEmbedContext.Provider value={{ openAssetEmbed }}>
         <ConfigModalContext.Provider value={{ openConfigModal }}>
           <LexicalComposer initialConfig={initialConfig}>
+            <EditorRefPlugin editorRef={lexicalEditorRef} />
             <div className="flex-1 overflow-auto">
               <div className="min-h-full">
                 <div className="pl-[22px] pr-6 pt-5 pb-6">

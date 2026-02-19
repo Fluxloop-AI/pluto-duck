@@ -16,6 +16,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { getDisplayTabTitle } from '@/lib/boardTitle';
 import type { Board, BoardTab } from '../../lib/boardsApi';
 
 interface BoardToolbarProps {
@@ -55,8 +56,8 @@ export function BoardToolbar({
   };
 
   const handleFinishRename = () => {
-    if (editingTabId && editingName.trim()) {
-      onRenameTab(editingTabId, editingName.trim());
+    if (editingTabId) {
+      onRenameTab(editingTabId, editingName);
     }
     setEditingTabId(null);
     setEditingName('');
@@ -107,7 +108,7 @@ export function BoardToolbar({
                       onDoubleClick={() => handleStartRename(tab)}
                       className="truncate max-w-[120px]"
                     >
-                      {tab.name}
+                      {getDisplayTabTitle(tab.name)}
                     </button>
 
                     {/* Tab Actions (visible on hover or when active) */}

@@ -177,11 +177,16 @@ function WorkspacePageBody({
     updateBoard,
     deleteBoard,
     selectBoard,
+    applyBoardUpdate,
     loadBoards,
   } = useBoards({
     projectId: defaultProjectId || '',
     enabled: !!defaultProjectId && backendReady,
   });
+
+  const handleBoardUpdateFromBoardsView = useCallback((updatedBoard: Board) => {
+    applyBoardUpdate(updatedBoard);
+  }, [applyBoardUpdate]);
 
   // Project state management for auto-save
   const { debouncedSaveState, saveState } = useProjectState({
@@ -879,7 +884,12 @@ function WorkspacePageBody({
           <div className="relative flex flex-1 flex-col overflow-hidden">
             {defaultProjectId ? (
               mainView === 'boards' ? (
-                <BoardsView ref={boardsViewRef} projectId={defaultProjectId} activeBoard={activeBoard} />
+                <BoardsView
+                  ref={boardsViewRef}
+                  projectId={defaultProjectId}
+                  activeBoard={activeBoard}
+                  onBoardUpdate={handleBoardUpdateFromBoardsView}
+                />
               ) : mainView === 'datasets' ? (
                 selectedDataset ? (
                   <DatasetDetailView

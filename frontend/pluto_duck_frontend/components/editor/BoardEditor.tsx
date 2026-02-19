@@ -285,10 +285,10 @@ export const BoardEditor = forwardRef<BoardEditorHandle, BoardEditorProps>(
         <ConfigModalContext.Provider value={{ openConfigModal }}>
           <LexicalComposer initialConfig={initialConfig}>
             <div className="flex-1 overflow-auto">
-              <div className="min-h-full max-w-4xl mx-auto">
-                <div className="px-6 pt-16 pb-8">
+              <div className="min-h-full">
+                <div className="pl-[22px] pr-6 pt-5 pb-6">
                   {formattedBoardUpdatedAt && (
-                    <div className="mb-4 text-xs text-muted-foreground text-center">
+                    <div className="mb-3 text-xs text-muted-foreground text-center">
                       {formattedBoardUpdatedAt}
                     </div>
                   )}
@@ -309,7 +309,7 @@ export const BoardEditor = forwardRef<BoardEditorHandle, BoardEditorProps>(
                       <ContentEditable className="board-editor-prose min-h-full outline-none prose dark:prose-invert max-w-none [--tw-prose-body:hsl(var(--foreground))]" />
                     }
                     placeholder={
-                      <div className="absolute top-0 left-0 text-muted-foreground pointer-events-none">
+                      <div className="absolute top-0 left-6 text-muted-foreground pointer-events-none">
                         Type &apos;/&apos; to insert blocks...
                       </div>
                     }

@@ -7,7 +7,8 @@ import { HistoryPlugin } from '@lexical/react/LexicalHistoryPlugin';
 import { OnChangePlugin } from '@lexical/react/LexicalOnChangePlugin';
 import { AutoFocusPlugin } from '@lexical/react/LexicalAutoFocusPlugin';
 import { MarkdownShortcutPlugin } from '@lexical/react/LexicalMarkdownShortcutPlugin';
-import { TRANSFORMERS } from '@lexical/markdown';
+import { HorizontalRuleNode } from '@lexical/react/LexicalHorizontalRuleNode';
+import { HorizontalRulePlugin } from '@lexical/react/LexicalHorizontalRulePlugin';
 import { HeadingNode, QuoteNode } from '@lexical/rich-text';
 import { ListItemNode, ListNode } from '@lexical/list';
 import { CodeNode, CodeHighlightNode } from '@lexical/code';
@@ -15,11 +16,20 @@ import { LinkNode, AutoLinkNode } from '@lexical/link';
 import { ListPlugin } from '@lexical/react/LexicalListPlugin';
 import { LinkPlugin } from '@lexical/react/LexicalLinkPlugin';
 import LexicalErrorBoundary from '@lexical/react/LexicalErrorBoundary';
-import { useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
+import {
+  useRef,
+  useState,
+  useCallback,
+  forwardRef,
+  useImperativeHandle,
+  useEffect,
+  type KeyboardEvent,
+} from 'react';
 
 import { editorTheme } from './theme';
 import type { Board } from '../../lib/boardsApi';
-import { ImageNode, AssetEmbedNode, type AssetEmbedConfig } from './nodes';
+import { formatBoardUpdatedAt, getDisplayTabTitle } from '../../lib/boardTitle';
+import { ImageNode, AssetEmbedNode, CalloutNode, MarkdownTableNode, type AssetEmbedConfig } from './nodes';
 import SlashCommandPlugin, { AssetEmbedContext } from './plugins/SlashCommandPlugin';
 import DraggableBlockPlugin from './plugins/DraggableBlockPlugin';
 import { InitialContentPlugin } from './plugins/InitialContentPlugin';
@@ -28,11 +38,15 @@ import { InsertAssetEmbedPlugin, type InsertAssetEmbedHandle } from './plugins/I
 import { AssetPicker } from './components/AssetPicker';
 import { DisplayConfigModal } from './components/DisplayConfigModal';
 import { ConfigModalContext } from './components/AssetEmbedComponent';
+import { BOARD_TRANSFORMERS } from './transformers';
 
 interface BoardEditorProps {
   board: Board;
   projectId: string;
   tabId: string;
+  tabName?: string;
+  onRenameTab?: (newName: string) => void;
+  boardUpdatedAt?: string | null;
   initialContent: string | null;
   onContentChange: (content: string) => void;
 }
@@ -61,6 +75,9 @@ export const BoardEditor = forwardRef<BoardEditorHandle, BoardEditorProps>(
     board,
     projectId,
     tabId,
+    tabName,
+    onRenameTab,
+    boardUpdatedAt,
     initialContent,
     onContentChange,
   }, ref) {
@@ -92,6 +109,9 @@ export const BoardEditor = forwardRef<BoardEditorHandle, BoardEditorProps>(
       CodeHighlightNode,
       LinkNode,
       AutoLinkNode,
+      HorizontalRuleNode,
+      CalloutNode,
+      MarkdownTableNode,
       ImageNode,
       AssetEmbedNode,
     ],
@@ -212,6 +232,33 @@ export const BoardEditor = forwardRef<BoardEditorHandle, BoardEditorProps>(
       setAnchorElem(node);
     }
   }, []);
+  const resolvedTabName = tabName ?? board.settings?.tabs?.find((tab) => tab.id === tabId)?.name ?? '';
+  const resolvedBoardUpdatedAt = boardUpdatedAt ?? board.updated_at ?? null;
+  const [localTabName, setLocalTabName] = useState(resolvedTabName);
+
+  useEffect(() => {
+    setLocalTabName(resolvedTabName);
+  }, [resolvedTabName]);
+
+  const inputTabName = onRenameTab ? resolvedTabName : localTabName;
+  const displayTitle = getDisplayTabTitle(inputTabName);
+  const formattedBoardUpdatedAt = formatBoardUpdatedAt(resolvedBoardUpdatedAt);
+  const handleTitleChange = useCallback((nextName: string) => {
+    if (onRenameTab) {
+      onRenameTab(nextName);
+      return;
+    }
+    setLocalTabName(nextName);
+  }, [onRenameTab]);
+
+  const handleTitleKeyDown = useCallback((event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== 'Enter' || event.nativeEvent.isComposing) {
+      return;
+    }
+    event.preventDefault();
+    const contentEditable = anchorElem?.querySelector<HTMLElement>('[contenteditable="true"]');
+    contentEditable?.focus();
+  }, [anchorElem]);
 
   return (
     <div className="h-full flex flex-col bg-background relative">
@@ -237,26 +284,46 @@ export const BoardEditor = forwardRef<BoardEditorHandle, BoardEditorProps>(
       <AssetEmbedContext.Provider value={{ openAssetEmbed }}>
         <ConfigModalContext.Provider value={{ openConfigModal }}>
           <LexicalComposer initialConfig={initialConfig}>
-            <div className="flex-1 relative overflow-auto">
-              <div className="relative min-h-full max-w-4xl" ref={onRef}>
-                <RichTextPlugin
-                  contentEditable={
-                    <ContentEditable className="min-h-full outline-none prose dark:prose-invert max-w-none py-6 px-8" />
-                  }
-                  placeholder={
-                    <div className="absolute top-6 left-8 text-muted-foreground pointer-events-none">
-                      Type &apos;/&apos; to insert blocks...
+            <div className="flex-1 overflow-auto">
+              <div className="min-h-full">
+                <div className="pl-[22px] pr-6 pt-5 pb-6">
+                  {formattedBoardUpdatedAt && (
+                    <div className="mb-3 text-xs text-muted-foreground text-center">
+                      {formattedBoardUpdatedAt}
                     </div>
-                  }
-                  ErrorBoundary={LexicalErrorBoundary}
-                />
-                {anchorElem && <DraggableBlockPlugin anchorElem={anchorElem} />}
+                  )}
+                  <input
+                    type="text"
+                    value={inputTabName}
+                    onChange={(event) => handleTitleChange(event.target.value)}
+                    onKeyDown={handleTitleKeyDown}
+                    placeholder="Untitled"
+                    title={displayTitle}
+                    aria-label="Board title"
+                    className="w-full text-2xl font-bold bg-transparent border-none outline-none placeholder:text-muted-foreground"
+                  />
+                </div>
+                <div className="relative px-6 pb-6" ref={onRef}>
+                  <RichTextPlugin
+                    contentEditable={
+                      <ContentEditable className="board-editor-prose min-h-full outline-none prose dark:prose-invert max-w-none [--tw-prose-body:hsl(var(--foreground))]" />
+                    }
+                    placeholder={
+                      <div className="absolute top-0 left-6 text-muted-foreground pointer-events-none">
+                        Type &apos;/&apos; to insert blocks...
+                      </div>
+                    }
+                    ErrorBoundary={LexicalErrorBoundary}
+                  />
+                  {anchorElem && <DraggableBlockPlugin anchorElem={anchorElem} />}
+                </div>
               </div>
               <HistoryPlugin />
               <AutoFocusPlugin />
               <ListPlugin />
               <LinkPlugin />
-              <MarkdownShortcutPlugin transformers={TRANSFORMERS} />
+              <HorizontalRulePlugin />
+              <MarkdownShortcutPlugin transformers={BOARD_TRANSFORMERS} />
               <OnChangePlugin onChange={handleOnChange} />
               <SlashCommandPlugin projectId={projectId} />
               <InitialContentPlugin content={initialContent} />

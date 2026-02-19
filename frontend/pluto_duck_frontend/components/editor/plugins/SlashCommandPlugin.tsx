@@ -8,6 +8,7 @@ import { TextNode, $createParagraphNode, $getSelection, $isRangeSelection, $inse
 import { $createHeadingNode, $createQuoteNode } from '@lexical/rich-text';
 import { $createCodeNode } from '@lexical/code';
 import { INSERT_ORDERED_LIST_COMMAND, INSERT_UNORDERED_LIST_COMMAND } from '@lexical/list';
+import { INSERT_HORIZONTAL_RULE_COMMAND } from '@lexical/react/LexicalHorizontalRuleNode';
 import { useCallback, useMemo, useRef, useState, useContext, createContext } from 'react';
 import * as React from 'react';
 import { createPortal } from 'react-dom';
@@ -15,16 +16,20 @@ import {
   Heading1, 
   Heading2, 
   Heading3, 
+  MessageSquare,
   List, 
   ListOrdered, 
   Quote, 
   Code, 
+  Minus,
   Image as ImageIcon,
   Database,
 } from 'lucide-react';
 import { $createImageNode } from '../nodes/ImageNode';
 import { $createAssetEmbedNode, type AssetEmbedConfig } from '../nodes/AssetEmbedNode';
+import { $createCalloutNode } from '../nodes/CalloutNode';
 import { $setBlocksType } from '@lexical/selection';
+import { filterSlashOptionsByQuery } from './slashMenuFilter';
 
 // Context for Asset Embed integration
 export interface AssetEmbedContextType {
@@ -51,32 +56,6 @@ class SlashMenuOption extends MenuOption {
     this.keywords = keywords || [];
     this.onSelect = onSelect;
   }
-}
-
-function filterSlashOptions(options: SlashMenuOption[], queryString: string | null): SlashMenuOption[] {
-  const raw = (queryString || '').trim().toLowerCase();
-  if (!raw) return options;
-
-  const scored: Array<{ option: SlashMenuOption; score: number }> = [];
-
-  for (const option of options) {
-    const title = option.title.toLowerCase();
-    const keywords = option.keywords.map((k) => k.toLowerCase());
-
-    // Prefer prefix matches (Notion-like feel), then fallback to contains.
-    let score = -1;
-    if (title.startsWith(raw)) score = 300;
-    else if (keywords.some((k) => k.startsWith(raw))) score = 200;
-    else if (title.includes(raw)) score = 100;
-    else if (keywords.some((k) => k.includes(raw))) score = 50;
-
-    if (score >= 0) {
-      scored.push({ option, score });
-    }
-  }
-
-  scored.sort((a, b) => b.score - a.score);
-  return scored.map((s) => s.option);
 }
 
 export default function SlashCommandPlugin({ projectId }: { projectId: string }): JSX.Element | null {
@@ -136,6 +115,17 @@ export default function SlashCommandPlugin({ projectId }: { projectId: string })
           }
         });
       }),
+      new SlashMenuOption('Divider', <Minus size={18} />, ['divider', 'hr', 'horizontal', 'line', '---'], (editor) => {
+        editor.dispatchCommand(INSERT_HORIZONTAL_RULE_COMMAND, undefined);
+      }),
+      new SlashMenuOption('Callout', <MessageSquare size={18} />, ['callout', 'note', 'warning', 'tip', 'important', 'caution'], (editor) => {
+        editor.update(() => {
+          const calloutNode = $createCalloutNode('info', '');
+          const paragraphNode = $createParagraphNode();
+          $insertNodes([calloutNode, paragraphNode]);
+          paragraphNode.select();
+        });
+      }),
       new SlashMenuOption('Image', <ImageIcon size={18} />, ['image', 'photo', 'picture'], (editor) => {
         editor.update(() => {
           // Mock Image Insertion
@@ -180,7 +170,7 @@ export default function SlashCommandPlugin({ projectId }: { projectId: string })
   );
 
   const filteredOptions = useMemo(
-    () => filterSlashOptions(options, queryString),
+    () => filterSlashOptionsByQuery(options, queryString),
     [options, queryString],
   );
 
@@ -289,4 +279,3 @@ function SlashMenuItem({
     </li>
   );
 }
-

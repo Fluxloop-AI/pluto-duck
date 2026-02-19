@@ -64,45 +64,59 @@ export const BoardsView = forwardRef<BoardsViewHandle, BoardsViewProps>(
     },
   }));
 
-  // Initialize tabs from board settings - use useMemo to ensure consistent IDs
-  const initialData = useMemo(() => {
-    if (!activeBoard) {
-      return { tabs: [], activeTabId: null };
-    }
-    const tabs = migrateToTabs(activeBoard);
-    const settings = activeBoard.settings || {};
-    const activeTabId = settings.activeTabId && tabs.find(t => t.id === settings.activeTabId)
-      ? settings.activeTabId
-      : tabs[0]?.id || null;
-    return { tabs, activeTabId };
-  }, [activeBoard?.id, projectId]); // Include projectId to reset on project change
-
-  const [tabs, setTabs] = useState<BoardTab[]>(initialData.tabs);
-  const [activeTabId, setActiveTabId] = useState<string | null>(initialData.activeTabId);
+  const [tabs, setTabs] = useState<BoardTab[]>([]);
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const [boardUpdatedAt, setBoardUpdatedAt] = useState<string | null>(activeBoard?.updated_at ?? null);
+  const activeTabIdRef = useRef<string | null>(null);
+  const saveSequenceRef = useRef(0);
+  const appliedSaveSequenceRef = useRef(0);
 
   // Save tabs to backend - use ref to avoid stale closures
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const isSavingRef = useRef(false);
 
-  // Update tabs when board/project changes and cleanup pending saves
+  // Reset local tab state only when board/project identity changes.
   useEffect(() => {
-    // Clear any pending save timeout when board/project changes
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = null;
     }
-    isSavingRef.current = false;
-    
-    setTabs(initialData.tabs);
-    setActiveTabId(initialData.activeTabId);
-    
-    // Cleanup on unmount
+    saveSequenceRef.current = 0;
+    appliedSaveSequenceRef.current = 0;
+
+    if (!activeBoard) {
+      setTabs([]);
+      setActiveTabId(null);
+      setBoardUpdatedAt(null);
+      return;
+    }
+
+    const nextTabs = migrateToTabs(activeBoard);
+    const settings = activeBoard.settings || {};
+    const nextActiveTabId = settings.activeTabId && nextTabs.find((tab) => tab.id === settings.activeTabId)
+      ? settings.activeTabId
+      : nextTabs[0]?.id || null;
+    setTabs(nextTabs);
+    setActiveTabId(nextActiveTabId);
+    setBoardUpdatedAt(activeBoard.updated_at ?? null);
+  }, [projectId, activeBoard?.id]);
+
+  // Keep timestamp in sync when parent board updates.
+  useEffect(() => {
+    setBoardUpdatedAt(activeBoard?.updated_at ?? null);
+  }, [activeBoard?.id, activeBoard?.updated_at]);
+
+  // Track latest active tab id for debounced saves.
+  useEffect(() => {
+    activeTabIdRef.current = activeTabId;
+  }, [activeTabId]);
+
+  useEffect(() => {
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [initialData]);
+  }, []);
 
   // Get active tab
   const activeTab = useMemo(() => 
@@ -111,7 +125,7 @@ export const BoardsView = forwardRef<BoardsViewHandle, BoardsViewProps>(
   );
   
   const saveTabs = useCallback(async (newTabs: BoardTab[], newActiveTabId?: string) => {
-    if (!activeBoard || isSavingRef.current) return;
+    if (!activeBoard) return;
     
     // Debounce saves to prevent too many API calls
     if (saveTimeoutRef.current) {
@@ -119,36 +133,30 @@ export const BoardsView = forwardRef<BoardsViewHandle, BoardsViewProps>(
     }
     
     saveTimeoutRef.current = setTimeout(async () => {
-      isSavingRef.current = true;
+      const saveSequence = ++saveSequenceRef.current;
       try {
-        await updateBoard(activeBoard.id, {
+        const updated = await updateBoard(activeBoard.id, {
           settings: {
             tabs: newTabs,
-            activeTabId: newActiveTabId || activeTabId,
+            activeTabId: newActiveTabId ?? activeTabIdRef.current,
           },
         });
+        setBoardUpdatedAt(updated.updated_at);
+        if (saveSequence >= appliedSaveSequenceRef.current) {
+          appliedSaveSequenceRef.current = saveSequence;
+          onBoardUpdate?.(updated);
+        }
       } catch (error) {
         console.error('Failed to save tabs:', error);
-      } finally {
-        isSavingRef.current = false;
       }
     }, 500); // 500ms debounce for tab operations
-  }, [activeBoard?.id, activeTabId]); // Use activeBoard.id instead of activeBoard object
+  }, [activeBoard?.id, onBoardUpdate]); // Use activeBoard.id instead of activeBoard object
 
   // Tab operations
   const handleSelectTab = useCallback((tabId: string) => {
     setActiveTabId(tabId);
-    // Save active tab preference
-    if (activeBoard) {
-      updateBoard(activeBoard.id, {
-        settings: {
-          ...activeBoard.settings,
-          tabs,
-          activeTabId: tabId,
-        },
-      }).catch(console.error);
-    }
-  }, [activeBoard, tabs]);
+    saveTabs(tabs, tabId);
+  }, [tabs, saveTabs]);
 
   const handleAddTab = useCallback(() => {
     const newTab: BoardTab = {
@@ -229,6 +237,9 @@ export const BoardsView = forwardRef<BoardsViewHandle, BoardsViewProps>(
             board={activeBoard}
             projectId={projectId}
             tabId={activeTab.id}
+            tabName={activeTab.name}
+            onRenameTab={(newName) => handleRenameTab(activeTab.id, newName)}
+            boardUpdatedAt={boardUpdatedAt}
             initialContent={activeTab.content}
             onContentChange={handleTabContentChange}
           />

@@ -118,6 +118,11 @@ export function useBoards({ projectId, enabled = true }: UseBoardsOptions) {
     }
   }, []);
 
+  const applyBoardUpdate = useCallback((updatedBoard: Board) => {
+    setBoards(prev => prev.map(board => board.id === updatedBoard.id ? updatedBoard : board));
+    setActiveBoard(prev => prev?.id === updatedBoard.id ? updatedBoard : prev);
+  }, []);
+
   // Reset state when projectId changes (before loadBoards runs)
   useEffect(() => {
     // Clear previous project's data immediately when project changes
@@ -144,5 +149,6 @@ export function useBoards({ projectId, enabled = true }: UseBoardsOptions) {
     updateBoard,
     deleteBoard,
     selectBoard,
+    applyBoardUpdate,
   };
 }

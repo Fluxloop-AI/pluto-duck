@@ -1,0 +1,42 @@
+.board-editor-prose .markdown-table-node {
+  margin: 8px 0;
+  overflow-x: auto;
+}
+
+.board-editor-prose .markdown-table-node table {
+  font-size: 0.8rem;
+  border-collapse: collapse;
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
+}
+
+.board-editor-prose .markdown-table-node thead th {
+  text-align: left;
+  font-weight: 600;
+  padding: 8px 12px;
+  background: hsl(var(--muted));
+  white-space: nowrap;
+  border-bottom: 2px solid hsl(var(--border));
+}
+
+.board-editor-prose .markdown-table-node tbody td {
+  text-align: left;
+  padding: 7px 12px;
+  color: hsl(var(--muted-foreground));
+  white-space: nowrap;
+  background: hsl(var(--background));
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.board-editor-prose .markdown-table-node tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.board-editor-prose .markdown-table-node tbody tr:hover td {
+  background: hsl(var(--accent));
+}
+
+.board-editor-prose .markdown-table-node :is(th, td)[contenteditable="true"] {
+  outline: none;
+}

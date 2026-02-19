@@ -300,7 +300,7 @@ export const BoardEditor = forwardRef<BoardEditorHandle, BoardEditorProps>(
                     placeholder="Untitled"
                     title={displayTitle}
                     aria-label="Board title"
-                    className="w-full text-4xl font-bold bg-transparent border-none outline-none placeholder:text-muted-foreground"
+                    className="w-full text-2xl font-bold bg-transparent border-none outline-none placeholder:text-muted-foreground"
                   />
                 </div>
                 <div className="relative px-6 pb-6" ref={onRef}>

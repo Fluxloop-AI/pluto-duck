@@ -68,7 +68,7 @@ export function BoardToolbar({
   if (!board) return null;
 
   return (
-    <div className="flex items-center bg-background pt-2">
+    <div className="flex items-center bg-background py-2">
       {/* Tab List - aligned with editor content */}
       <div className="w-full max-w-4xl pl-4 pr-2">
         <div className="flex items-center gap-1">

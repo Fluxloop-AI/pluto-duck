@@ -16,6 +16,7 @@ import {
   Heading1, 
   Heading2, 
   Heading3, 
+  MessageSquare,
   List, 
   ListOrdered, 
   Quote, 
@@ -26,6 +27,7 @@ import {
 } from 'lucide-react';
 import { $createImageNode } from '../nodes/ImageNode';
 import { $createAssetEmbedNode, type AssetEmbedConfig } from '../nodes/AssetEmbedNode';
+import { $createCalloutNode } from '../nodes/CalloutNode';
 import { $setBlocksType } from '@lexical/selection';
 
 // Context for Asset Embed integration
@@ -140,6 +142,14 @@ export default function SlashCommandPlugin({ projectId }: { projectId: string })
       }),
       new SlashMenuOption('Divider', <Minus size={18} />, ['divider', 'hr', 'horizontal', 'line', '---'], (editor) => {
         editor.dispatchCommand(INSERT_HORIZONTAL_RULE_COMMAND, undefined);
+      }),
+      new SlashMenuOption('Callout', <MessageSquare size={18} />, ['callout', 'note', 'warning', 'tip', 'important', 'caution'], (editor) => {
+        editor.update(() => {
+          const calloutNode = $createCalloutNode('info', '');
+          const paragraphNode = $createParagraphNode();
+          $insertNodes([calloutNode, paragraphNode]);
+          paragraphNode.select();
+        });
       }),
       new SlashMenuOption('Image', <ImageIcon size={18} />, ['image', 'photo', 'picture'], (editor) => {
         editor.update(() => {

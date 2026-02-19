@@ -223,6 +223,47 @@
   margin: 1.25rem 0;
 }
 
+.board-editor-prose .callout-node {
+  margin: 1rem 0;
+}
+
+.board-editor-prose .callout-node-shell {
+  border-radius: 0.5rem;
+  padding: 0.625rem 0.75rem;
+}
+
+.board-editor-prose .callout-node[data-callout-type="info"] .callout-node-shell {
+  background: hsl(210 100% 96%);
+}
+
+.board-editor-prose .callout-node[data-callout-type="warning"] .callout-node-shell {
+  background: hsl(42 100% 94%);
+}
+
+.board-editor-prose .callout-node[data-callout-type="success"] .callout-node-shell {
+  background: hsl(141 58% 94%);
+}
+
+.board-editor-prose .callout-node[data-callout-type="error"] .callout-node-shell {
+  background: hsl(0 87% 95%);
+}
+
+.dark .board-editor-prose .callout-node[data-callout-type="info"] .callout-node-shell {
+  background: hsl(210 35% 22%);
+}
+
+.dark .board-editor-prose .callout-node[data-callout-type="warning"] .callout-node-shell {
+  background: hsl(40 30% 24%);
+}
+
+.dark .board-editor-prose .callout-node[data-callout-type="success"] .callout-node-shell {
+  background: hsl(140 28% 24%);
+}
+
+.dark .board-editor-prose .callout-node[data-callout-type="error"] .callout-node-shell {
+  background: hsl(0 28% 24%);
+}
+
 /* Chat prose typography: table overrides */
 [role="log"] .prose :where([data-streamdown="table-wrapper"]) {
   margin: 8px 0;

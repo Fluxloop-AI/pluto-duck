@@ -217,6 +217,12 @@
   margin-bottom: 0;
 }
 
+.board-editor-prose hr {
+  border: 0;
+  border-top: 1px solid hsl(var(--border));
+  margin: 1.25rem 0;
+}
+
 /* Chat prose typography: table overrides */
 [role="log"] .prose :where([data-streamdown="table-wrapper"]) {
   margin: 8px 0;

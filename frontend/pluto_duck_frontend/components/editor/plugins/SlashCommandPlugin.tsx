@@ -8,6 +8,7 @@ import { TextNode, $createParagraphNode, $getSelection, $isRangeSelection, $inse
 import { $createHeadingNode, $createQuoteNode } from '@lexical/rich-text';
 import { $createCodeNode } from '@lexical/code';
 import { INSERT_ORDERED_LIST_COMMAND, INSERT_UNORDERED_LIST_COMMAND } from '@lexical/list';
+import { INSERT_HORIZONTAL_RULE_COMMAND } from '@lexical/react/LexicalHorizontalRuleNode';
 import { useCallback, useMemo, useRef, useState, useContext, createContext } from 'react';
 import * as React from 'react';
 import { createPortal } from 'react-dom';
@@ -19,6 +20,7 @@ import {
   ListOrdered, 
   Quote, 
   Code, 
+  Minus,
   Image as ImageIcon,
   Database,
 } from 'lucide-react';
@@ -135,6 +137,9 @@ export default function SlashCommandPlugin({ projectId }: { projectId: string })
             $setBlocksType(selection, () => $createCodeNode());
           }
         });
+      }),
+      new SlashMenuOption('Divider', <Minus size={18} />, ['divider', 'hr', 'horizontal', 'line', '---'], (editor) => {
+        editor.dispatchCommand(INSERT_HORIZONTAL_RULE_COMMAND, undefined);
       }),
       new SlashMenuOption('Image', <ImageIcon size={18} />, ['image', 'photo', 'picture'], (editor) => {
         editor.update(() => {
@@ -289,4 +294,3 @@ function SlashMenuItem({
     </li>
   );
 }
-

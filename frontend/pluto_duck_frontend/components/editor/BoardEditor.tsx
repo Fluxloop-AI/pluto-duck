@@ -7,7 +7,8 @@ import { HistoryPlugin } from '@lexical/react/LexicalHistoryPlugin';
 import { OnChangePlugin } from '@lexical/react/LexicalOnChangePlugin';
 import { AutoFocusPlugin } from '@lexical/react/LexicalAutoFocusPlugin';
 import { MarkdownShortcutPlugin } from '@lexical/react/LexicalMarkdownShortcutPlugin';
-import { TRANSFORMERS } from '@lexical/markdown';
+import { HorizontalRuleNode } from '@lexical/react/LexicalHorizontalRuleNode';
+import { HorizontalRulePlugin } from '@lexical/react/LexicalHorizontalRulePlugin';
 import { HeadingNode, QuoteNode } from '@lexical/rich-text';
 import { ListItemNode, ListNode } from '@lexical/list';
 import { CodeNode, CodeHighlightNode } from '@lexical/code';
@@ -28,6 +29,7 @@ import { InsertAssetEmbedPlugin, type InsertAssetEmbedHandle } from './plugins/I
 import { AssetPicker } from './components/AssetPicker';
 import { DisplayConfigModal } from './components/DisplayConfigModal';
 import { ConfigModalContext } from './components/AssetEmbedComponent';
+import { BOARD_TRANSFORMERS } from './transformers';
 
 interface BoardEditorProps {
   board: Board;
@@ -92,6 +94,7 @@ export const BoardEditor = forwardRef<BoardEditorHandle, BoardEditorProps>(
       CodeHighlightNode,
       LinkNode,
       AutoLinkNode,
+      HorizontalRuleNode,
       ImageNode,
       AssetEmbedNode,
     ],
@@ -241,7 +244,7 @@ export const BoardEditor = forwardRef<BoardEditorHandle, BoardEditorProps>(
               <div className="relative min-h-full max-w-4xl" ref={onRef}>
                 <RichTextPlugin
                   contentEditable={
-                    <ContentEditable className="min-h-full outline-none prose dark:prose-invert max-w-none py-6 px-6 [--tw-prose-body:hsl(var(--foreground))]" />
+                    <ContentEditable className="board-editor-prose min-h-full outline-none prose dark:prose-invert max-w-none py-6 px-6 [--tw-prose-body:hsl(var(--foreground))]" />
                   }
                   placeholder={
                     <div className="absolute top-6 left-6 text-muted-foreground pointer-events-none">
@@ -256,7 +259,8 @@ export const BoardEditor = forwardRef<BoardEditorHandle, BoardEditorProps>(
               <AutoFocusPlugin />
               <ListPlugin />
               <LinkPlugin />
-              <MarkdownShortcutPlugin transformers={TRANSFORMERS} />
+              <HorizontalRulePlugin />
+              <MarkdownShortcutPlugin transformers={BOARD_TRANSFORMERS} />
               <OnChangePlugin onChange={handleOnChange} />
               <SlashCommandPlugin projectId={projectId} />
               <InitialContentPlugin content={initialContent} />

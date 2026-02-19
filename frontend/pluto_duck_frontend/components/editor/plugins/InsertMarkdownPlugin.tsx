@@ -2,8 +2,9 @@
 
 import { useImperativeHandle, forwardRef } from 'react';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
-import { $convertFromMarkdownString, TRANSFORMERS } from '@lexical/markdown';
+import { $convertFromMarkdownString } from '@lexical/markdown';
 import { $getRoot, $createParagraphNode } from 'lexical';
+import { BOARD_TRANSFORMERS } from '../transformers';
 
 export interface InsertMarkdownHandle {
   insertMarkdown: (content: string) => void;
@@ -25,7 +26,7 @@ export const InsertMarkdownPlugin = forwardRef<InsertMarkdownHandle>(
           }
 
           // 2. Convert markdown (root is empty, so clear() has no effect)
-          $convertFromMarkdownString(content, TRANSFORMERS);
+          $convertFromMarkdownString(content, BOARD_TRANSFORMERS);
 
           // 3. Save new children and detach from root
           const newChildren = root.getChildren();
